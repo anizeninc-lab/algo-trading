@@ -1,0 +1,31 @@
+{
+    "access_token_file": "access_token.txt",
+
+    "instrument_index":  "NSE_INDEX|Nifty 50",
+    "instrument_fo":     "NSE_FO",
+    "symbol_initials":   "NIFTY13APR26",
+    "strike_step":       50,
+
+    "ann_tag":           "ANN_BOT",
+    "product":           "D",
+    "quantity":          25,
+
+    "bull_threshold":    1.0,
+    "bear_threshold":   -1.0,
+    "sl_pct":            0.35,
+    "tp_pct":            0.70,
+    "max_trades_day":    2,
+    "no_trade_after":    "14:45",
+
+    "norm_lookback":     500,
+    "sampling_window":   200,
+    "hidden_layers":     2,
+    "nodes_per_layer":   8,
+    "activation":        "tanh",
+    "learning_rate":     0.001,
+    "l2_reg":            0.0001,
+    "dropout_rate":      0.2,
+    "ma_period":         9,
+    "kalman_q":          1.0,
+    "kalman_r":          1.0
+}
