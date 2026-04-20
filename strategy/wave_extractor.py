@@ -161,13 +161,11 @@ class WaveExtractor(BaseStrategy):
 
             self._current_price = tick.last_price
 
+            # Update live market prices in state_store for dashboard
             if "INDEX" in tick.symbol:
                 state_store.update_nifty_price(tick.last_price)
             else:
-                state_store.update_option_price(
-                    self.cfg.option_symbol,
-                    tick.last_price
-                )
+                state_store.update_option_price(self.cfg.option_symbol, tick.last_price)
 
             # Monitor open trades for SL and trailing profit on every tick
             await self._monitor_open_trades()
