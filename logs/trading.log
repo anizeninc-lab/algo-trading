@@ -12070,3 +12070,589 @@ HTTP response body: b'{"status":"error","errors":[{"errorCode":"UDAPI1154","mess
 2026-04-09 14:25:38,911 [INFO] strategy.saviour_combo: [saviour_combo] Stopped
 2026-04-09 14:25:38,912 [INFO] core.vix_manager: [VixManager] Stopped
 2026-04-09 14:25:38,915 [INFO] __main__: System stopped by user.
+2026-04-16 09:40:20,287 [INFO] __main__: Port 8081 is free. Proceeding.
+2026-04-16 09:40:20,611 [INFO] __main__: Starting Rahul Sharma Trading System
+2026-04-16 09:40:20,611 [INFO] __main__: Broker: upstox
+2026-04-16 09:40:20,611 [INFO] __main__: Dashboard: http://127.0.0.1:8081
+2026-04-16 09:40:20,611 [INFO] __main__: Press Ctrl+C to stop all strategies
+2026-04-16 09:40:20,612 [INFO] __main__: Dashboard starting on http://127.0.0.1:8081
+2026-04-16 09:41:18,012 [INFO] core.trade_log: TradeLogger initialised: D:\trading-algo\trading-algo\trade_log.db
+2026-04-16 09:41:45,353 [INFO] core.vix_manager: [VixManager] India VIX: 18.22
+2026-04-16 09:41:45,387 [WARNING] core.vix_manager: [VixManager] REGIME CHANGE: NORMAL -> ELEVATED | VIX: 18.22
+2026-04-16 09:41:45,388 [INFO] core.vix_manager: [VixManager] Started | VIX: 18.22 | Regime: ELEVATED
+2026-04-16 09:41:45,388 [INFO] __main__: VIX Manager started | VIX: 18.22 | Regime: ELEVATED
+2026-04-16 09:41:45,388 [INFO] core.state_store: StateStore: registered strategy 'wave_extractor'
+2026-04-16 09:41:45,396 [INFO] strategy.base_strategy: [wave_extractor] Initialised with config: {'option_symbol': 'NSE_FO|54757', 'sell_gap': 20.0, 'buy_gap': 20.0, 'quantity': 75, 'cool_off_time': 5.0, 'multiplier_scale': [1.0, 1.3, 1.7, 2.2, 2.8], 'max_net_position': 4, 'delta_limit': 200.0, 'nifty_instrument_key': 'NSE_INDEX|Nifty 50'}
+2026-04-16 09:41:45,396 [INFO] core.state_store: StateStore: registered strategy 'survivor'
+2026-04-16 09:41:45,397 [INFO] strategy.base_strategy: [survivor] Initialised with config: {'symbol_initials': 'NIFTY13APR26', 'pe_gap': 10.0, 'ce_gap': 10.0, 'pe_symbol_gap': 350.0, 'ce_symbol_gap': 350.0, 'pe_reset_gap': 90.0, 'ce_reset_gap': 90.0, 'pe_quantity': 75, 'ce_quantity': 75, 'pe_start': 0.0, 'ce_start': 0.0, 'min_price_to_sell': 10.0, 'nifty_instrument_key': 'NSE_INDEX|Nifty 50', 'strike_interval': 50.0}
+2026-04-16 09:41:45,397 [INFO] core.state_store: StateStore: registered strategy 'saviour_combo'
+2026-04-16 09:41:45,399 [INFO] strategy.saviour_combo: [saviour_combo] Initialised
+2026-04-16 09:41:45,400 [INFO] strategy.saviour_combo: [saviour_combo] Starting...
+2026-04-16 09:41:45,400 [INFO] core.state_store: StateStore: saviour_combo -> RUNNING
+2026-04-16 09:41:45,402 [INFO] brokers.upstox: WebSocket started with symbols: ['NSE_INDEX|Nifty 50']
+2026-04-16 09:41:45,403 [INFO] strategy.saviour_combo: [saviour_combo] NIFTY index pre-registered for Survivor
+2026-04-16 09:41:45,405 [INFO] core.state_store: StateStore: wave_extractor -> IDLE
+2026-04-16 09:41:45,406 [INFO] core.state_store: StateStore: broker 'UpstoxAdapter' -> CONNECTING
+2026-04-16 09:41:46,440 [ERROR] brokers.upstox: WebSocket error: Handshake status 401 Unauthorized -+-+- {'date': 'Thu, 16 Apr 2026 04:11:47 GMT', 'content-type': 'application/json', 'transfer-encoding': 'chunked', 'connection': 'keep-alive', 'reqid': '5d5a896d-6273-4bce-a473-e6d0dba0b22e', 'x-content-type-options': 'nosniff', 'x-xss-protection': '0', 'pragma': 'no-cache', 'strict-transport-security': 'max-age=0; includeSubDomains', 'x-frame-options': 'DENY', 'cache-control': 'must-revalidate,no-cache,no-store', 'vary': 'Access-Control-Request-Headers', 'message': 'request failed', 'cf-cache-status': 'DYNAMIC', 'set-cookie': '__cf_bm=QDAGmD7BnL5et3y1uLMUbuXrUf7Qh7_SqQwxbOowrEA-1776312707-1.0.1.1-CRxLiRwiBMSDMEhasDnXUF7Tr3.bJXF17BlNN5nEDOtTXKMnCSsLztu832P3x06e; path=/; expires=Thu, 16-Apr-26 04:41:47 GMT; domain=.upstox.com; HttpOnly; Secure; _cfuvid=hIuZERr4pTG1lIY_yiEwMJ6GozwhABOWBHMMcznklvA-1776312707013-0.0.1.1-604800000; path=/; domain=.upstox.com; HttpOnly; Secure; SameSite=None', 'server': 'cloudflare', 'cf-ray': '9ed059126fe8c51e-DEL', 'alt-svc': 'h3=":443"; ma=86400'} -+-+- None
+2026-04-16 09:41:46,440 [ERROR] websocket: Handshake status 401 Unauthorized -+-+- {'date': 'Thu, 16 Apr 2026 04:11:47 GMT', 'content-type': 'application/json', 'transfer-encoding': 'chunked', 'connection': 'keep-alive', 'reqid': '5d5a896d-6273-4bce-a473-e6d0dba0b22e', 'x-content-type-options': 'nosniff', 'x-xss-protection': '0', 'pragma': 'no-cache', 'strict-transport-security': 'max-age=0; includeSubDomains', 'x-frame-options': 'DENY', 'cache-control': 'must-revalidate,no-cache,no-store', 'vary': 'Access-Control-Request-Headers', 'message': 'request failed', 'cf-cache-status': 'DYNAMIC', 'set-cookie': '__cf_bm=QDAGmD7BnL5et3y1uLMUbuXrUf7Qh7_SqQwxbOowrEA-1776312707-1.0.1.1-CRxLiRwiBMSDMEhasDnXUF7Tr3.bJXF17BlNN5nEDOtTXKMnCSsLztu832P3x06e; path=/; expires=Thu, 16-Apr-26 04:41:47 GMT; domain=.upstox.com; HttpOnly; Secure; _cfuvid=hIuZERr4pTG1lIY_yiEwMJ6GozwhABOWBHMMcznklvA-1776312707013-0.0.1.1-604800000; path=/; domain=.upstox.com; HttpOnly; Secure; SameSite=None', 'server': 'cloudflare', 'cf-ray': '9ed059126fe8c51e-DEL', 'alt-svc': 'h3=":443"; ma=86400'} -+-+- None - goodbye
+2026-04-16 09:41:46,440 [WARNING] brokers.upstox: WebSocket closed
+2026-04-16 09:41:46,764 [INFO] brokers.upstox: Upstox login successful: RAHUL SHARMA
+2026-04-16 09:41:46,765 [INFO] core.state_store: StateStore: broker 'UpstoxAdapter' -> CONNECTED
+2026-04-16 09:41:47,530 [INFO] core.trade_log: TradeLogger: session started 85732a52-55dc-4f73-95b4-35c19f287c3a for wave_extractor
+2026-04-16 09:41:47,841 [WARNING] brokers.upstox: get_ltp: empty data for NSE_FO|54757
+2026-04-16 09:41:47,842 [WARNING] strategy.wave_extractor: [wave_extractor] Could not fetch LTP for NSE_FO|54757
+2026-04-16 09:41:47,843 [INFO] brokers.upstox: WebSocket started with symbols: ['NSE_INDEX|Nifty 50', 'NSE_FO|54757']
+2026-04-16 09:41:47,990 [INFO] strategy.base_strategy: [wave_extractor] SIGNAL: Started | Symbol: NSE_FO|54757 | Price: 0.00
+2026-04-16 09:41:47,990 [INFO] core.state_store: StateStore: wave_extractor -> RUNNING
+2026-04-16 09:41:47,991 [INFO] strategy.base_strategy: [wave_extractor] Running
+2026-04-16 09:41:47,991 [INFO] strategy.saviour_combo: [saviour_combo] Started successfully
+2026-04-16 09:41:48,079 [INFO] dashboard.api: Dashboard API started. Event bus running.
+2026-04-16 09:41:48,079 [INFO] strategy.saviour_combo: [saviour_combo] Monitor loop started
+2026-04-16 09:41:48,080 [INFO] core.event_bus: EventBus started
+2026-04-16 09:41:49,047 [INFO] websocket: Websocket connected
+2026-04-16 09:41:49,047 [INFO] brokers.upstox: WebSocket connected to Upstox
+2026-04-16 09:41:54,598 [INFO] dashboard.api: Dashboard client connected (1 total)
+2026-04-16 09:41:58,252 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:42:25,021 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:42:48,764 [INFO] core.vix_manager: [VixManager] India VIX: 18.24
+2026-04-16 09:42:55,041 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:43:25,053 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:43:49,227 [INFO] core.vix_manager: [VixManager] India VIX: 18.26
+2026-04-16 09:43:55,038 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:44:25,008 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:44:49,707 [INFO] core.vix_manager: [VixManager] India VIX: 18.26
+2026-04-16 09:44:55,044 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:45:25,010 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:45:50,279 [INFO] core.vix_manager: [VixManager] India VIX: 18.27
+2026-04-16 09:45:55,131 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:46:25,098 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:46:50,740 [INFO] core.vix_manager: [VixManager] India VIX: 18.28
+2026-04-16 09:46:55,060 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:47:24,989 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:47:51,192 [INFO] core.vix_manager: [VixManager] India VIX: 18.16
+2026-04-16 09:47:55,053 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:48:25,097 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:48:51,666 [INFO] core.vix_manager: [VixManager] India VIX: 18.16
+2026-04-16 09:48:55,044 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:49:25,024 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:49:52,106 [INFO] core.vix_manager: [VixManager] India VIX: 18.16
+2026-04-16 09:49:55,042 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:50:25,031 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:50:52,551 [INFO] core.vix_manager: [VixManager] India VIX: 18.15
+2026-04-16 09:50:55,032 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:51:25,028 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:51:53,103 [INFO] core.vix_manager: [VixManager] India VIX: 18.15
+2026-04-16 09:51:55,027 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:52:25,033 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:52:53,570 [INFO] core.vix_manager: [VixManager] India VIX: 18.17
+2026-04-16 09:52:55,048 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:53:25,024 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:53:54,010 [INFO] core.vix_manager: [VixManager] India VIX: 18.15
+2026-04-16 09:53:55,150 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:54:24,982 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:54:54,435 [INFO] core.vix_manager: [VixManager] India VIX: 18.26
+2026-04-16 09:54:55,043 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:55:25,012 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:55:54,863 [INFO] core.vix_manager: [VixManager] India VIX: 18.21
+2026-04-16 09:55:55,258 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:56:25,014 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:56:55,358 [INFO] core.vix_manager: [VixManager] India VIX: 18.25
+2026-04-16 09:56:55,434 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:57:25,028 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:57:55,034 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:57:55,828 [INFO] core.vix_manager: [VixManager] India VIX: 18.34
+2026-04-16 09:58:25,019 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:58:55,027 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:58:56,286 [INFO] core.vix_manager: [VixManager] India VIX: 18.35
+2026-04-16 09:59:25,017 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:59:55,017 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 09:59:56,698 [INFO] core.vix_manager: [VixManager] India VIX: 18.33
+2026-04-16 10:00:25,008 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:00:55,161 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:00:57,193 [INFO] core.vix_manager: [VixManager] India VIX: 18.34
+2026-04-16 10:01:25,056 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:01:55,019 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:01:57,592 [INFO] core.vix_manager: [VixManager] India VIX: 18.34
+2026-04-16 10:02:25,018 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:03:05,479 [INFO] core.vix_manager: [VixManager] India VIX: 18.3
+2026-04-16 10:03:06,692 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:03:26,069 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:03:55,009 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:04:05,938 [INFO] core.vix_manager: [VixManager] India VIX: 18.3
+2026-04-16 10:04:25,011 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:04:55,057 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:05:06,391 [INFO] core.vix_manager: [VixManager] India VIX: 18.3
+2026-04-16 10:05:25,019 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:05:55,077 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:06:06,852 [INFO] core.vix_manager: [VixManager] India VIX: 18.22
+2026-04-16 10:06:25,059 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:06:55,035 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:07:07,304 [INFO] core.vix_manager: [VixManager] India VIX: 18.27
+2026-04-16 10:07:25,064 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:07:55,039 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:08:07,798 [INFO] core.vix_manager: [VixManager] India VIX: 18.28
+2026-04-16 10:08:26,130 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:08:55,064 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:09:08,796 [INFO] core.vix_manager: [VixManager] India VIX: 18.21
+2026-04-16 10:09:25,038 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:09:55,037 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:10:09,224 [INFO] core.vix_manager: [VixManager] India VIX: 18.14
+2026-04-16 10:10:25,035 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:10:55,009 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:11:09,719 [INFO] core.vix_manager: [VixManager] India VIX: 18.15
+2026-04-16 10:11:25,018 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:11:55,032 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:12:10,116 [INFO] core.vix_manager: [VixManager] India VIX: 18.15
+2026-04-16 10:12:25,022 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:12:54,996 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:13:10,614 [INFO] core.vix_manager: [VixManager] India VIX: 18.17
+2026-04-16 10:13:25,040 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:13:55,074 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:14:11,091 [INFO] core.vix_manager: [VixManager] India VIX: 18.14
+2026-04-16 10:14:25,058 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:14:55,086 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:15:11,561 [INFO] core.vix_manager: [VixManager] India VIX: 18.14
+2026-04-16 10:15:25,096 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:15:55,296 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:16:12,044 [INFO] core.vix_manager: [VixManager] India VIX: 18.14
+2026-04-16 10:16:25,040 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:16:55,036 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:17:12,559 [INFO] core.vix_manager: [VixManager] India VIX: 18.17
+2026-04-16 10:17:25,059 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:17:54,998 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:18:13,047 [INFO] core.vix_manager: [VixManager] India VIX: 18.13
+2026-04-16 10:18:25,000 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:18:55,021 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:19:13,504 [INFO] core.vix_manager: [VixManager] India VIX: 18.1
+2026-04-16 10:19:25,069 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:19:55,022 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:20:13,967 [INFO] core.vix_manager: [VixManager] India VIX: 18.06
+2026-04-16 10:20:25,042 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:20:55,013 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:21:14,432 [INFO] core.vix_manager: [VixManager] India VIX: 18.12
+2026-04-16 10:21:25,035 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:21:55,042 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:22:14,879 [INFO] core.vix_manager: [VixManager] India VIX: 18.12
+2026-04-16 10:22:25,044 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:22:55,052 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:23:15,362 [INFO] core.vix_manager: [VixManager] India VIX: 18.11
+2026-04-16 10:23:25,066 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:23:55,048 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:24:16,290 [INFO] core.vix_manager: [VixManager] India VIX: 18.12
+2026-04-16 10:24:25,058 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:24:55,027 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:25:16,822 [INFO] core.vix_manager: [VixManager] India VIX: 18.11
+2026-04-16 10:25:25,034 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:25:55,021 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:26:17,319 [INFO] core.vix_manager: [VixManager] India VIX: 18.08
+2026-04-16 10:26:25,023 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:26:55,090 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:27:17,803 [INFO] core.vix_manager: [VixManager] India VIX: 18.07
+2026-04-16 10:27:25,033 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:27:55,082 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:28:18,251 [INFO] core.vix_manager: [VixManager] India VIX: 18.08
+2026-04-16 10:28:25,043 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:28:55,020 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:29:15,386 [INFO] dashboard.api: Dashboard client disconnected
+2026-04-16 10:29:19,826 [INFO] dashboard.api: Dashboard client connected (1 total)
+2026-04-16 10:29:20,278 [INFO] core.vix_manager: [VixManager] India VIX: 18.14
+2026-04-16 10:29:21,276 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:29:47,544 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:30:17,569 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:30:20,770 [INFO] core.vix_manager: [VixManager] India VIX: 18.11
+2026-04-16 10:30:47,512 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:31:17,547 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:31:21,227 [INFO] core.vix_manager: [VixManager] India VIX: 18.09
+2026-04-16 10:31:47,536 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:32:17,566 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:32:21,677 [INFO] core.vix_manager: [VixManager] India VIX: 18.04
+2026-04-16 10:32:47,557 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:33:17,550 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:33:22,111 [INFO] core.vix_manager: [VixManager] India VIX: 18.06
+2026-04-16 10:33:47,576 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:34:17,594 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:34:22,565 [INFO] core.vix_manager: [VixManager] India VIX: 18.03
+2026-04-16 10:34:47,680 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:35:17,567 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:35:23,131 [INFO] core.vix_manager: [VixManager] India VIX: 18.04
+2026-04-16 10:35:47,647 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:36:17,592 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:36:23,565 [INFO] core.vix_manager: [VixManager] India VIX: 18.01
+2026-04-16 10:36:47,624 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:37:17,604 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:37:23,976 [INFO] core.vix_manager: [VixManager] India VIX: 18.01
+2026-04-16 10:37:47,569 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:38:17,590 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:38:24,409 [INFO] core.vix_manager: [VixManager] India VIX: 18.0
+2026-04-16 10:38:47,560 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:39:17,553 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:39:24,816 [INFO] core.vix_manager: [VixManager] India VIX: 17.99
+2026-04-16 10:39:47,584 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:40:17,571 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:40:25,280 [INFO] core.vix_manager: [VixManager] India VIX: 18.07
+2026-04-16 10:40:47,572 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:41:18,206 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:41:25,736 [INFO] core.vix_manager: [VixManager] India VIX: 18.08
+2026-04-16 10:41:47,576 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:42:17,576 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:42:26,216 [INFO] core.vix_manager: [VixManager] India VIX: 18.02
+2026-04-16 10:42:47,547 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:43:17,535 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:43:26,687 [INFO] core.vix_manager: [VixManager] India VIX: 17.97
+2026-04-16 10:43:47,552 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:44:17,533 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:44:27,108 [INFO] core.vix_manager: [VixManager] India VIX: 17.96
+2026-04-16 10:44:47,544 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:45:17,554 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:45:27,559 [INFO] core.vix_manager: [VixManager] India VIX: 17.97
+2026-04-16 10:45:47,534 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:46:17,520 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:46:27,998 [INFO] core.vix_manager: [VixManager] India VIX: 17.96
+2026-04-16 10:46:47,577 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:47:17,556 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:47:28,444 [INFO] core.vix_manager: [VixManager] India VIX: 17.94
+2026-04-16 10:47:47,537 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:48:17,648 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:48:29,038 [INFO] core.vix_manager: [VixManager] India VIX: 17.92
+2026-04-16 10:48:47,583 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:49:17,576 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:49:29,507 [INFO] core.vix_manager: [VixManager] India VIX: 17.92
+2026-04-16 10:49:47,530 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:50:17,548 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:50:30,005 [INFO] core.vix_manager: [VixManager] India VIX: 17.94
+2026-04-16 10:50:47,571 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:51:17,546 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:51:30,431 [INFO] core.vix_manager: [VixManager] India VIX: 17.94
+2026-04-16 10:51:47,610 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:52:17,627 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:52:30,892 [INFO] core.vix_manager: [VixManager] India VIX: 17.95
+2026-04-16 10:52:47,576 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:53:17,563 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:53:31,338 [INFO] core.vix_manager: [VixManager] India VIX: 17.94
+2026-04-16 10:53:47,642 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:54:17,587 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:54:31,799 [INFO] core.vix_manager: [VixManager] India VIX: 17.92
+2026-04-16 10:54:47,563 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:55:17,555 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:55:32,223 [INFO] core.vix_manager: [VixManager] India VIX: 17.91
+2026-04-16 10:55:47,584 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:56:17,549 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:56:32,642 [INFO] core.vix_manager: [VixManager] India VIX: 17.92
+2026-04-16 10:56:47,540 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:57:17,535 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:57:33,162 [INFO] core.vix_manager: [VixManager] India VIX: 17.93
+2026-04-16 10:57:47,551 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:58:17,572 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:58:33,586 [INFO] core.vix_manager: [VixManager] India VIX: 17.94
+2026-04-16 10:58:47,554 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:59:17,982 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 10:59:34,106 [INFO] core.vix_manager: [VixManager] India VIX: 17.96
+2026-04-16 10:59:47,544 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:00:17,533 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:00:34,588 [INFO] core.vix_manager: [VixManager] India VIX: 17.93
+2026-04-16 11:00:47,533 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:01:17,550 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:01:35,062 [INFO] core.vix_manager: [VixManager] India VIX: 17.89
+2026-04-16 11:01:47,519 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:02:17,564 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:02:35,478 [INFO] core.vix_manager: [VixManager] India VIX: 17.89
+2026-04-16 11:02:47,533 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:03:17,533 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:03:36,042 [INFO] core.vix_manager: [VixManager] India VIX: 17.86
+2026-04-16 11:03:47,543 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:04:17,509 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:04:36,458 [INFO] core.vix_manager: [VixManager] India VIX: 17.85
+2026-04-16 11:04:47,528 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:05:17,544 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:05:36,876 [INFO] core.vix_manager: [VixManager] India VIX: 17.83
+2026-04-16 11:05:47,608 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:06:17,523 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:06:37,264 [INFO] core.vix_manager: [VixManager] India VIX: 17.83
+2026-04-16 11:06:47,531 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:07:17,547 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:07:37,714 [INFO] core.vix_manager: [VixManager] India VIX: 17.84
+2026-04-16 11:07:47,536 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:08:17,528 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:08:38,138 [INFO] core.vix_manager: [VixManager] India VIX: 17.85
+2026-04-16 11:08:47,521 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:09:17,524 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:09:38,667 [INFO] core.vix_manager: [VixManager] India VIX: 17.82
+2026-04-16 11:09:47,533 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:10:17,558 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:10:39,081 [INFO] core.vix_manager: [VixManager] India VIX: 17.81
+2026-04-16 11:10:47,559 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:11:17,592 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:11:39,514 [INFO] core.vix_manager: [VixManager] India VIX: 17.82
+2026-04-16 11:11:47,535 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:12:17,585 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:12:39,970 [INFO] core.vix_manager: [VixManager] India VIX: 17.83
+2026-04-16 11:12:47,571 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:13:17,543 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:13:40,399 [INFO] core.vix_manager: [VixManager] India VIX: 17.87
+2026-04-16 11:13:47,541 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:14:17,539 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:14:40,831 [INFO] core.vix_manager: [VixManager] India VIX: 17.89
+2026-04-16 11:14:47,557 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:15:17,538 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:15:41,273 [INFO] core.vix_manager: [VixManager] India VIX: 17.87
+2026-04-16 11:15:47,561 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:16:17,543 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:16:41,775 [INFO] core.vix_manager: [VixManager] India VIX: 17.87
+2026-04-16 11:16:47,602 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:17:17,542 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:17:42,203 [INFO] core.vix_manager: [VixManager] India VIX: 17.9
+2026-04-16 11:17:47,541 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:18:17,558 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:18:42,623 [INFO] core.vix_manager: [VixManager] India VIX: 17.95
+2026-04-16 11:18:47,522 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:19:17,559 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:19:43,122 [INFO] core.vix_manager: [VixManager] India VIX: 17.92
+2026-04-16 11:19:47,558 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:20:17,709 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:20:43,658 [INFO] core.vix_manager: [VixManager] India VIX: 17.89
+2026-04-16 11:20:47,884 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:21:44,270 [INFO] core.vix_manager: [VixManager] India VIX: 17.85
+2026-04-16 11:22:11,702 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:22:44,832 [INFO] core.vix_manager: [VixManager] India VIX: 17.82
+2026-04-16 11:23:11,687 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:23:45,344 [INFO] core.vix_manager: [VixManager] India VIX: 17.87
+2026-04-16 11:24:11,653 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:24:45,805 [INFO] core.vix_manager: [VixManager] India VIX: 17.88
+2026-04-16 11:25:11,663 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:25:46,259 [INFO] core.vix_manager: [VixManager] India VIX: 17.91
+2026-04-16 11:26:11,654 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:26:46,699 [INFO] core.vix_manager: [VixManager] India VIX: 17.94
+2026-04-16 11:27:37,015 [INFO] dashboard.api: Dashboard client disconnected
+2026-04-16 11:27:47,195 [INFO] core.vix_manager: [VixManager] India VIX: 17.98
+2026-04-16 11:28:47,746 [INFO] core.vix_manager: [VixManager] India VIX: 17.98
+2026-04-16 11:29:48,139 [INFO] core.vix_manager: [VixManager] India VIX: 17.95
+2026-04-16 11:30:48,923 [INFO] core.vix_manager: [VixManager] India VIX: 17.95
+2026-04-16 11:31:49,938 [INFO] core.vix_manager: [VixManager] India VIX: 17.96
+2026-04-16 11:32:50,758 [INFO] core.vix_manager: [VixManager] India VIX: 17.98
+2026-04-16 11:33:51,665 [INFO] core.vix_manager: [VixManager] India VIX: 17.97
+2026-04-16 11:34:52,112 [INFO] core.vix_manager: [VixManager] India VIX: 17.97
+2026-04-16 11:35:52,643 [INFO] core.vix_manager: [VixManager] India VIX: 17.97
+2026-04-16 11:36:53,133 [INFO] core.vix_manager: [VixManager] India VIX: 17.96
+2026-04-16 11:37:53,534 [INFO] core.vix_manager: [VixManager] India VIX: 17.98
+2026-04-16 11:38:54,034 [INFO] core.vix_manager: [VixManager] India VIX: 17.98
+2026-04-16 11:39:54,529 [INFO] core.vix_manager: [VixManager] India VIX: 18.04
+2026-04-16 11:40:55,000 [INFO] core.vix_manager: [VixManager] India VIX: 18.03
+2026-04-16 11:41:55,454 [INFO] core.vix_manager: [VixManager] India VIX: 18.05
+2026-04-16 11:42:55,890 [INFO] core.vix_manager: [VixManager] India VIX: 18.05
+2026-04-16 11:44:07,239 [WARNING] core.vix_manager: [VixManager] fetch failed: HTTPSConnectionPool(host='www.nseindia.com', port=443): Max retries exceeded with url: /api/allIndices (Caused by NameResolutionError("HTTPSConnection(host='www.nseindia.com', port=443): Failed to resolve 'www.nseindia.com' ([Errno 11001] getaddrinfo failed)"))
+2026-04-16 11:44:07,297 [WARNING] core.vix_manager: [VixManager] Using last known VIX: 18.05
+2026-04-16 11:44:16,350 [ERROR] brokers.upstox: WebSocket error: [WinError 10054] An existing connection was forcibly closed by the remote host
+2026-04-16 11:44:14,585 [WARNING] urllib3.connectionpool: Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectionAbortedError(10053, 'An established connection was aborted by the software in your host machine', None, 10053, None)': /v2/portfolio/short-term-positions
+2026-04-16 11:44:16,976 [ERROR] websocket: [WinError 10054] An existing connection was forcibly closed by the remote host - goodbye
+2026-04-16 11:44:19,064 [WARNING] brokers.upstox: WebSocket closed
+2026-04-16 11:44:23,754 [INFO] websocket: Websocket connected
+2026-04-16 11:44:23,943 [INFO] brokers.upstox: WebSocket connected to Upstox
+2026-04-16 11:44:26,285 [ERROR] brokers.upstox: WebSocket error: [WinError 10054] An existing connection was forcibly closed by the remote host
+2026-04-16 11:44:26,293 [ERROR] websocket: [WinError 10054] An existing connection was forcibly closed by the remote host - goodbye
+2026-04-16 11:44:26,297 [WARNING] brokers.upstox: WebSocket closed
+2026-04-16 11:44:27,002 [ERROR] brokers.upstox: WebSocket error: [Errno 11001] getaddrinfo failed
+2026-04-16 11:44:28,277 [ERROR] websocket: [Errno 11001] getaddrinfo failed - goodbye
+2026-04-16 11:44:28,277 [ERROR] brokers.upstox: WebSocket error: [Errno 11001] getaddrinfo failed
+2026-04-16 11:44:29,541 [ERROR] websocket: [Errno 11001] getaddrinfo failed - goodbye
+2026-04-16 11:44:29,541 [ERROR] brokers.upstox: WebSocket error: [Errno 11001] getaddrinfo failed
+2026-04-16 11:44:30,839 [ERROR] websocket: [Errno 11001] getaddrinfo failed - goodbye
+2026-04-16 11:44:30,840 [ERROR] brokers.upstox: WebSocket error: [Errno 11001] getaddrinfo failed
+2026-04-16 11:44:31,842 [ERROR] websocket: [Errno 11001] getaddrinfo failed - goodbye
+2026-04-16 11:44:31,842 [ERROR] brokers.upstox: WebSocket error: [Errno 11001] getaddrinfo failed
+2026-04-16 11:44:31,842 [ERROR] websocket: [Errno 11001] getaddrinfo failed - goodbye
+2026-04-16 11:45:07,803 [INFO] core.vix_manager: [VixManager] India VIX: 18.11
+2026-04-16 11:46:24,025 [WARNING] core.vix_manager: [VixManager] fetch failed: HTTPSConnectionPool(host='www.nseindia.com', port=443): Read timed out. (read timeout=15)
+2026-04-16 11:46:24,026 [WARNING] core.vix_manager: [VixManager] Using last known VIX: 18.11
+2026-04-16 11:47:24,538 [INFO] core.vix_manager: [VixManager] India VIX: 18.28
+2026-04-16 11:48:25,037 [INFO] core.vix_manager: [VixManager] India VIX: 18.32
+2026-04-16 11:48:31,707 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:48:40,869 [INFO] dashboard.api: Dashboard client connected (1 total)
+2026-04-16 11:48:47,537 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:49:25,754 [INFO] core.vix_manager: [VixManager] India VIX: 18.29
+2026-04-16 11:50:28,024 [INFO] core.vix_manager: [VixManager] India VIX: 18.2
+2026-04-16 11:50:39,555 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:50:40,040 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:50:48,022 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:51:17,705 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:51:28,757 [INFO] core.vix_manager: [VixManager] India VIX: 18.24
+2026-04-16 11:52:11,972 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:52:29,255 [INFO] core.vix_manager: [VixManager] India VIX: 18.27
+2026-04-16 11:53:29,910 [INFO] core.vix_manager: [VixManager] India VIX: 18.23
+2026-04-16 11:54:07,296 [INFO] dashboard.api: Dashboard client disconnected
+2026-04-16 11:54:30,425 [INFO] core.vix_manager: [VixManager] India VIX: 18.22
+2026-04-16 11:55:30,069 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:55:31,054 [INFO] core.vix_manager: [VixManager] India VIX: 18.2
+2026-04-16 11:55:33,243 [INFO] dashboard.api: Dashboard client connected (1 total)
+2026-04-16 11:55:47,724 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:56:17,951 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:56:32,083 [INFO] core.vix_manager: [VixManager] India VIX: 18.21
+2026-04-16 11:57:11,676 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:57:32,533 [INFO] core.vix_manager: [VixManager] India VIX: 18.24
+2026-04-16 11:58:32,952 [INFO] core.vix_manager: [VixManager] India VIX: 18.34
+2026-04-16 11:59:03,358 [INFO] dashboard.api: Dashboard client disconnected
+2026-04-16 11:59:33,406 [INFO] core.vix_manager: [VixManager] India VIX: 18.31
+2026-04-16 11:59:40,611 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 11:59:43,224 [INFO] dashboard.api: Dashboard client connected (1 total)
+2026-04-16 11:59:47,664 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 12:00:17,644 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 12:00:33,926 [INFO] core.vix_manager: [VixManager] India VIX: 18.31
+2026-04-16 12:01:11,649 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 12:01:34,429 [INFO] core.vix_manager: [VixManager] India VIX: 18.46
+2026-04-16 12:02:11,661 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 12:02:34,931 [INFO] core.vix_manager: [VixManager] India VIX: 18.48
+2026-04-16 12:03:35,418 [INFO] core.vix_manager: [VixManager] India VIX: 18.52
+2026-04-16 12:04:13,376 [INFO] dashboard.api: Dashboard client disconnected
+2026-04-16 12:04:35,923 [INFO] core.vix_manager: [VixManager] India VIX: 18.5
+2026-04-16 12:05:36,376 [INFO] core.vix_manager: [VixManager] India VIX: 18.5
+2026-04-16 12:06:36,748 [INFO] core.vix_manager: [VixManager] India VIX: 18.46
+2026-04-16 12:07:37,250 [INFO] core.vix_manager: [VixManager] India VIX: 18.41
+2026-04-16 12:08:37,748 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 12:09:38,294 [INFO] core.vix_manager: [VixManager] India VIX: 18.41
+2026-04-16 12:10:38,744 [INFO] core.vix_manager: [VixManager] India VIX: 18.38
+2026-04-16 12:11:39,245 [INFO] core.vix_manager: [VixManager] India VIX: 18.32
+2026-04-16 12:12:40,145 [INFO] core.vix_manager: [VixManager] India VIX: 18.31
+2026-04-16 12:13:40,578 [INFO] core.vix_manager: [VixManager] India VIX: 18.34
+2026-04-16 12:14:41,021 [INFO] core.vix_manager: [VixManager] India VIX: 18.36
+2026-04-16 12:15:41,654 [INFO] core.vix_manager: [VixManager] India VIX: 18.35
+2026-04-16 12:16:42,120 [INFO] core.vix_manager: [VixManager] India VIX: 18.35
+2026-04-16 12:17:42,624 [INFO] core.vix_manager: [VixManager] India VIX: 18.43
+2026-04-16 12:18:43,100 [INFO] core.vix_manager: [VixManager] India VIX: 18.35
+2026-04-16 12:19:43,643 [INFO] core.vix_manager: [VixManager] India VIX: 18.35
+2026-04-16 12:20:44,114 [INFO] core.vix_manager: [VixManager] India VIX: 18.39
+2026-04-16 12:21:44,498 [INFO] core.vix_manager: [VixManager] India VIX: 18.38
+2026-04-16 12:22:44,908 [INFO] core.vix_manager: [VixManager] India VIX: 18.38
+2026-04-16 12:23:45,344 [INFO] core.vix_manager: [VixManager] India VIX: 18.45
+2026-04-16 12:24:45,860 [INFO] core.vix_manager: [VixManager] India VIX: 18.49
+2026-04-16 12:25:46,362 [INFO] core.vix_manager: [VixManager] India VIX: 18.49
+2026-04-16 12:26:46,897 [INFO] core.vix_manager: [VixManager] India VIX: 18.45
+2026-04-16 12:27:47,417 [INFO] core.vix_manager: [VixManager] India VIX: 18.48
+2026-04-16 12:28:47,975 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 12:29:48,368 [INFO] core.vix_manager: [VixManager] India VIX: 18.46
+2026-04-16 12:30:48,868 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 12:31:49,361 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 12:32:49,838 [INFO] core.vix_manager: [VixManager] India VIX: 18.45
+2026-04-16 12:33:50,276 [INFO] core.vix_manager: [VixManager] India VIX: 18.46
+2026-04-16 12:34:50,807 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 12:35:51,600 [INFO] core.vix_manager: [VixManager] India VIX: 18.48
+2026-04-16 12:36:52,028 [INFO] core.vix_manager: [VixManager] India VIX: 18.5
+2026-04-16 12:37:52,636 [INFO] core.vix_manager: [VixManager] India VIX: 18.59
+2026-04-16 12:38:53,136 [INFO] core.vix_manager: [VixManager] India VIX: 18.58
+2026-04-16 12:39:53,578 [INFO] core.vix_manager: [VixManager] India VIX: 18.48
+2026-04-16 12:40:53,982 [INFO] core.vix_manager: [VixManager] India VIX: 18.48
+2026-04-16 12:41:54,438 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 12:42:54,854 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 12:43:55,282 [INFO] core.vix_manager: [VixManager] India VIX: 18.44
+2026-04-16 12:44:55,724 [INFO] core.vix_manager: [VixManager] India VIX: 18.44
+2026-04-16 12:45:56,419 [INFO] core.vix_manager: [VixManager] India VIX: 18.49
+2026-04-16 12:46:56,846 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 12:47:57,271 [INFO] core.vix_manager: [VixManager] India VIX: 18.46
+2026-04-16 12:48:57,837 [INFO] core.vix_manager: [VixManager] India VIX: 18.46
+2026-04-16 12:49:58,278 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 12:50:58,791 [INFO] core.vix_manager: [VixManager] India VIX: 18.46
+2026-04-16 12:51:59,273 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 12:52:59,704 [INFO] core.vix_manager: [VixManager] India VIX: 18.45
+2026-04-16 12:54:00,168 [INFO] core.vix_manager: [VixManager] India VIX: 18.42
+2026-04-16 12:55:01,842 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 12:56:02,321 [INFO] core.vix_manager: [VixManager] India VIX: 18.5
+2026-04-16 12:57:02,802 [INFO] core.vix_manager: [VixManager] India VIX: 18.52
+2026-04-16 12:58:03,289 [INFO] core.vix_manager: [VixManager] India VIX: 18.49
+2026-04-16 12:59:03,834 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 13:00:04,350 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 13:01:04,858 [INFO] core.vix_manager: [VixManager] India VIX: 18.46
+2026-04-16 13:02:05,370 [INFO] core.vix_manager: [VixManager] India VIX: 18.46
+2026-04-16 13:03:05,847 [INFO] core.vix_manager: [VixManager] India VIX: 18.46
+2026-04-16 13:03:25,663 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:03:27,995 [INFO] dashboard.api: Dashboard client connected (1 total)
+2026-04-16 13:03:47,674 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:04:06,374 [INFO] core.vix_manager: [VixManager] India VIX: 18.45
+2026-04-16 13:04:17,585 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:04:47,540 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:05:06,813 [INFO] core.vix_manager: [VixManager] India VIX: 18.45
+2026-04-16 13:05:17,542 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:05:47,660 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:06:07,292 [INFO] core.vix_manager: [VixManager] India VIX: 18.42
+2026-04-16 13:06:17,659 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:07:07,817 [INFO] core.vix_manager: [VixManager] India VIX: 18.44
+2026-04-16 13:07:11,653 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:08:08,272 [INFO] core.vix_manager: [VixManager] India VIX: 18.48
+2026-04-16 13:08:11,656 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:09:08,686 [INFO] core.vix_manager: [VixManager] India VIX: 18.49
+2026-04-16 13:09:11,730 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:10:09,314 [INFO] core.vix_manager: [VixManager] India VIX: 18.55
+2026-04-16 13:10:11,750 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:11:09,791 [INFO] core.vix_manager: [VixManager] India VIX: 18.56
+2026-04-16 13:11:11,731 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:12:10,267 [INFO] core.vix_manager: [VixManager] India VIX: 18.6
+2026-04-16 13:12:11,691 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:13:10,693 [INFO] core.vix_manager: [VixManager] India VIX: 18.61
+2026-04-16 13:13:11,698 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:14:11,140 [INFO] core.vix_manager: [VixManager] India VIX: 18.57
+2026-04-16 13:14:11,684 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:15:11,600 [INFO] core.vix_manager: [VixManager] India VIX: 18.58
+2026-04-16 13:15:12,111 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:16:12,066 [INFO] core.vix_manager: [VixManager] India VIX: 18.56
+2026-04-16 13:16:12,192 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:17:11,668 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:17:12,517 [INFO] core.vix_manager: [VixManager] India VIX: 18.58
+2026-04-16 13:18:11,934 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:18:13,085 [INFO] core.vix_manager: [VixManager] India VIX: 18.59
+2026-04-16 13:19:11,664 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:19:13,583 [INFO] core.vix_manager: [VixManager] India VIX: 18.52
+2026-04-16 13:20:11,880 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:20:14,001 [INFO] core.vix_manager: [VixManager] India VIX: 18.45
+2026-04-16 13:21:11,708 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:21:14,489 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 13:22:11,663 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:22:14,975 [INFO] core.vix_manager: [VixManager] India VIX: 18.46
+2026-04-16 13:23:11,680 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:23:15,414 [INFO] core.vix_manager: [VixManager] India VIX: 18.43
+2026-04-16 13:24:11,718 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:24:15,959 [INFO] core.vix_manager: [VixManager] India VIX: 18.47
+2026-04-16 13:25:11,693 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:25:16,387 [INFO] core.vix_manager: [VixManager] India VIX: 18.53
+2026-04-16 13:26:11,652 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:26:17,024 [INFO] core.vix_manager: [VixManager] India VIX: 18.54
+2026-04-16 13:27:11,646 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:27:17,504 [INFO] core.vix_manager: [VixManager] India VIX: 18.53
+2026-04-16 13:28:11,656 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:28:18,043 [INFO] core.vix_manager: [VixManager] India VIX: 18.54
+2026-04-16 13:29:11,711 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:29:18,477 [INFO] core.vix_manager: [VixManager] India VIX: 18.5
+2026-04-16 13:30:11,658 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:30:19,010 [INFO] core.vix_manager: [VixManager] India VIX: 18.45
+2026-04-16 13:31:11,666 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:31:19,451 [INFO] core.vix_manager: [VixManager] India VIX: 18.45
+2026-04-16 13:32:11,662 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:32:19,898 [INFO] core.vix_manager: [VixManager] India VIX: 18.45
+2026-04-16 13:33:11,670 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:33:20,421 [INFO] core.vix_manager: [VixManager] India VIX: 18.42
+2026-04-16 13:34:01,139 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:34:17,541 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:34:21,127 [INFO] core.vix_manager: [VixManager] India VIX: 18.44
+2026-04-16 13:34:47,537 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:35:17,531 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:35:21,587 [INFO] core.vix_manager: [VixManager] India VIX: 18.38
+2026-04-16 13:35:47,523 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:36:17,543 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:36:22,088 [INFO] core.vix_manager: [VixManager] India VIX: 18.42
+2026-04-16 13:36:47,601 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:37:17,567 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:37:22,646 [INFO] core.vix_manager: [VixManager] India VIX: 18.4
+2026-04-16 13:37:47,541 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:38:17,644 [INFO] httpx: HTTP Request: GET https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC "HTTP/1.1 200 OK"
+2026-04-16 13:38:23,087 [INFO] core.vix_manager: [VixManager] India VIX: 18.41
+2026-04-16 13:38:38,417 [INFO] dashboard.api: Dashboard client disconnected
+2026-04-16 13:38:39,619 [INFO] dashboard.api: Dashboard API shutting down.
+2026-04-16 13:38:40,350 [INFO] __main__: Strategy runner cancelled. Stopping...
+2026-04-16 13:38:40,632 [INFO] strategy.saviour_combo: [saviour_combo] Stopping (MANUAL)...
+2026-04-16 13:38:40,698 [INFO] strategy.saviour_combo: [saviour_combo] Monitor loop ended
+2026-04-16 13:38:40,715 [INFO] strategy.base_strategy: [wave_extractor] Stopping (MANUAL)...
+2026-04-16 13:38:42,927 [INFO] brokers.upstox: Unsubscribed from ticks: ['NSE_FO|54757']
+2026-04-16 13:38:45,436 [INFO] core.trade_log: TradeLogger: session ended 85732a52-55dc-4f73-95b4-35c19f287c3a | P&L: 0.0 | reason: MANUAL
+2026-04-16 13:38:45,532 [INFO] core.state_store: StateStore: wave_extractor -> STOPPED
+2026-04-16 13:38:45,562 [INFO] core.state_store: StateStore: broker 'UpstoxAdapter' -> DISCONNECTED
+2026-04-16 13:38:45,710 [INFO] strategy.base_strategy: [wave_extractor] Stopped
+2026-04-16 13:38:45,718 [INFO] core.state_store: StateStore: saviour_combo -> STOPPED
+2026-04-16 13:38:45,820 [INFO] strategy.saviour_combo: [saviour_combo] Stopped
+2026-04-16 13:38:45,821 [INFO] core.vix_manager: [VixManager] Stopped
+2026-04-16 13:38:46,235 [INFO] __main__: System stopped by user.

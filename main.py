@@ -123,6 +123,13 @@ async def run_strategies(config: dict):
 
 
 async def main():
+    # Automatically update config files with nearest weekly/monthly Nifty expiries
+    try:
+        from auto_rollover import perform_rollover
+        perform_rollover()
+    except Exception as e:
+        logger.error(f"Auto rollover skipped/failed: {e}")
+
     config = load_config()
 
     broker_name = os.getenv("BROKER_NAME", "")
