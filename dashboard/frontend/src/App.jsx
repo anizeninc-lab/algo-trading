@@ -13,8 +13,6 @@ const STATE_COLOUR = {
 
 const pnlColour = (val) => (val || 0) >= 0 ? "#00ff88" : "#ff4455"
 const pnlBg     = (val) => (val || 0) >= 0 ? "rgba(0,255,136,0.08)" : "rgba(255,68,85,0.08)"
-const fmt        = (v)  => v == null ? "—" : `₹${Number(v).toFixed(2)}`
-const pct        = (v)  => v == null ? "—" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(2)}%`
 
 function Badge({ label, colour }) {
   return (
@@ -28,157 +26,22 @@ function Badge({ label, colour }) {
   )
 }
 
-function StatBox({ label, value, sub, colour, size = 20, bg, tag }) {
+function StatBox({ label, value, colour, size = 20, bg }) {
   return (
     <div style={{
       background: bg || "#131929", borderRadius: 10, padding: "12px 18px",
-      border: "1px solid #1e2d47", minWidth: 130, flex: 1, position: "relative",
+      border: "1px solid #1e2d47", minWidth: 110,
     }}>
-      {tag && (
-        <div style={{
-          position: "absolute", top: 8, right: 10,
-          fontSize: 9, fontWeight: 700, letterSpacing: 1.5,
-          color: tag === "LIVE" ? "#3b82f6" : "#f59e0b",
-          background: tag === "LIVE" ? "#3b82f611" : "#f59e0b11",
-          border: `1px solid ${tag === "LIVE" ? "#3b82f644" : "#f59e0b44"}`,
-          borderRadius: 3, padding: "1px 6px",
-        }}>{tag}</div>
-      )}
       <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700, letterSpacing: 1.5, marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: size, fontWeight: 800, color: colour || "#e2e8f0", fontFamily: "'JetBrains Mono', monospace" }}>{value}</div>
-      {sub && <div style={{ fontSize: 10, color: "#4a6080", marginTop: 3, fontFamily: "'JetBrains Mono', monospace" }}>{sub}</div>}
     </div>
   )
 }
 
-// ── New 4-card top section ──────────────────────────────────────────────────
-function CapitalCards({ account, trades, isPaper }) {
-  const todayStr = new Date().toISOString().slice(0, 10)
-
-  // Invested = allocated (payin) + currently deployed (used_margin)
-  const allocated   = account?.allocated_capital ?? null
-  const usedMargin  = account?.used_margin        ?? null
-  const currentBal  = account?.current_balance    ?? null
-
-  // Total return = all closed trade realised P&L
-  const totalRealised = trades
-    .filter(t => t.status === "CLOSED")
-    .reduce((s, t) => s + (t.realised_pnl || 0), 0)
-
-  // Today's return = today closed trades realised P&L
-  const todayRealised = trades
-    .filter(t => t.status === "CLOSED" && t.exit_time?.slice(0, 10) === todayStr)
-    .reduce((s, t) => s + (t.realised_pnl || 0), 0)
-
-  // % returns based on allocated capital
-  const totalReturnPct = allocated ? (totalRealised / allocated) * 100 : null
-  const todayReturnPct = allocated ? (todayRealised / allocated) * 100 : null
-
-  const modeTag = isPaper ? "PAPER" : "LIVE"
-
-  return (
-    <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
-
-      {/* 1. Invested Amount */}
-      <div style={{
-        background: "#131929", borderRadius: 10, padding: "12px 18px",
-        border: "1px solid #1e2d47", minWidth: 160, flex: 1, position: "relative",
-      }}>
-        <div style={{ position: "absolute", top: 8, right: 10, fontSize: 9, fontWeight: 700,
-          letterSpacing: 1.5, color: "#4a6080" }}>{modeTag}</div>
-        <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700, letterSpacing: 1.5, marginBottom: 6 }}>
-          INVESTED AMOUNT
-        </div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: "#e2e8f0", fontFamily: "'JetBrains Mono', monospace" }}>
-          {allocated != null ? fmt(allocated) : "—"}
-        </div>
-        <div style={{ fontSize: 10, color: "#4a6080", marginTop: 4, display: "flex", gap: 12 }}>
-          <span>Allocated: <span style={{ color: "#e2e8f0" }}>{allocated != null ? fmt(allocated) : "—"}</span></span>
-          <span>Deployed: <span style={{ color: usedMargin > 0 ? "#f59e0b" : "#e2e8f0" }}>{usedMargin != null ? fmt(usedMargin) : "—"}</span></span>
-        </div>
-      </div>
-
-      {/* 2. Current Amount (live balance from Upstox) */}
-      <div style={{
-        background: "#131929", borderRadius: 10, padding: "12px 18px",
-        border: "1px solid #1e2d47", minWidth: 160, flex: 1, position: "relative",
-      }}>
-        <div style={{ position: "absolute", top: 8, right: 10, fontSize: 9, fontWeight: 700,
-          letterSpacing: 1.5, color: isPaper ? "#f59e0b" : "#3b82f6",
-          background: isPaper ? "#f59e0b11" : "#3b82f611",
-          border: `1px solid ${isPaper ? "#f59e0b44" : "#3b82f644"}`,
-          borderRadius: 3, padding: "1px 6px",
-        }}>{modeTag}</div>
-        <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700, letterSpacing: 1.5, marginBottom: 6 }}>
-          CURRENT BALANCE
-        </div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: "#e2e8f0", fontFamily: "'JetBrains Mono', monospace" }}>
-          {currentBal != null ? fmt(currentBal) : "—"}
-        </div>
-        <div style={{ fontSize: 10, color: "#4a6080", marginTop: 4 }}>
-          Available margin from Upstox
-        </div>
-      </div>
-
-      {/* 3. Total Return */}
-      <div style={{
-        background: pnlBg(totalRealised), borderRadius: 10, padding: "12px 18px",
-        border: `1px solid ${pnlColour(totalRealised)}22`, minWidth: 160, flex: 1, position: "relative",
-      }}>
-        <div style={{ position: "absolute", top: 8, right: 10, fontSize: 9, fontWeight: 700,
-          letterSpacing: 1.5, color: isPaper ? "#f59e0b" : "#3b82f6",
-          background: isPaper ? "#f59e0b11" : "#3b82f611",
-          border: `1px solid ${isPaper ? "#f59e0b44" : "#3b82f644"}`,
-          borderRadius: 3, padding: "1px 6px",
-        }}>{modeTag}</div>
-        <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700, letterSpacing: 1.5, marginBottom: 6 }}>
-          TOTAL RETURN
-        </div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: pnlColour(totalRealised), fontFamily: "'JetBrains Mono', monospace" }}>
-          {fmt(totalRealised)}
-        </div>
-        <div style={{ fontSize: 10, color: pnlColour(totalRealised), marginTop: 4, fontFamily: "'JetBrains Mono', monospace" }}>
-          {totalReturnPct != null ? pct(totalReturnPct) : "—"} on capital
-        </div>
-      </div>
-
-      {/* 4. Today's Return */}
-      <div style={{
-        background: pnlBg(todayRealised), borderRadius: 10, padding: "12px 18px",
-        border: `1px solid ${pnlColour(todayRealised)}22`, minWidth: 160, flex: 1, position: "relative",
-      }}>
-        <div style={{ position: "absolute", top: 8, right: 10, fontSize: 9, fontWeight: 700,
-          letterSpacing: 1.5, color: isPaper ? "#f59e0b" : "#3b82f6",
-          background: isPaper ? "#f59e0b11" : "#3b82f611",
-          border: `1px solid ${isPaper ? "#f59e0b44" : "#3b82f644"}`,
-          borderRadius: 3, padding: "1px 6px",
-        }}>{modeTag}</div>
-        <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700, letterSpacing: 1.5, marginBottom: 6 }}>
-          TODAY'S RETURN
-        </div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: pnlColour(todayRealised), fontFamily: "'JetBrains Mono', monospace" }}>
-          {fmt(todayRealised)}
-        </div>
-        <div style={{ fontSize: 10, color: pnlColour(todayRealised), marginTop: 4, fontFamily: "'JetBrains Mono', monospace" }}>
-          {todayReturnPct != null ? pct(todayReturnPct) : "—"} today
-        </div>
-      </div>
-
-    </div>
-  )
-}
-
-function NiftyTicker({ market, strategies }) {
+function NiftyTicker({ market }) {
   const [prev, setPrev] = useState(0)
   const [flash, setFlash] = useState(null)
   const price = market?.nifty_price || 0
-  
-  // Extract Anchor levels from the Saviour Combo strategy data
-  const saviour = strategies?.saviour_combo; 
-  const lastSignal = saviour?.last_signal || "";
-  
-  const peStart = lastSignal.match(/PE Start: ([\d.]+)/)?.[1];
-  const ceStart = lastSignal.match(/CE Start: ([\d.]+)/)?.[1];
 
   useEffect(() => {
     if (prev && price && price !== prev) {
@@ -189,31 +52,35 @@ function NiftyTicker({ market, strategies }) {
   }, [price])
 
   const colour = flash === "up" ? "#00ff88" : flash === "down" ? "#ff4455" : "#e2e8f0"
+  const arrow  = flash === "up" ? " ▲" : flash === "down" ? " ▼" : ""
 
   return (
     <div style={{
       background: "#131929", borderRadius: 10, padding: "12px 18px",
-      border: "1px solid #1e2d47", minWidth: 200,
+      border: "1px solid #1e2d47", minWidth: 160,
       transition: "border-color 0.3s",
       borderColor: flash ? (flash === "up" ? "#00ff88" : "#ff4455") : "#1e2d47",
     }}>
       <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700, letterSpacing: 1.5, marginBottom: 4 }}>
-        NIFTY 50 (LIVE)
+        NIFTY 50
       </div>
-      <div style={{ fontSize: 24, fontWeight: 800, color: colour, fontFamily: "'JetBrains Mono', monospace" }}>
-        {price > 0 ? price.toLocaleString() : "WAITING..."}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+        <span style={{
+          fontSize: 22, fontWeight: 800, color: colour,
+          fontFamily: "'JetBrains Mono', monospace",
+          transition: "color 0.3s",
+        }}>
+          {price > 0 ? price.toFixed(2) : "—"}{arrow}
+        </span>
       </div>
-      
-      <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 2, borderTop: "1px solid #1e2d47", paddingTop: 6 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
-          <span style={{ color: "#ff4455", fontWeight: 700 }}>PE ANCHOR:</span>
-          <span style={{ color: "#e2e8f0" }}>{peStart || "—"}</span>
+      {market?.option_price > 0 && (
+        <div style={{ fontSize: 10, color: "#4a6080", marginTop: 3 }}>
+          OPT: <span style={{ color: "#e2e8f0" }}>₹{market.option_price.toFixed(2)}</span>
         </div>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
-          <span style={{ color: "#00ff88", fontWeight: 700 }}>CE ANCHOR:</span>
-          <span style={{ color: "#e2e8f0" }}>{ceStart || "—"}</span>
-        </div>
-      </div>
+      )}
+      {market?.nifty_updated && (
+        <div style={{ fontSize: 9, color: "#2a4060", marginTop: 2 }}>↻ {market.nifty_updated}</div>
+      )}
     </div>
   )
 }
@@ -450,12 +317,9 @@ const DEFAULT = {
 
 export default function App() {
   const [data,     setData]     = useState(DEFAULT)
-  const [trades,      setTrades]      = useState([])
-  const [account,     setAccount]     = useState(null)
-  const [wsStatus,    setWsStatus]    = useState("CONNECTING")
-  const [tab,         setTab]         = useState("open")
-  const [killConfirm, setKillConfirm] = useState(false)
-  const [killDone,    setKillDone]    = useState(false)
+  const [trades,   setTrades]   = useState([])
+  const [wsStatus, setWsStatus] = useState("CONNECTING")
+  const [tab,      setTab]      = useState("open")
   const wsRef = useRef(null)
   const [now, setNow] = useState(new Date())
 
@@ -489,19 +353,6 @@ export default function App() {
     return () => clearInterval(id)
   }, [])
 
-  // Fetch account balance every 30 seconds
-  useEffect(() => {
-    async function fetchAccount() {
-      try {
-        const res = await axios.get(`${API}/api/account/balance`)
-        if (!res.data.error) setAccount(res.data)
-      } catch {}
-    }
-    fetchAccount()
-    const id = setInterval(fetchAccount, 30000)
-    return () => clearInterval(id)
-  }, [])
-
   async function handleStop(name) {
     try { await axios.post(`${API}/api/strategy/${name}/stop`) }
     catch (e) { alert(`Stop failed: ${e.response?.data?.error || e.message}`) }
@@ -512,24 +363,15 @@ export default function App() {
     catch (e) { alert(`Reset failed: ${e.response?.data?.error || e.message}`) }
   }
 
-  async function handleEmergencyKill() {
-    try {
-      await axios.post(`${API}/api/emergency/kill`)
-      setKillConfirm(false)
-      setKillDone(true)
-      setTimeout(() => setKillDone(false), 5000)
-    } catch (e) {
-      alert(`Emergency kill failed: ${e.message}`)
-      setKillConfirm(false)
-    }
-  }
-
   const g         = data.global
   const s         = data.strategies
   const vix       = data.vix
   const market    = data.market || {}
   const openCount = trades.filter(t => t.status === "OPEN").length
-  const isPaper   = g.paper_trade === true
+  const todayStr  = now.toISOString().slice(0, 10)
+  const todayPnl  = trades
+    .filter(t => t.status === "CLOSED" && t.exit_time?.slice(0, 10) === todayStr)
+    .reduce((sum, t) => sum + (t.realised_pnl || 0), 0)
   const brokerConnected = Object.values(g.broker_status || {}).some(v => v === "CONNECTED")
 
   return (
@@ -552,59 +394,20 @@ export default function App() {
           <div style={{ fontSize: 11, color: "#4a6080" }}>{now.toLocaleTimeString("en-IN")}</div>
           <Badge label={wsStatus === "CONNECTED" ? "● LIVE" : wsStatus === "RECONNECTING" ? "◌ RECONNECTING" : "○ OFFLINE"} colour={wsStatus === "CONNECTED" ? "#00ff88" : wsStatus === "RECONNECTING" ? "#f59e0b" : "#ff4455"} />
           <Badge label={brokerConnected ? "BROKER ON" : "BROKER OFF"} colour={brokerConnected ? "#00ff88" : "#ff4455"} />
-          <Badge label={isPaper ? "PAPER MODE" : "LIVE MODE"} colour={isPaper ? "#f59e0b" : "#3b82f6"} />
-
-          {/* ── Emergency Kill Switch ── */}
-          {killDone ? (
-            <span style={{
-              background: "#ff445522", color: "#ff4455", borderRadius: 6,
-              padding: "6px 14px", fontSize: 11, fontWeight: 800, letterSpacing: 1,
-              border: "1px solid #ff445566",
-            }}>✓ ALL STOPPED</span>
-          ) : killConfirm ? (
-            <div style={{ display: "flex", gap: 6, alignItems: "center", background: "#1a0a0a", borderRadius: 8, padding: "4px 8px", border: "1px solid #ff445566" }}>
-              <span style={{ fontSize: 10, color: "#ff4455", fontWeight: 700 }}>CONFIRM KILL?</span>
-              <button onClick={handleEmergencyKill} style={{
-                background: "#ff4455", color: "#fff", border: "none", borderRadius: 5,
-                padding: "4px 10px", fontSize: 11, fontWeight: 800, cursor: "pointer",
-              }}>YES</button>
-              <button onClick={() => setKillConfirm(false)} style={{
-                background: "#1e2d47", color: "#94a3b8", border: "none", borderRadius: 5,
-                padding: "4px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer",
-              }}>NO</button>
-            </div>
-          ) : (
-            <button onClick={() => setKillConfirm(true)} style={{
-              background: "#ff445533", color: "#ff4455",
-              border: "1px solid #ff445566", borderRadius: 6,
-              padding: "6px 14px", fontSize: 11, fontWeight: 800,
-              letterSpacing: 1, cursor: "pointer",
-              fontFamily: "'JetBrains Mono', monospace",
-            }}>⚠ KILL ALL</button>
-          )}
+          <Badge label={`PAPER: ${g.paper_trade ? "ON" : "OFF"}`} colour={g.paper_trade ? "#f59e0b" : "#3b82f6"} />
         </div>
       </div>
 
-      {/* Secondary info bar — Nifty + VIX + system stats */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-        <NiftyTicker market={data.market} strategies={data.strategies} />
+      {/* Stats Bar */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+        <NiftyTicker market={market} />
+        <StatBox label="CURRENT P&L"    value={`₹${(g.total_pnl || 0).toFixed(2)}`} colour={pnlColour(g.total_pnl)} size={22} bg={pnlBg(g.total_pnl)} />
+        <StatBox label="TODAY REALISED" value={`₹${todayPnl.toFixed(2)}`}            colour={pnlColour(todayPnl)}    size={22} bg={pnlBg(todayPnl)} />
+        <StatBox label="OPEN POSITIONS" value={openCount}  colour={openCount > 0 ? "#3b82f6" : "#4a6080"} />
+        <StatBox label="ACTIVE STRATS"  value={`${g.active_strategies || 0}/${g.total_strategies || 0}`} colour="#e2e8f0" />
+        <StatBox label="SYSTEM HEALTH"  value={g.system_health || "OK"} colour={g.system_health === "OK" ? "#00ff88" : "#ff4455"} />
         <VixBadge vix={vix} />
-        <div style={{ background: "#131929", borderRadius: 10, padding: "12px 18px", border: "1px solid #1e2d47", minWidth: 110 }}>
-          <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700, letterSpacing: 1.5, marginBottom: 4 }}>OPEN POS</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: openCount > 0 ? "#3b82f6" : "#4a6080", fontFamily: "'JetBrains Mono', monospace" }}>{openCount}</div>
-        </div>
-        <div style={{ background: "#131929", borderRadius: 10, padding: "12px 18px", border: "1px solid #1e2d47", minWidth: 110 }}>
-          <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700, letterSpacing: 1.5, marginBottom: 4 }}>ACTIVE STRATS</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: "#e2e8f0", fontFamily: "'JetBrains Mono', monospace" }}>{g.active_strategies || 0}/{g.total_strategies || 0}</div>
-        </div>
-        <div style={{ background: "#131929", borderRadius: 10, padding: "12px 18px", border: "1px solid #1e2d47", minWidth: 110 }}>
-          <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700, letterSpacing: 1.5, marginBottom: 4 }}>SYSTEM</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: g.system_health === "OK" ? "#00ff88" : "#ff4455", fontFamily: "'JetBrains Mono', monospace" }}>{g.system_health || "OK"}</div>
-        </div>
       </div>
-
-      {/* ── 4 Capital Cards (replaces old P&L cards) ── */}
-      <CapitalCards account={account} trades={trades} isPaper={isPaper} />
 
       {/* Strategy Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16, marginBottom: 20 }}>

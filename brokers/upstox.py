@@ -190,16 +190,48 @@ class UpstoxAdapter(AbstractBrokerGateway):
             )
 
             def on_message(msg):
+                logger.info(f"[MESSAGE RECEIVED] Type: {type(msg)} | Keys: {msg.keys() if hasattr(msg, 'keys') else 'N/A'}")
+                logger.info(f"[RAW MESSAGE] {repr(msg)[:1000]}")
                 try:
                     feeds = msg.get("feeds", {})
-                    for sym, data in feeds.items():
-                        market_ff = data.get("fullFeed", {}).get("marketFF", {}) or \
-                                    data.get("ff", {}).get("marketFF", {})
+                    logger.info(f"[FEEDS] Type: {type(feeds)} | Count: {len(feeds)} | Keys: {list(feeds.keys())[:5]}")
+                    
+                    items = list(feeds.items())
+                    logger.info(f"[FEEDS ITEMS] {len(items)} items")
+                    
+                    for sym, data in items:
+                        logger.info(f"[FEED DATA] Symbol: {sym} | Data Type: {type(data)} | Data Keys: {list(data.keys()) if hasattr(data, 'keys') else 'N/A'}")
+                        
+                        full_feed = {}
+                        source_ff = {}
+                        if isinstance(data, dict):
+                            full_feed = data.get("fullFeed", {}) or {}
+                            source_ff = (
+                                full_feed.get("marketFF")
+                                or full_feed.get("indexFF")
+                                or data.get("ff", {}).get("marketFF")
+                                or data.get("ff", {}).get("indexFF")
+                                or {}
+                            )
+                        else:
+                            logger.info(f"[FEED DATA NON-DICT] {type(data)}")
 
-                        ltp = market_ff.get("ltpc", {}).get("ltp", 0)
+                        logger.info(
+                            f"[SOURCE FF] Symbol: {sym} | Keys: {list(source_ff.keys()) if hasattr(source_ff, 'keys') else 'N/A'}"
+                        )
+
+                        ltp = 0.0
+                        if isinstance(source_ff, dict):
+                            ltpc = source_ff.get("ltpc")
+                            if isinstance(ltpc, dict):
+                                ltp = float(ltpc.get("ltp", 0))
+                        logger.info(f"[LTP] Symbol: {sym} | LTP Value: {ltp} | Type: {type(ltp)}")
 
                         if ltp:
-                            if 'Nifty 50' in sym:
+                            logger.info(f"[ALL TICKS] Symbol: {sym} | LTP: {ltp}")
+                            
+                            if 'Nifty 50' in sym or 'NIFTY50' in sym or 'Nifty 50' in str(sym):
+                                logger.info(f"[NIFTY UPDATE] Symbol: {sym} | LTP: {ltp}")
                                 from core.state_store import state_store
                                 state_store.update_market_data("nifty_price", float(ltp))
                                 state_store.update_market_data("nifty_updated", datetime.now().strftime("%H:%M:%S"))
@@ -218,7 +250,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
                                     logger.error(f"Callback error for {sym}: {e}")
 
                 except Exception as e:
-                    logger.error(f"Tick processing error: {e}")
+                    logger.error(f"Tick processing error: {e}", exc_info=True)
 
             streamer.on("message", on_message)
             streamer.on("open", lambda: logger.info("WebSocket connected to Upstox"))

@@ -53,7 +53,7 @@ class SurvivorAlgo(BaseStrategy):
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def on_start(self) -> None:
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
 
         nifty_price = await self.broker.get_ltp(self.cfg.nifty_instrument_key)
         if nifty_price == 0.0:
@@ -87,8 +87,12 @@ class SurvivorAlgo(BaseStrategy):
         try:
             if tick.last_price < 10000:
                 return
+            if self._loop is None or self._loop.is_closed():
+                logger.debug("[survivor] Tick received before startup or after shutdown; skipping")
+                return
             self._last_nifty_price = tick.last_price
-            asyncio.run_coroutine_threadsafe(self.on_tick(tick), self._loop)
+            future = asyncio.run_coroutine_threadsafe(self.on_tick(tick), self._loop)
+            future.add_done_callback(lambda f: f.exception() if f.cancelled() or f.exception() else None)
         except Exception as e:
             logger.error(f"[survivor] Tick sync error: {e}")
 
