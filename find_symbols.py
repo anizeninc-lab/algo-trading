@@ -1,18 +1,25 @@
-﻿import os
+﻿import requests, gzip, io, csv, re
 
-import upstox_client
-from dotenv import load_dotenv
+url = 'https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz'
+r = requests.get(url, timeout=30)
+content = gzip.decompress(r.content).decode('utf-8')
+reader = csv.DictReader(io.StringIO(content))
 
-load_dotenv()
-cfg = upstox_client.Configuration()
-cfg.access_token = os.getenv("UPSTOX_ACCESS_TOKEN")
-api = upstox_client.MarketQuoteApi(upstox_client.ApiClient(cfg))
-print("Scanning near 54628...")
-for i in range(54620, 54800):
-    try:
-        r = api.ltp(f"NSE_FO|{i}", api_version="2.0")
-        keys = list(r.data.keys()) if r.data else []
-        if keys and r.data[keys[0]].last_price > 0:
-            print(f"NSE_FO|{i} | key: {keys[0]} | LTP: {r.data[keys[0]].last_price}")
-    except:
-        pass
+results = []
+for row in reader:
+    name = row.get('tradingsymbol', '')
+    ikey = row.get('instrument_key', '')
+    exp  = row.get('expiry', '')
+    if 'NIFTY26APR' in name and 'BANK' not in name and 'NXT' not in name and 'FIN' not in name and 'MID' not in name:
+        # Parse strike from name e.g. NIFTY26APR24550CE
+        m = re.search(r'NIFTY26APR(\d+)(CE|PE)', name)
+        if m:
+            strike = int(m.group(1))
+            opt    = m.group(2)
+            if 23000 <= strike <= 26000:
+                results.append((ikey, name, exp, strike, opt))
+
+results.sort(key=lambda x: (x[3], x[4]))
+print(f'Found {len(results)} ATM contracts for April 28')
+for ikey, name, exp, strike, opt in results:
+    print(f'{ikey} | {name} | strike: {strike} | {opt}')

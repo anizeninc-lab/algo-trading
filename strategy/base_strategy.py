@@ -4,6 +4,7 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
+import pytz
 
 from brokers.base import AbstractBrokerGateway, Tick
 from core.event_bus import Event, EventType, event_bus
@@ -127,7 +128,7 @@ class BaseStrategy(ABC):
         state_store.update_position(self.name, direction)
 
     def is_market_open(self) -> bool:
-        now = datetime.now()
+        now = datetime.now(pytz.timezone("Asia/Kolkata"))
         weekday = now.weekday()
         if weekday >= 5:
             return False

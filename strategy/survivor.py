@@ -24,8 +24,8 @@ class SurvivorConfig:
     ce_symbol_gap:    float = 300.0
     pe_reset_gap:     float = 90.0
     ce_reset_gap:     float = 90.0
-    pe_quantity:      int   = 75
-    ce_quantity:      int   = 75
+    pe_quantity:      int   = 65
+    ce_quantity:      int   = 65
     pe_start:         float = 0.0
     ce_start:         float = 0.0
     min_price_to_sell: float = 10.0

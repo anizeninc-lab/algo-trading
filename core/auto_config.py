@@ -1,91 +1,150 @@
 # core/auto_config.py
+# Auto-selects correct NIFTY option symbols using Upstox instruments CSV.
+# NIFTY 50 expiry: TUESDAY (changed from Thursday in 2025)
+# Weekly: Every Tuesday. Monthly: Last Tuesday of month.
+# If Tuesday is holiday, shifts to previous trading day.
+
 import logging
 import os
-from datetime import date, datetime, timedelta
-
+import re
+import csv
+import gzip
+import io
+import requests
+from datetime import datetime, date, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
+INSTRUMENTS_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz"
 
-def get_nearest_thursday() -> date:
-    today = date.today()
-    days_ahead = 3 - today.weekday()
-    if days_ahead <= 0:
+NSE_HOLIDAYS_2026 = {
+    date(2026, 1, 26),
+    date(2026, 3, 25),
+    date(2026, 4, 2),
+    date(2026, 4, 14),
+    date(2026, 4, 17),
+    date(2026, 5, 1),
+    date(2026, 8, 15),
+    date(2026, 10, 2),
+    date(2026, 10, 22),
+    date(2026, 10, 23),
+    date(2026, 11, 5),
+    date(2026, 12, 25),
+}
+
+
+def is_trading_day(d: date) -> bool:
+    if d.weekday() >= 5:
+        return False
+    if d in NSE_HOLIDAYS_2026:
+        return False
+    return True
+
+
+def get_previous_trading_day(d: date) -> date:
+    candidate = d - timedelta(days=1)
+    while not is_trading_day(candidate):
+        candidate -= timedelta(days=1)
+    return candidate
+
+
+def get_expiry_date(d: date) -> date:
+    if is_trading_day(d):
+        return d
+    return get_previous_trading_day(d)
+
+
+def get_nearest_tuesday(from_date: date = None) -> date:
+    if from_date is None:
+        from_date = date.today()
+    days_ahead = 1 - from_date.weekday()
+    if days_ahead < 0:
         days_ahead += 7
-    return today + timedelta(days=days_ahead)
-
-
-def get_nearest_monthly_expiry() -> date:
-    today = date.today()
-    if today.month == 12:
-        next_month = date(today.year + 1, 1, 1)
-    else:
-        next_month = date(today.year, today.month + 1, 1)
-    last_day = next_month - timedelta(days=1)
-    days_back = (last_day.weekday() - 3) % 7
-    last_thursday = last_day - timedelta(days=days_back)
-    if last_thursday < today:
-        if today.month == 12:
-            next2 = date(today.year + 1, 2, 1)
+    elif days_ahead == 0:
+        if is_trading_day(from_date):
+            return from_date
         else:
-            next2 = date(today.year, today.month + 2, 1)
-        last_day2 = next2 - timedelta(days=1)
-        days_back2 = (last_day2.weekday() - 3) % 7
-        last_thursday = last_day2 - timedelta(days=days_back2)
-    return last_thursday
+            days_ahead = 7
+    next_tuesday = from_date + timedelta(days=days_ahead)
+    return get_expiry_date(next_tuesday)
 
 
-def format_expiry_for_symbol(expiry: date) -> str:
-    """
-    Upstox weekly format: YYMDd — month has NO leading zero
-    e.g. 13 Apr 2026 = 26413
-    e.g. 03 Nov 2026 = 261103
-    """
-    year = expiry.strftime("%y")  # 26
-    month = str(expiry.month)  # 4 (no leading zero)
-    day = expiry.strftime("%d")  # 13
-    return f"{year}{month}{day}"
+def get_last_tuesday_of_month(year: int, month: int) -> date:
+    if month == 12:
+        next_month = date(year + 1, 1, 1)
+    else:
+        next_month = date(year, month + 1, 1)
+    last_day = next_month - timedelta(days=1)
+    days_back = (last_day.weekday() - 1) % 7
+    last_tuesday = last_day - timedelta(days=days_back)
+    return get_expiry_date(last_tuesday)
+
+
+def get_nearest_monthly_expiry(from_date: date = None) -> date:
+    if from_date is None:
+        from_date = date.today()
+    monthly = get_last_tuesday_of_month(from_date.year, from_date.month)
+    if monthly < from_date:
+        if from_date.month == 12:
+            monthly = get_last_tuesday_of_month(from_date.year + 1, 1)
+        else:
+            monthly = get_last_tuesday_of_month(from_date.year, from_date.month + 1)
+    return monthly
 
 
 def round_to_strike(price: float, step: int = 50) -> int:
     return int(round(price / step) * step)
 
 
-def find_atm_option_symbol(
-    market_api, nifty_price: float, expiry: date, option_type: str = "CE"
-) -> str:
-    import upstox_client
+def fetch_instruments() -> list:
+    """Download and parse Upstox instruments CSV."""
+    try:
+        logger.info("[AutoConfig] Downloading instruments file...")
+        r = requests.get(INSTRUMENTS_URL, timeout=30)
+        content = gzip.decompress(r.content).decode("utf-8")
+        reader = csv.DictReader(io.StringIO(content))
+        rows = list(reader)
+        logger.info(f"[AutoConfig] Loaded {len(rows)} instruments")
+        return rows
+    except Exception as e:
+        logger.error(f"[AutoConfig] Failed to fetch instruments: {e}")
+        return []
 
-    atm_strike = round_to_strike(nifty_price, 50)
-    expiry_str = format_expiry_for_symbol(expiry)
 
-    strikes_to_try = [atm_strike]
-    for offset in [50, 100, 150, 200, 250, 300]:
-        strikes_to_try.append(atm_strike + offset)
-        strikes_to_try.append(atm_strike - offset)
+def find_symbol_from_instruments(instruments: list, expiry: date, strike: int, option_type: str) -> str:
+    """Find instrument key from downloaded instruments list."""
+    expiry_str = expiry.strftime("%Y-%m-%d")
 
-    for strike in strikes_to_try:
-        symbol = f"NSE_FO|NIFTY{expiry_str}{strike}{option_type}"
-        try:
-            resp = market_api.ltp(symbol, api_version="2.0")
-            if resp.data:
-                keys = list(resp.data.keys())
-                if keys and resp.data[keys[0]].last_price > 0:
-                    ltp = resp.data[keys[0]].last_price
-                    logger.info(
-                        f"[AutoConfig] Found {option_type}: {symbol} | LTP: {ltp}"
-                    )
-                    return symbol
-        except Exception:
-            continue
+    # Try exact strike first, then nearby
+    strikes_to_try = [strike]
+    for offset in [50, 100, 150, 200, 250]:
+        strikes_to_try.append(strike + offset)
+        strikes_to_try.append(strike - offset)
 
-    logger.warning(f"[AutoConfig] Could not find {option_type} for expiry {expiry_str}")
+    for s in strikes_to_try:
+        for row in instruments:
+            name = row.get("tradingsymbol", "")
+            ikey = row.get("instrument_key", "")
+            exp  = row.get("expiry", "")
+            if (
+                "NIFTY" in name
+                and "BANKNIFTY" not in name
+                and "FINNIFTY" not in name
+                and "MIDCPNIFTY" not in name
+                and "NIFTYNXT" not in name
+                and exp == expiry_str
+                and name.endswith(f"{s}{option_type}")
+            ):
+                logger.info(f"[AutoConfig] Found {option_type}: {ikey} | {name} | expiry: {exp}")
+                return ikey
+
     return ""
 
 
 def auto_select_symbols(access_token: str = None) -> dict:
+    """Auto-select correct NIFTY option symbols using Tuesday expiry."""
     import upstox_client
 
     if not access_token:
@@ -100,6 +159,7 @@ def auto_select_symbols(access_token: str = None) -> dict:
         client = upstox_client.ApiClient(cfg)
         market_api = upstox_client.MarketQuoteApi(client)
 
+        # Get current NIFTY price
         resp = market_api.ltp("NSE_INDEX|Nifty 50", api_version="2.0")
         keys = list(resp.data.keys()) if resp.data else []
         if not keys:
@@ -107,37 +167,43 @@ def auto_select_symbols(access_token: str = None) -> dict:
             return {}
 
         nifty_price = float(resp.data[keys[0]].last_price)
-        atm_strike = round_to_strike(nifty_price, 50)
+        atm_strike  = round_to_strike(nifty_price, 50)
         logger.info(f"[AutoConfig] NIFTY: {nifty_price} | ATM Strike: {atm_strike}")
 
-        weekly_expiry = get_nearest_thursday()
-        monthly_expiry = get_nearest_monthly_expiry()
-        logger.info(f"[AutoConfig] Weekly: {weekly_expiry} | Monthly: {monthly_expiry}")
+        today          = date.today()
+        weekly_expiry  = get_nearest_tuesday(today)
+        monthly_expiry = get_nearest_monthly_expiry(today)
 
-        ce_symbol = find_atm_option_symbol(market_api, nifty_price, weekly_expiry, "CE")
-        pe_symbol = find_atm_option_symbol(market_api, nifty_price, weekly_expiry, "PE")
+        logger.info(f"[AutoConfig] Weekly expiry (Tuesday): {weekly_expiry} ({weekly_expiry.strftime('%A')})")
+        logger.info(f"[AutoConfig] Monthly expiry (Last Tuesday): {monthly_expiry} ({monthly_expiry.strftime('%A')})")
 
+        # Download instruments
+        instruments = fetch_instruments()
+        if not instruments:
+            logger.error("[AutoConfig] No instruments data")
+            return {}
+
+        # Find ATM symbols for weekly expiry
+        ce_symbol = find_symbol_from_instruments(instruments, weekly_expiry, atm_strike, "CE")
+        pe_symbol = find_symbol_from_instruments(instruments, weekly_expiry, atm_strike, "PE")
+
+        # Fallback to monthly
         if not ce_symbol:
-            ce_symbol = find_atm_option_symbol(
-                market_api, nifty_price, monthly_expiry, "CE"
-            )
+            ce_symbol = find_symbol_from_instruments(instruments, monthly_expiry, atm_strike, "CE")
         if not pe_symbol:
-            pe_symbol = find_atm_option_symbol(
-                market_api, nifty_price, monthly_expiry, "PE"
-            )
+            pe_symbol = find_symbol_from_instruments(instruments, monthly_expiry, atm_strike, "PE")
 
-        expiry_str = weekly_expiry.strftime("%d%b%y").upper()
-        symbol_initials = f"NIFTY{expiry_str}"
+        symbol_initials = f"NIFTY{weekly_expiry.strftime('%d%b%y').upper()}"
 
         result = {
-            "option_symbol": ce_symbol or pe_symbol,
+            "option_symbol":   ce_symbol or pe_symbol,
             "symbol_initials": symbol_initials,
-            "nifty_price": nifty_price,
-            "atm_strike": atm_strike,
-            "weekly_expiry": str(weekly_expiry),
-            "monthly_expiry": str(monthly_expiry),
-            "ce_symbol": ce_symbol,
-            "pe_symbol": pe_symbol,
+            "nifty_price":     nifty_price,
+            "atm_strike":      atm_strike,
+            "weekly_expiry":   str(weekly_expiry),
+            "monthly_expiry":  str(monthly_expiry),
+            "ce_symbol":       ce_symbol,
+            "pe_symbol":       pe_symbol,
         }
 
         logger.info(f"[AutoConfig] Result: {result}")
@@ -156,7 +222,7 @@ if __name__ == "__main__":
         for k, v in result.items():
             print(f"  {k}: {v}")
         print("\nUpdate configs/saviour_combo.json with:")
-        print(f'  "option_symbol": "{result.get("option_symbol", "")}"')
+        print(f'  "option_symbol":   "{result.get("option_symbol", "")}"')
         print(f'  "symbol_initials": "{result.get("symbol_initials", "")}"')
     else:
-        print("Auto config failed — check logs")
+        print("Auto config failed")
