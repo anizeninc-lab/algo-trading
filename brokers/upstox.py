@@ -93,11 +93,12 @@ class UpstoxAdapter(AbstractBrokerGateway):
                 is_amo=False,
             )
             resp = self._order_api.place_order(body)
+            order_id = resp.data.order_ids[0] if hasattr(resp.data, 'order_ids') else getattr(resp.data, 'order_id', '')
             logger.info(
-                f"Order placed: {resp.data.order_id} | {order.symbol} {order.order_type} {order.quantity}"
+                f"Order placed: {order_id} | {order.symbol} {order.order_type} {order.quantity}"
             )
             return OrderResponse(
-                order_id=resp.data.order_id,
+                order_id=order_id,
                 status="OPEN",
                 message="Order placed successfully",
             )
@@ -233,8 +234,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
                             if 'Nifty 50' in sym or 'NIFTY50' in sym or 'Nifty 50' in str(sym):
                                 logger.info(f"[NIFTY UPDATE] Symbol: {sym} | LTP: {ltp}")
                                 from core.state_store import state_store
-                                state_store.update_market_data("nifty_price", float(ltp))
-                                state_store.update_market_data("nifty_updated", datetime.now().strftime("%H:%M:%S"))
+                                state_store.update_nifty_price(float(ltp))
 
                             tick = Tick(
                                 symbol=sym,

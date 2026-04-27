@@ -20,7 +20,7 @@ class WaveConfig:
     option_symbol:        str   = ""
     sell_gap:             float = 20.0
     buy_gap:              float = 20.0
-    quantity:             int   = 75
+    quantity:             int   = 65
     cool_off_time:        float = 5.0
     multiplier_scale:     list  = field(default_factory=lambda: [1.0, 1.3, 1.7, 2.2, 2.8])
     max_net_position:     int   = 4
@@ -50,7 +50,7 @@ class WaveExtractor(BaseStrategy):
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def on_start(self) -> None:
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
 
         if not self.cfg.option_symbol:
             raise RuntimeError("option_symbol must be set in WaveConfig")
@@ -111,7 +111,7 @@ class WaveExtractor(BaseStrategy):
             if pos.symbol == self.cfg.option_symbol:
                 actual_qty = pos.quantity
 
-        lot_size   = self.cfg.quantity or 75
+        lot_size   = self.cfg.quantity or 25
         actual_net = actual_qty // lot_size if lot_size else actual_qty
 
         if actual_net != self._net_position:
@@ -134,10 +134,10 @@ class WaveExtractor(BaseStrategy):
     # ── Tick Handling ─────────────────────────────────────────────────────────
 
     def _on_tick_sync(self, tick: Tick) -> None:
-        try:
+        if self._loop and self._loop.is_running():
             asyncio.run_coroutine_threadsafe(self.on_tick(tick), self._loop)
-        except Exception as e:
-            logger.error(f"[wave_extractor] Tick handler error: {e}")
+        else:
+            logger.error("[wave_extractor] Event loop not running")
 
     async def on_tick(self, tick: Tick) -> None:
         try:
@@ -288,6 +288,7 @@ class WaveExtractor(BaseStrategy):
     async def _place_duo_bracket(self) -> None:
         if self._current_price == 0:
             return
+        self._bracket_active = True  # Set immediately to prevent spam
 
         sell_price = round(self._current_price + self.cfg.sell_gap, 2)
         buy_price  = round(self._current_price - self.cfg.buy_gap, 2)
@@ -312,6 +313,7 @@ class WaveExtractor(BaseStrategy):
             if sell_resp.status == "REJECTED":
                 self._signal(f"SELL order REJECTED: {sell_resp.message}")
                 self._bracket_active = False
+                asyncio.create_task(self._cool_off_and_rebracket())
                 return
 
             self._signal(f"SELL order placed: {self._sell_order_id} @ {sell_price}")

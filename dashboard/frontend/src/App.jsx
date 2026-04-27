@@ -1,212 +1,268 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import axios from "axios"
 
-const API = "http://127.0.0.1:8081"
-const WS  = "ws://127.0.0.1:8081/ws/updates"
+const API = "http://92.4.90.188:8081"
+const WS  = "ws://92.4.90.188:8081/ws/updates"
 
-const STATE_COLOUR = {
-  RUNNING: "#00ff88",
-  STOPPED: "#64748b",
-  ERROR:   "#ff4455",
-  IDLE:    "#3b82f6",
+const C = {
+  bg:       "#060b14",
+  panel:    "#0a1220",
+  card:     "#0d1526",
+  border:   "#1a2840",
+  border2:  "#0f1e35",
+  text:     "#c8d8f0",
+  muted:    "#3a5070",
+  dim:      "#1e3050",
+  green:    "#00e87a",
+  red:      "#ff3d5a",
+  blue:     "#3b82f6",
+  orange:   "#f59e0b",
+  cyan:     "#06b6d4",
+  purple:   "#8b5cf6",
+  yellow:   "#eab308",
 }
 
-const pnlColour = (val) => (val || 0) >= 0 ? "#00ff88" : "#ff4455"
-const pnlBg     = (val) => (val || 0) >= 0 ? "rgba(0,255,136,0.08)" : "rgba(255,68,85,0.08)"
+const pnlC  = v => (v || 0) >= 0 ? C.green : C.red
+const pnlBg = v => (v || 0) >= 0 ? "rgba(0,232,122,0.07)" : "rgba(255,61,90,0.07)"
 
-function Badge({ label, colour }) {
+const STATE_C = { RUNNING: C.green, STOPPED: C.muted, ERROR: C.red, IDLE: C.blue }
+
+const fmt = (n, d = 2) => n != null ? Number(n).toFixed(d) : "—"
+const fmtRs = (n, d = 2) => n != null ? `₹${fmt(n, d)}` : "—"
+const fmtTime = s => s ? s.slice(11, 19) : "—"
+const fmtDate = s => s ? s.slice(0, 10) : "—"
+
+function useCapital() {
+  const [capital, setCapital] = useState({ available: 0, used: 0, total: 0 })
+  useEffect(() => {
+    async function fetch() {
+      try {
+        const r = await axios.get(`${API}/api/health`)
+        if (r.data) setCapital(prev => ({ ...prev }))
+      } catch {}
+    }
+    fetch()
+    const id = setInterval(fetch, 30000)
+    return () => clearInterval(id)
+  }, [])
+  return capital
+}
+
+function Pill({ label, colour, size = 11 }) {
   return (
     <span style={{
-      background: colour + "22", color: colour, borderRadius: 4,
-      padding: "2px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 1,
-      border: `1px solid ${colour}44`,
-    }}>
-      {label}
-    </span>
+      background: colour + "18", color: colour, borderRadius: 3,
+      padding: "2px 8px", fontSize: size, fontWeight: 700, letterSpacing: 0.8,
+      border: `1px solid ${colour}30`, whiteSpace: "nowrap",
+    }}>{label}</span>
   )
 }
 
-function StatBox({ label, value, colour, size = 20, bg }) {
-  return (
-    <div style={{
-      background: bg || "#131929", borderRadius: 10, padding: "12px 18px",
-      border: "1px solid #1e2d47", minWidth: 110,
-    }}>
-      <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700, letterSpacing: 1.5, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: size, fontWeight: 800, color: colour || "#e2e8f0", fontFamily: "'JetBrains Mono', monospace" }}>{value}</div>
-    </div>
-  )
-}
-
-function NiftyTicker({ market }) {
-  const [prev, setPrev] = useState(0)
-  const [flash, setFlash] = useState(null)
-  const price = market?.nifty_price || 0
-
-  useEffect(() => {
-    if (prev && price && price !== prev) {
-      setFlash(price > prev ? "up" : "down")
-      setTimeout(() => setFlash(null), 600)
-    }
-    setPrev(price)
-  }, [price])
-
-  const colour = flash === "up" ? "#00ff88" : flash === "down" ? "#ff4455" : "#e2e8f0"
-  const arrow  = flash === "up" ? " ▲" : flash === "down" ? " ▼" : ""
-
-  return (
-    <div style={{
-      background: "#131929", borderRadius: 10, padding: "12px 18px",
-      border: "1px solid #1e2d47", minWidth: 160,
-      transition: "border-color 0.3s",
-      borderColor: flash ? (flash === "up" ? "#00ff88" : "#ff4455") : "#1e2d47",
-    }}>
-      <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700, letterSpacing: 1.5, marginBottom: 4 }}>
-        NIFTY 50
-      </div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-        <span style={{
-          fontSize: 22, fontWeight: 800, color: colour,
-          fontFamily: "'JetBrains Mono', monospace",
-          transition: "color 0.3s",
-        }}>
-          {price > 0 ? price.toFixed(2) : "—"}{arrow}
-        </span>
-      </div>
-      {market?.option_price > 0 && (
-        <div style={{ fontSize: 10, color: "#4a6080", marginTop: 3 }}>
-          OPT: <span style={{ color: "#e2e8f0" }}>₹{market.option_price.toFixed(2)}</span>
-        </div>
-      )}
-      {market?.nifty_updated && (
-        <div style={{ fontSize: 9, color: "#2a4060", marginTop: 2 }}>↻ {market.nifty_updated}</div>
-      )}
-    </div>
-  )
-}
-
-function Sparkline({ history }) {
-  if (!history || history.length < 2) return null
-  const vals   = history.map(h => h.pnl)
-  const min    = Math.min(...vals)
-  const max    = Math.max(...vals)
-  const range  = max - min || 1
-  const w = 300, h = 44
-  const points = vals.map((v, i) => {
+function MiniSpark({ history, w = 80, h = 28 }) {
+  if (!history || history.length < 2) return <div style={{ width: w, height: h }} />
+  const vals = history.map(x => x.pnl)
+  const mn = Math.min(...vals), mx = Math.max(...vals), rng = mx - mn || 1
+  const pts = vals.map((v, i) => {
     const x = (i / (vals.length - 1)) * w
-    const y = h - ((v - min) / range) * (h - 4) - 2
+    const y = h - ((v - mn) / rng) * (h - 4) - 2
     return `${x},${y}`
   }).join(" ")
-  const last   = vals[vals.length - 1]
-  const colour = last >= 0 ? "#00ff88" : "#ff4455"
-  const fillId = `grad-${Math.random().toString(36).slice(2)}`
+  const last = vals[vals.length - 1]
+  const col = last >= 0 ? C.green : C.red
   return (
-    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-      <defs>
-        <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={colour} stopOpacity="0.3"/>
-          <stop offset="100%" stopColor={colour} stopOpacity="0"/>
-        </linearGradient>
-      </defs>
-      <polygon points={`0,${h} ${points} ${w},${h}`} fill={`url(#${fillId})`}/>
-      <polyline points={points} fill="none" stroke={colour} strokeWidth="1.5" strokeLinejoin="round"/>
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+      <polyline points={pts} fill="none" stroke={col} strokeWidth="1.5" strokeLinejoin="round" opacity="0.8"/>
     </svg>
   )
 }
 
-function VixBadge({ vix }) {
-  if (!vix) return null
-  const v = vix.value
-  let colour = "#00ff88"
-  if (v >= 25) colour = "#ff4455"
-  else if (v >= 20) colour = "#f97316"
-  else if (v >= 16) colour = "#f59e0b"
+function CapitalBar({ trades, global: g }) {
+  const total = 100000
+  const used = trades.filter(t => t.status === "OPEN").reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0), 0)
+  const available = Math.max(0, total - used)
+  const pct = Math.min(100, (used / total) * 100)
+  const barC = pct > 80 ? C.red : pct > 50 ? C.orange : C.green
+
   return (
-    <div style={{
-      background: "#131929", borderRadius: 10, padding: "12px 18px",
-      border: `1px solid ${colour}44`, minWidth: 130,
-    }}>
-      <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700, letterSpacing: 1.5, marginBottom: 4 }}>INDIA VIX</div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-        <span style={{ fontSize: 22, fontWeight: 800, color: colour, fontFamily: "'JetBrains Mono', monospace" }}>
-          {v != null ? v.toFixed(2) : "—"}
-        </span>
-        <span style={{ fontSize: 10, color: colour, fontWeight: 700 }}>{vix.regime}</span>
+    <div style={{ background: C.card, borderRadius: 10, padding: "14px 18px", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1.5 }}>CAPITAL OVERVIEW</span>
+        <span style={{ fontSize: 10, color: barC, fontWeight: 700 }}>{pct.toFixed(1)}% USED</span>
       </div>
-      {vix.halt && (
-        <div style={{ fontSize: 10, color: "#ff4455", marginTop: 4, fontWeight: 700 }}>TRADING HALTED</div>
-      )}
-      {vix.updated && (
-        <div style={{ fontSize: 10, color: "#4a6080", marginTop: 2 }}>↻ {vix.updated}</div>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        {[
+          { label: "TOTAL",     val: fmtRs(total),     col: C.text },
+          { label: "AVAILABLE", val: fmtRs(available), col: C.green },
+          { label: "IN TRADES", val: fmtRs(used),      col: used > 0 ? C.orange : C.muted },
+          { label: "FREE MARGIN", val: fmtRs(available), col: C.cyan },
+        ].map(({ label, val, col }) => (
+          <div key={label}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>{label}</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: col, fontFamily: "monospace" }}>{val}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ height: 4, background: C.border, borderRadius: 2, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: barC, borderRadius: 2, transition: "width 0.5s" }} />
+      </div>
+    </div>
+  )
+}
+
+function NiftyBox({ market }) {
+  const [prev, setPrev] = useState(0)
+  const [flash, setFlash] = useState(null)
+  const price = market?.nifty_price || 0
+  useEffect(() => {
+    if (prev && price && price !== prev) {
+      setFlash(price > prev ? "up" : "down")
+      setTimeout(() => setFlash(null), 500)
+    }
+    setPrev(price)
+  }, [price])
+  const col = flash === "up" ? C.green : flash === "down" ? C.red : C.text
+  return (
+    <div style={{ background: C.card, borderRadius: 10, padding: "12px 16px", border: `1px solid ${flash ? (flash === "up" ? C.green : C.red) : C.border}`, minWidth: 160, transition: "border-color 0.3s" }}>
+      <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, marginBottom: 3 }}>NIFTY 50</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: col, fontFamily: "monospace", transition: "color 0.3s" }}>
+        {price > 0 ? price.toFixed(2) : "—"}{flash === "up" ? " ▲" : flash === "down" ? " ▼" : ""}
+      </div>
+      {market?.option_price > 0 && (
+        <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>
+          OPT: <span style={{ color: C.text }}>₹{market.option_price.toFixed(2)}</span>
+        </div>
       )}
     </div>
   )
 }
 
-function StrategyCard({ name, data, onStop, onReset }) {
-  const title = name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
-  if (!data) return (
-    <div style={{ background: "#0d1526", borderRadius: 14, padding: 20, border: "1px solid #1e2d47", minHeight: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ color: "#4a6080", fontSize: 13 }}>{title} — waiting...</div>
+function StatTile({ label, value, colour, sub, bg }) {
+  return (
+    <div style={{ background: bg || C.card, borderRadius: 10, padding: "12px 16px", border: `1px solid ${C.border}`, minWidth: 100 }}>
+      <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: colour || C.text, fontFamily: "monospace" }}>{value}</div>
+      {sub && <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>{sub}</div>}
     </div>
   )
+}
+
+function VixBox({ vix }) {
+  if (!vix) return null
+  const v = vix.value
+  const col = v >= 25 ? C.red : v >= 20 ? C.orange : v >= 16 ? C.yellow : C.green
+  return (
+    <div style={{ background: C.card, borderRadius: 10, padding: "12px 16px", border: `1px solid ${col}30`, minWidth: 120 }}>
+      <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, marginBottom: 3 }}>INDIA VIX</div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+        <span style={{ fontSize: 22, fontWeight: 800, color: col, fontFamily: "monospace" }}>{v != null ? v.toFixed(2) : "—"}</span>
+        <span style={{ fontSize: 9, color: col, fontWeight: 700 }}>{vix.regime}</span>
+      </div>
+    </div>
+  )
+}
+
+function StratCard({ name, data, onStop, onReset, trades }) {
+  const title = name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+  const myTrades = trades.filter(t => t.strategy === name)
+  const openTrades = myTrades.filter(t => t.status === "OPEN")
+  const closedTrades = myTrades.filter(t => t.status === "CLOSED")
+  const winCount = closedTrades.filter(t => (t.realised_pnl || 0) > 0).length
+  const winRate = closedTrades.length > 0 ? ((winCount / closedTrades.length) * 100).toFixed(0) : "—"
+  const capitalUsed = openTrades.reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0), 0)
+  const capitalLimit = 40000
+  const capPct = Math.min(100, (capitalUsed / capitalLimit) * 100)
+  const capCol = capPct > 80 ? C.red : capPct > 50 ? C.orange : C.green
+
+  if (!data) return (
+    <div style={{ background: C.card, borderRadius: 12, padding: 18, border: `1px solid ${C.border}`, minHeight: 180, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <span style={{ color: C.muted, fontSize: 12 }}>{title} — waiting...</span>
+    </div>
+  )
+
   const realised   = data.realised_pnl   || 0
   const unrealised = data.unrealised_pnl || 0
-  const netPnl     = realised + unrealised
-  const colour     = STATE_COLOUR[data.state] || "#64748b"
+  const net        = realised + unrealised
+  const col        = STATE_C[data.state] || C.muted
+  const capEff     = capitalUsed > 0 ? ((net / capitalUsed) * 100).toFixed(1) : "—"
+
   return (
-    <div style={{ background: "#0d1526", borderRadius: 14, padding: 20, border: `1px solid ${colour}33`, display: "flex", flexDirection: "column", gap: 14, boxShadow: `0 0 20px ${colour}0a` }}>
+    <div style={{ background: C.card, borderRadius: 12, padding: 18, border: `1px solid ${col}25`, display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontWeight: 800, fontSize: 15, color: "#e2e8f0" }}>{title}</span>
-        <Badge label={data.state || "IDLE"} colour={colour} />
+        <span style={{ fontWeight: 800, fontSize: 14, color: C.text }}>{title}</span>
+        <Pill label={data.state || "IDLE"} colour={col} />
       </div>
-      <div style={{ background: pnlBg(netPnl), borderRadius: 10, padding: "12px 14px", border: `1px solid ${pnlColour(netPnl)}22`, display: "flex", gap: 20, alignItems: "center" }}>
+
+      {/* PnL */}
+      <div style={{ background: pnlBg(net), borderRadius: 8, padding: "10px 14px", border: `1px solid ${pnlC(net)}20`, display: "flex", gap: 16, alignItems: "center" }}>
         <div>
-          <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700, letterSpacing: 1 }}>NET P&L</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: pnlColour(netPnl), fontFamily: "'JetBrains Mono', monospace" }}>₹{netPnl.toFixed(2)}</div>
+          <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>NET P&L</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: pnlC(net), fontFamily: "monospace" }}>{fmtRs(net)}</div>
         </div>
-        <div style={{ borderLeft: "1px solid #1e2d47", paddingLeft: 20, display: "flex", gap: 16 }}>
+        <div style={{ borderLeft: `1px solid ${C.border}`, paddingLeft: 16, display: "flex", gap: 14 }}>
           <div>
-            <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700 }}>REALISED</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: pnlColour(realised), fontFamily: "'JetBrains Mono', monospace" }}>₹{realised.toFixed(2)}</div>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>REALISED</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: pnlC(realised), fontFamily: "monospace" }}>{fmtRs(realised)}</div>
           </div>
           <div>
-            <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700 }}>UNREALISED</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: pnlColour(unrealised), fontFamily: "'JetBrains Mono', monospace" }}>₹{unrealised.toFixed(2)}</div>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>UNREALISED</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: pnlC(unrealised), fontFamily: "monospace" }}>{fmtRs(unrealised)}</div>
           </div>
+        </div>
+        <div style={{ marginLeft: "auto" }}>
+          <MiniSpark history={data.pnl_history} />
         </div>
       </div>
-      <div style={{ display: "flex", gap: 12 }}>
+
+      {/* Stats grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
         {[
-          { label: "POSITION",    value: data.position    || "FLAT" },
-          { label: "OPEN ORDERS", value: data.open_orders || 0 },
-          { label: "OPEN TRADES", value: data.open_trades || 0 },
-          { label: "TOTAL",       value: data.total_trades || 0 },
-        ].map(({ label, value }) => (
-          <div key={label} style={{ flex: 1, background: "#131929", borderRadius: 8, padding: "8px 10px", border: "1px solid #1e2d47" }}>
-            <div style={{ fontSize: 9, color: "#4a6080", fontWeight: 700, letterSpacing: 1 }}>{label}</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0", marginTop: 2 }}>{value}</div>
+          { label: "POSITION",   val: data.position || "FLAT" },
+          { label: "OPEN TRADES", val: data.open_trades || 0 },
+          { label: "TOTAL",      val: data.total_trades || 0 },
+          { label: "WIN RATE",   val: winRate !== "—" ? `${winRate}%` : "—" },
+        ].map(({ label, val }) => (
+          <div key={label} style={{ background: C.panel, borderRadius: 6, padding: "7px 9px", border: `1px solid ${C.border2}` }}>
+            <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 0.8 }}>{label}</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginTop: 2 }}>{val}</div>
           </div>
         ))}
       </div>
-      <div style={{ background: "#131929", borderRadius: 8, padding: "8px 12px", fontSize: 11, color: "#4a8080", minHeight: 28, borderLeft: "2px solid #1e4060", fontFamily: "'JetBrains Mono', monospace" }}>
+
+      {/* Capital allocation */}
+      <div style={{ background: C.panel, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.border2}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+          <span style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>CAPITAL ALLOCATION</span>
+          <span style={{ fontSize: 9, color: capCol, fontWeight: 700 }}>{capPct.toFixed(0)}% OF {fmtRs(capitalLimit)}</span>
+        </div>
+        <div style={{ display: "flex", gap: 12, marginBottom: 6 }}>
+          <div><div style={{ fontSize: 8, color: C.muted }}>USED</div><div style={{ fontSize: 11, fontWeight: 700, color: capCol, fontFamily: "monospace" }}>{fmtRs(capitalUsed)}</div></div>
+          <div><div style={{ fontSize: 8, color: C.muted }}>REMAINING</div><div style={{ fontSize: 11, fontWeight: 700, color: C.green, fontFamily: "monospace" }}>{fmtRs(capitalLimit - capitalUsed)}</div></div>
+          <div><div style={{ fontSize: 8, color: C.muted }}>EFFICIENCY</div><div style={{ fontSize: 11, fontWeight: 700, color: C.cyan, fontFamily: "monospace" }}>{capEff !== "—" ? `${capEff}%` : "—"}</div></div>
+        </div>
+        <div style={{ height: 3, background: C.border, borderRadius: 2 }}>
+          <div style={{ height: "100%", width: `${capPct}%`, background: capCol, borderRadius: 2, transition: "width 0.5s" }} />
+        </div>
+      </div>
+
+      {/* Last signal */}
+      <div style={{ background: C.panel, borderRadius: 6, padding: "7px 10px", fontSize: 10, color: "#4a8080", borderLeft: `2px solid ${C.dim}`, fontFamily: "monospace", minHeight: 26 }}>
         {data.last_signal || "— no signal yet —"}
       </div>
-      <div style={{ borderRadius: 8, overflow: "hidden", background: "#131929", padding: "4px 0" }}>
-        <Sparkline history={data.pnl_history} />
-      </div>
+
+      {/* Error */}
       {data.error_message && (
-        <div style={{ color: "#ff4455", fontSize: 11, background: "#ff445510", borderRadius: 6, padding: "6px 10px" }}>
-          ⚠ {data.error_message}
-        </div>
+        <div style={{ color: C.red, fontSize: 10, background: "#ff3d5a10", borderRadius: 6, padding: "6px 10px" }}>⚠ {data.error_message}</div>
       )}
+
+      {/* Buttons */}
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={() => onStop(name)} disabled={data.state !== "RUNNING"}
-          style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: data.state === "RUNNING" ? "1px solid #ff445544" : "1px solid #1e2d47", background: data.state === "RUNNING" ? "#ff445522" : "#1e2d47", color: data.state === "RUNNING" ? "#ff4455" : "#4a6080", fontWeight: 700, cursor: data.state === "RUNNING" ? "pointer" : "not-allowed", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>
+          style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: data.state === "RUNNING" ? `1px solid ${C.red}40` : `1px solid ${C.border}`, background: data.state === "RUNNING" ? "#ff3d5a18" : C.border, color: data.state === "RUNNING" ? C.red : C.muted, fontWeight: 700, cursor: data.state === "RUNNING" ? "pointer" : "not-allowed", fontSize: 11, fontFamily: "monospace" }}>
           STOP
         </button>
         <button onClick={() => onReset(name)} disabled={data.state !== "ERROR"}
-          style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: data.state === "ERROR" ? "1px solid #f59e0b44" : "1px solid #1e2d47", background: data.state === "ERROR" ? "#f59e0b22" : "#1e2d47", color: data.state === "ERROR" ? "#f59e0b" : "#4a6080", fontWeight: 700, cursor: data.state === "ERROR" ? "pointer" : "not-allowed", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>
+          style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: data.state === "ERROR" ? `1px solid ${C.orange}40` : `1px solid ${C.border}`, background: data.state === "ERROR" ? "#f59e0b18" : C.border, color: data.state === "ERROR" ? C.orange : C.muted, fontWeight: 700, cursor: data.state === "ERROR" ? "pointer" : "not-allowed", fontSize: 11, fontFamily: "monospace" }}>
           RESET
         </button>
       </div>
@@ -214,27 +270,299 @@ function StrategyCard({ name, data, onStop, onReset }) {
   )
 }
 
-function OpenTradesPanel({ trades }) {
+function TradeLedger({ trades }) {
+  const [selected, setSelected] = useState(null)
+  const [filter, setFilter] = useState("ALL")
+
+  const filtered = trades.filter(t => {
+    if (filter === "ALL") return true
+    if (filter === "OPEN") return t.status === "OPEN"
+    if (filter === "CLOSED") return t.status === "CLOSED"
+    if (filter === "CANCELLED") return t.status === "CANCELLED"
+    return true
+  })
+
+  const cols = ["TRADE ID", "STRATEGY", "INSTRUMENT", "DIR", "QTY", "ENTRY TIME", "ENTRY ₹", "EXIT TIME", "EXIT ₹", "PREMIUM", "STATUS", "P&L"]
+
+  if (selected) {
+    const t = selected
+    const premium = (t.entry_price || 0) * (t.quantity || 0)
+    const margin = premium * 5
+    const maxRisk = premium * 0.35
+    const rr = maxRisk > 0 ? ((t.realised_pnl || 0) / maxRisk).toFixed(2) : "—"
+    return (
+      <div>
+        <button onClick={() => setSelected(null)} style={{ background: C.panel, border: `1px solid ${C.border}`, color: C.cyan, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 11, fontFamily: "monospace", marginBottom: 16 }}>
+          ← BACK TO LEDGER
+        </button>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {/* Trade Info */}
+          <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>TRADE DETAILS</div>
+            {[
+              ["Trade ID", t.id || "—"],
+              ["Strategy", t.strategy || "—"],
+              ["Instrument", t.symbol || "—"],
+              ["Direction", t.order_type || "—"],
+              ["Quantity", t.quantity || "—"],
+              ["Status", t.status || "—"],
+              ["Broker Order ID", t.broker_order_id || "—"],
+            ].map(([label, val]) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border2}` }}>
+                <span style={{ fontSize: 11, color: C.muted }}>{label}</span>
+                <span style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{val}</span>
+              </div>
+            ))}
+          </div>
+          {/* Capital Info */}
+          <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>CAPITAL & RISK</div>
+            {[
+              ["Entry Price", fmtRs(t.entry_price)],
+              ["Exit Price", fmtRs(t.exit_price)],
+              ["Premium Paid/Recv", fmtRs(premium)],
+              ["Est. Margin Used", fmtRs(margin)],
+              ["Max Capital at Risk", fmtRs(maxRisk)],
+              ["Realised P&L", fmtRs(t.realised_pnl)],
+              ["Risk/Reward", rr],
+            ].map(([label, val]) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border2}` }}>
+                <span style={{ fontSize: 11, color: C.muted }}>{label}</span>
+                <span style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{val}</span>
+              </div>
+            ))}
+          </div>
+          {/* Timing */}
+          <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>EXECUTION TIMING</div>
+            {[
+              ["Entry Time", t.entry_time ? t.entry_time.slice(0, 19).replace("T", " ") : "—"],
+              ["Exit Time", t.exit_time ? t.exit_time.slice(0, 19).replace("T", " ") : "—"],
+              ["Duration", t.entry_time && t.exit_time ? `${Math.round((new Date(t.exit_time) - new Date(t.entry_time)) / 60000)} min` : "—"],
+              ["Notes", t.notes || "—"],
+            ].map(([label, val]) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border2}` }}>
+                <span style={{ fontSize: 11, color: C.muted }}>{label}</span>
+                <span style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      {/* Filter bar */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        {["ALL", "OPEN", "CLOSED", "CANCELLED"].map(f => (
+          <button key={f} onClick={() => setFilter(f)} style={{
+            padding: "5px 12px", borderRadius: 5, border: `1px solid ${filter === f ? C.cyan : C.border}`,
+            background: filter === f ? C.cyan + "20" : "transparent",
+            color: filter === f ? C.cyan : C.muted,
+            fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "monospace",
+          }}>{f} ({trades.filter(t => f === "ALL" ? true : t.status === f).length})</button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No trades found</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+            <thead>
+              <tr style={{ background: C.panel }}>
+                {cols.map(h => (
+                  <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontWeight: 700, color: C.muted, fontSize: 9, letterSpacing: 1, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((t, i) => {
+                const premium = (t.entry_price || 0) * (t.quantity || 0)
+                const statusCol = t.status === "OPEN" ? C.blue : t.status === "CLOSED" ? C.green : C.muted
+                return (
+                  <tr key={t.id || i}
+                    onClick={() => setSelected(t)}
+                    style={{ borderBottom: `1px solid ${C.border2}`, cursor: "pointer" }}
+                    onMouseEnter={e => e.currentTarget.style.background = C.panel}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    <td style={{ padding: "8px 12px", color: C.cyan, fontFamily: "monospace", fontSize: 10 }}>{(t.id || "").slice(0, 8)}…</td>
+                    <td style={{ padding: "8px 12px", color: C.text }}>{t.strategy}</td>
+                    <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace", fontSize: 10 }}>{t.symbol}</td>
+                    <td style={{ padding: "8px 12px", fontWeight: 700, color: t.order_type === "SELL" ? C.red : C.green }}>{t.order_type}</td>
+                    <td style={{ padding: "8px 12px", color: C.text }}>{t.quantity}</td>
+                    <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10 }}>{fmtTime(t.entry_time)}</td>
+                    <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace" }}>{fmtRs(t.entry_price)}</td>
+                    <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10 }}>{fmtTime(t.exit_time)}</td>
+                    <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace" }}>{fmtRs(t.exit_price)}</td>
+                    <td style={{ padding: "8px 12px", color: C.orange, fontFamily: "monospace" }}>{fmtRs(premium)}</td>
+                    <td style={{ padding: "8px 12px" }}><Pill label={t.status} colour={statusCol} size={9} /></td>
+                    <td style={{ padding: "8px 12px", fontWeight: 700, color: pnlC(t.realised_pnl), fontFamily: "monospace" }}>{fmtRs(t.realised_pnl)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ExecutionLog({ trades }) {
+  const logs = []
+  trades.forEach(t => {
+    if (t.entry_time) logs.push({
+      time: t.entry_time,
+      type: "ENTRY",
+      msg: `${t.order_type} ${t.symbol} @ ₹${fmt(t.entry_price)} (Qty ${t.quantity})`,
+      strategy: t.strategy,
+      orderId: t.broker_order_id,
+      col: t.order_type === "SELL" ? C.red : C.green,
+    })
+    if (t.exit_time) logs.push({
+      time: t.exit_time,
+      type: "EXIT",
+      msg: `EXIT ${t.symbol} @ ₹${fmt(t.exit_price)} (P&L: ${fmtRs(t.realised_pnl)})`,
+      strategy: t.strategy,
+      orderId: t.broker_order_id,
+      col: pnlC(t.realised_pnl),
+    })
+  })
+  logs.sort((a, b) => new Date(b.time) - new Date(a.time))
+
+  if (logs.length === 0) return (
+    <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No execution history yet</div>
+  )
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 400, overflowY: "auto" }}>
+      {logs.map((log, i) => (
+        <div key={i} style={{ display: "flex", gap: 12, padding: "8px 12px", background: C.panel, borderRadius: 6, border: `1px solid ${C.border2}`, alignItems: "flex-start" }}>
+          <div style={{ fontSize: 10, color: C.muted, fontFamily: "monospace", whiteSpace: "nowrap", marginTop: 1 }}>{fmtTime(log.time)}</div>
+          <Pill label={log.type} colour={log.col} size={9} />
+          <div style={{ fontSize: 11, color: C.text, fontFamily: "monospace", flex: 1 }}>{log.msg}</div>
+          <div style={{ fontSize: 10, color: C.muted }}>{log.strategy}</div>
+          {log.orderId && <div style={{ fontSize: 9, color: C.dim, fontFamily: "monospace" }}>{log.orderId}</div>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PerformancePanel({ trades }) {
+  const closed = trades.filter(t => t.status === "CLOSED")
+  const wins = closed.filter(t => (t.realised_pnl || 0) > 0)
+  const losses = closed.filter(t => (t.realised_pnl || 0) < 0)
+  const totalPnl = closed.reduce((s, t) => s + (t.realised_pnl || 0), 0)
+  const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.realised_pnl, 0) / wins.length : 0
+  const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + t.realised_pnl, 0) / losses.length) : 0
+  const winRate = closed.length > 0 ? (wins.length / closed.length * 100).toFixed(1) : 0
+  const profitFactor = avgLoss > 0 ? (avgWin * wins.length / (avgLoss * losses.length)).toFixed(2) : "—"
+
+  // Daily equity
+  const byDate = {}
+  closed.forEach(t => {
+    if (!t.exit_time) return
+    const d = t.exit_time.slice(0, 10)
+    byDate[d] = (byDate[d] || 0) + (t.realised_pnl || 0)
+  })
+  const days = Object.entries(byDate).sort((a, b) => a[0].localeCompare(b[0])).slice(-14)
+  const maxAbs = Math.max(...days.map(d => Math.abs(d[1])), 1)
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Metrics */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+        {[
+          { label: "TOTAL TRADES", val: closed.length, col: C.text },
+          { label: "WIN RATE", val: `${winRate}%`, col: Number(winRate) >= 50 ? C.green : C.red },
+          { label: "AVG WIN", val: fmtRs(avgWin), col: C.green },
+          { label: "AVG LOSS", val: fmtRs(-avgLoss), col: C.red },
+          { label: "PROFIT FACTOR", val: profitFactor, col: Number(profitFactor) >= 1 ? C.green : C.red },
+          { label: "TOTAL P&L", val: fmtRs(totalPnl), col: pnlC(totalPnl) },
+        ].map(({ label, val, col }) => (
+          <div key={label} style={{ background: C.panel, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>{label}</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: col, fontFamily: "monospace" }}>{val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Daily equity curve */}
+      <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>DAILY P&L (LAST 14 DAYS)</div>
+        {days.length === 0 ? (
+          <div style={{ color: C.muted, textAlign: "center", padding: "16px 0", fontSize: 12 }}>No data yet</div>
+        ) : (
+          <div style={{ display: "flex", gap: 6, alignItems: "flex-end", height: 80 }}>
+            {days.map(([date, pnl]) => {
+              const h = Math.max(4, (Math.abs(pnl) / maxAbs) * 68)
+              const col = pnl >= 0 ? C.green : C.red
+              return (
+                <div key={date} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                  <div style={{ fontSize: 9, color: col, fontWeight: 700, fontFamily: "monospace" }}>{pnl >= 0 ? "+" : ""}{pnl.toFixed(0)}</div>
+                  <div style={{ width: "100%", height: h, background: col + "50", borderRadius: 3, border: `1px solid ${col}60` }} />
+                  <div style={{ fontSize: 8, color: C.muted }}>{date.slice(5).replace("-", "/")}</div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Per-strategy breakdown */}
+      <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>STRATEGY BREAKDOWN</div>
+        {["wave_extractor", "survivor", "saviour_combo"].map(name => {
+          const st = closed.filter(t => t.strategy === name)
+          const stPnl = st.reduce((s, t) => s + (t.realised_pnl || 0), 0)
+          const stWin = st.filter(t => (t.realised_pnl || 0) > 0).length
+          const stWR = st.length > 0 ? (stWin / st.length * 100).toFixed(0) : "—"
+          return (
+            <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border2}` }}>
+              <span style={{ fontSize: 11, color: C.text }}>{name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</span>
+              <div style={{ display: "flex", gap: 16 }}>
+                <span style={{ fontSize: 11, color: C.muted }}>{st.length} trades</span>
+                <span style={{ fontSize: 11, color: C.cyan }}>{stWR !== "—" ? `${stWR}% WR` : "—"}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: pnlC(stPnl), fontFamily: "monospace" }}>{fmtRs(stPnl)}</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function OpenPositions({ trades }) {
   const open = trades.filter(t => t.status === "OPEN")
   if (open.length === 0) return (
-    <div style={{ color: "#4a6080", textAlign: "center", padding: "28px 0", fontSize: 13 }}>No open positions</div>
+    <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No open positions</div>
   )
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {open.map((t, i) => {
         const unreal = t.unrealised_pnl || 0
+        const premium = (t.entry_price || 0) * (t.quantity || 0)
+        const estMargin = premium * 5
         return (
-          <div key={t.id || i} style={{ background: "#131929", borderRadius: 10, padding: "12px 16px", border: `1px solid ${pnlColour(unreal)}22`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-            <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-              <div><div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700 }}>STRATEGY</div><div style={{ fontSize: 12, color: "#e2e8f0", fontWeight: 700 }}>{t.strategy}</div></div>
-              <div><div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700 }}>SYMBOL</div><div style={{ fontSize: 12, color: "#e2e8f0", fontFamily: "'JetBrains Mono', monospace" }}>{t.symbol}</div></div>
-              <div><div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700 }}>TYPE</div><div style={{ fontSize: 12, fontWeight: 700, color: t.order_type === "SELL" ? "#ff4455" : "#00ff88" }}>{t.order_type}</div></div>
-              <div><div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700 }}>QTY</div><div style={{ fontSize: 12, color: "#e2e8f0" }}>{t.quantity}</div></div>
-              <div><div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700 }}>ENTRY</div><div style={{ fontSize: 12, color: "#e2e8f0", fontFamily: "'JetBrains Mono', monospace" }}>{t.entry_time ? t.entry_time.slice(11, 19) : "—"}</div></div>
+          <div key={t.id || i} style={{ background: C.panel, borderRadius: 10, padding: "12px 16px", border: `1px solid ${pnlC(unreal)}20`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>STRATEGY</div><div style={{ fontSize: 12, color: C.text, fontWeight: 700 }}>{t.strategy}</div></div>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>SYMBOL</div><div style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{t.symbol}</div></div>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>DIR</div><div style={{ fontSize: 12, fontWeight: 700, color: t.order_type === "SELL" ? C.red : C.green }}>{t.order_type}</div></div>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>QTY</div><div style={{ fontSize: 12, color: C.text }}>{t.quantity}</div></div>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>ENTRY ₹</div><div style={{ fontSize: 12, color: C.text, fontFamily: "monospace" }}>{fmtRs(t.entry_price)}</div></div>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>ENTRY TIME</div><div style={{ fontSize: 11, color: C.muted, fontFamily: "monospace" }}>{fmtTime(t.entry_time)}</div></div>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>PREMIUM</div><div style={{ fontSize: 11, color: C.orange, fontFamily: "monospace" }}>{fmtRs(premium)}</div></div>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>EST MARGIN</div><div style={{ fontSize: 11, color: C.cyan, fontFamily: "monospace" }}>{fmtRs(estMargin)}</div></div>
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 10, color: "#4a6080", fontWeight: 700 }}>UNREALISED P&L</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: pnlColour(unreal), fontFamily: "'JetBrains Mono', monospace" }}>₹{unreal.toFixed(2)}</div>
+              <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>UNREALISED P&L</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: pnlC(unreal), fontFamily: "monospace" }}>{fmtRs(unreal)}</div>
             </div>
           </div>
         )
@@ -243,73 +571,70 @@ function OpenTradesPanel({ trades }) {
   )
 }
 
-function TradeLog({ trades }) {
-  const closed = trades.filter(t => t.status === "CLOSED")
-  if (closed.length === 0) return (
-    <div style={{ color: "#4a6080", textAlign: "center", padding: "28px 0", fontSize: 13 }}>No closed trades yet</div>
-  )
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-        <thead>
-          <tr style={{ background: "#0a1020" }}>
-            {["Strategy", "Symbol", "Type", "Qty", "Entry", "Exit", "P&L"].map(h => (
-              <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "#4a6080", fontSize: 10, letterSpacing: 1.2, borderBottom: "1px solid #1e2d47" }}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {closed.map((t, i) => (
-            <tr key={t.id || i} style={{ borderBottom: "1px solid #131929" }}
-              onMouseEnter={e => e.currentTarget.style.background = "#131929"}
-              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <td style={{ padding: "10px 14px", color: "#94a3b8" }}>{t.strategy}</td>
-              <td style={{ padding: "10px 14px", color: "#e2e8f0", fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{t.symbol}</td>
-              <td style={{ padding: "10px 14px", fontWeight: 700, color: t.order_type === "SELL" ? "#ff4455" : "#00ff88" }}>{t.order_type}</td>
-              <td style={{ padding: "10px 14px", color: "#e2e8f0" }}>{t.quantity}</td>
-              <td style={{ padding: "10px 14px", color: "#64748b", fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{t.entry_time ? t.entry_time.slice(11, 19) : "—"}</td>
-              <td style={{ padding: "10px 14px", color: "#64748b", fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>{t.exit_time ? t.exit_time.slice(11, 19) : "—"}</td>
-              <td style={{ padding: "10px 14px", fontWeight: 700, color: pnlColour(t.realised_pnl), fontFamily: "'JetBrains Mono', monospace" }}>
-                {t.realised_pnl != null ? `₹${t.realised_pnl.toFixed(2)}` : "—"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
+function RiskPanel({ trades, global: g }) {
+  const open = trades.filter(t => t.status === "OPEN")
+  const totalCapitalAtRisk = open.reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0) * 0.35, 0)
+  const totalMarginUsed = open.reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0) * 5, 0)
+  const maxDailyLoss = 5000
+  const todayPnl = trades.filter(t => t.status === "CLOSED" && t.exit_time?.slice(0, 10) === new Date().toISOString().slice(0, 10)).reduce((s, t) => s + (t.realised_pnl || 0), 0)
+  const ddPct = Math.min(100, (Math.abs(Math.min(0, todayPnl)) / maxDailyLoss) * 100)
+  const ddCol = ddPct > 80 ? C.red : ddPct > 50 ? C.orange : C.green
 
-function DailyPnlBar({ trades }) {
-  const byDate = {}
-  trades.filter(t => t.status === "CLOSED" && t.exit_time).forEach(t => {
-    const date = t.exit_time.slice(0, 10)
-    byDate[date] = (byDate[date] || 0) + (t.realised_pnl || 0)
-  })
-  const days = Object.entries(byDate).sort((a, b) => a[0].localeCompare(b[0])).slice(-7)
-  if (days.length === 0) return (
-    <div style={{ color: "#4a6080", textAlign: "center", padding: "28px 0", fontSize: 13 }}>No daily P&L data yet</div>
-  )
-  const max = Math.max(...days.map(d => Math.abs(d[1]))) || 1
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: 100, padding: "0 4px" }}>
-      {days.map(([date, pnl]) => {
-        const h   = Math.max(4, (Math.abs(pnl) / max) * 80)
-        const col = pnl >= 0 ? "#00ff88" : "#ff4455"
-        return (
-          <div key={date} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-            <div style={{ fontSize: 10, color: col, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>{pnl >= 0 ? "+" : ""}{pnl.toFixed(0)}</div>
-            <div style={{ width: "100%", height: h, background: col + "44", borderRadius: 4, border: `1px solid ${col}66` }} />
-            <div style={{ fontSize: 9, color: "#4a6080", fontWeight: 700 }}>{date.slice(5).replace("-", "/")}</div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+        {[
+          { label: "MAX CAPITAL AT RISK", val: fmtRs(totalCapitalAtRisk), col: totalCapitalAtRisk > 10000 ? C.red : C.orange },
+          { label: "EST MARGIN LOCKED", val: fmtRs(totalMarginUsed), col: C.cyan },
+          { label: "DAILY LOSS LIMIT", val: fmtRs(maxDailyLoss), col: C.muted },
+          { label: "TODAY P&L", val: fmtRs(todayPnl), col: pnlC(todayPnl) },
+          { label: "OPEN POSITIONS", val: open.length, col: open.length > 2 ? C.orange : C.green },
+          { label: "MAX CONCURRENT", val: "4", col: C.muted },
+        ].map(({ label, val, col }) => (
+          <div key={label} style={{ background: C.panel, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>{label}</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: col, fontFamily: "monospace" }}>{val}</div>
           </div>
-        )
-      })}
+        ))}
+      </div>
+
+      {/* Drawdown meter */}
+      <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+          <span style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>DAILY LOSS METER</span>
+          <span style={{ fontSize: 10, color: ddCol, fontWeight: 700 }}>{ddPct.toFixed(1)}% of ₹{maxDailyLoss} limit</span>
+        </div>
+        <div style={{ height: 8, background: C.border, borderRadius: 4 }}>
+          <div style={{ height: "100%", width: `${ddPct}%`, background: ddCol, borderRadius: 4, transition: "width 0.5s" }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+          <span style={{ fontSize: 9, color: C.muted }}>₹0</span>
+          <span style={{ fontSize: 9, color: C.orange }}>₹2,500 (50%)</span>
+          <span style={{ fontSize: 9, color: C.red }}>₹5,000 (100%)</span>
+        </div>
+      </div>
+
+      {/* Alerts */}
+      <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>ACTIVE ALERTS</div>
+        {[
+          { condition: open.length >= 3, msg: "⚠ High position count — approaching max concurrent trades", col: C.orange },
+          { condition: ddPct > 80, msg: "🔴 Daily loss near limit — consider stopping", col: C.red },
+          { condition: ddPct > 50, msg: "⚠ 50% of daily loss limit reached", col: C.orange },
+          { condition: totalCapitalAtRisk > 15000, msg: "⚠ High capital at risk across open positions", col: C.orange },
+        ].filter(a => a.condition).map((a, i) => (
+          <div key={i} style={{ fontSize: 11, color: a.col, padding: "6px 10px", background: a.col + "12", borderRadius: 6, marginBottom: 6, border: `1px solid ${a.col}25` }}>{a.msg}</div>
+        ))}
+        {open.length < 3 && ddPct <= 50 && (
+          <div style={{ fontSize: 11, color: C.green, padding: "6px 10px", background: C.green + "12", borderRadius: 6, border: `1px solid ${C.green}25` }}>✓ All systems normal — no active risk alerts</div>
+        )}
+      </div>
     </div>
   )
 }
 
 const DEFAULT = {
-  global: { total_pnl: 0, active_strategies: 0, total_strategies: 0, system_health: "OK", broker_status: {} },
+  global: { total_pnl: 0, active_strategies: 0, total_strategies: 0, system_health: "OK", broker_status: {}, paper_trade: false },
   strategies: {},
   vix: null,
   market: { nifty_price: 0, nifty_updated: "", option_price: 0, option_symbol: "" },
@@ -319,7 +644,7 @@ export default function App() {
   const [data,     setData]     = useState(DEFAULT)
   const [trades,   setTrades]   = useState([])
   const [wsStatus, setWsStatus] = useState("CONNECTING")
-  const [tab,      setTab]      = useState("open")
+  const [tab,      setTab]      = useState("positions")
   const wsRef = useRef(null)
   const [now, setNow] = useState(new Date())
 
@@ -344,7 +669,7 @@ export default function App() {
   useEffect(() => {
     async function fetchTrades() {
       try {
-        const res = await axios.get(`${API}/api/trades?limit=200`)
+        const res = await axios.get(`${API}/api/trades?limit=500`)
         setTrades(res.data.trades || [])
       } catch {}
     }
@@ -369,81 +694,90 @@ export default function App() {
   const market    = data.market || {}
   const openCount = trades.filter(t => t.status === "OPEN").length
   const todayStr  = now.toISOString().slice(0, 10)
-  const todayPnl  = trades
-    .filter(t => t.status === "CLOSED" && t.exit_time?.slice(0, 10) === todayStr)
-    .reduce((sum, t) => sum + (t.realised_pnl || 0), 0)
-  const brokerConnected = Object.values(g.broker_status || {}).some(v => v === "CONNECTED")
+  const todayPnl  = trades.filter(t => t.status === "CLOSED" && t.exit_time?.slice(0, 10) === todayStr).reduce((s, t) => s + (t.realised_pnl || 0), 0)
+  const brokerOn  = Object.values(g.broker_status || {}).some(v => v === "CONNECTED")
+  const closedCount = trades.filter(t => t.status === "CLOSED").length
+
+  const TABS = [
+    { key: "positions", label: `POSITIONS (${openCount})` },
+    { key: "ledger",    label: `LEDGER (${trades.length})` },
+    { key: "execlog",   label: "EXEC LOG" },
+    { key: "perf",      label: "PERFORMANCE" },
+    { key: "risk",      label: "RISK & CAPITAL" },
+  ]
 
   return (
-    <div style={{ minHeight: "100vh", background: "#080e1a", color: "#e2e8f0", fontFamily: "'JetBrains Mono', 'Fira Code', monospace", padding: "20px 24px" }}>
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace", padding: "16px 20px" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap');
-        * { box-sizing: border-box; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
-        ::-webkit-scrollbar-track { background: #0a1020; }
-        ::-webkit-scrollbar-thumb { background: #1e2d47; border-radius: 4px; }
+        ::-webkit-scrollbar-track { background: #060b14; }
+        ::-webkit-scrollbar-thumb { background: #1a2840; border-radius: 4px; }
+        button { font-family: inherit; }
       `}</style>
 
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, paddingBottom: 16, borderBottom: "1px solid #1e2d47" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 14, borderBottom: `1px solid ${C.border}` }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", letterSpacing: -0.5 }}>◈ ALGO TRADING SYSTEM</div>
-          <div style={{ fontSize: 10, color: "#4a6080", marginTop: 3, letterSpacing: 2 }}>SAVIOUR COMBO · SURVIVOR ALGO · WAVE EXTRACTOR</div>
+          <div style={{ fontSize: 17, fontWeight: 800, color: "#fff", letterSpacing: -0.5 }}>◈ ALGO TRADING SYSTEM</div>
+          <div style={{ fontSize: 9, color: C.muted, marginTop: 3, letterSpacing: 2 }}>SAVIOUR COMBO · SURVIVOR ALGO · WAVE EXTRACTOR</div>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <div style={{ fontSize: 11, color: "#4a6080" }}>{now.toLocaleTimeString("en-IN")}</div>
-          <Badge label={wsStatus === "CONNECTED" ? "● LIVE" : wsStatus === "RECONNECTING" ? "◌ RECONNECTING" : "○ OFFLINE"} colour={wsStatus === "CONNECTED" ? "#00ff88" : wsStatus === "RECONNECTING" ? "#f59e0b" : "#ff4455"} />
-          <Badge label={brokerConnected ? "BROKER ON" : "BROKER OFF"} colour={brokerConnected ? "#00ff88" : "#ff4455"} />
-          <Badge label={`PAPER: ${g.paper_trade ? "ON" : "OFF"}`} colour={g.paper_trade ? "#f59e0b" : "#3b82f6"} />
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: C.muted }}>{now.toLocaleTimeString("en-IN")}</span>
+          <Pill label={wsStatus === "CONNECTED" ? "● LIVE" : wsStatus === "RECONNECTING" ? "◌ RECONNECTING" : "○ OFFLINE"} colour={wsStatus === "CONNECTED" ? C.green : wsStatus === "RECONNECTING" ? C.orange : C.red} />
+          <Pill label={brokerOn ? "BROKER ON" : "BROKER OFF"} colour={brokerOn ? C.green : C.red} />
+          <Pill label={`PAPER: ${g.paper_trade ? "ON" : "OFF"}`} colour={g.paper_trade ? C.orange : C.blue} />
         </div>
       </div>
 
-      {/* Stats Bar */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
-        <NiftyTicker market={market} />
-        <StatBox label="CURRENT P&L"    value={`₹${(g.total_pnl || 0).toFixed(2)}`} colour={pnlColour(g.total_pnl)} size={22} bg={pnlBg(g.total_pnl)} />
-        <StatBox label="TODAY REALISED" value={`₹${todayPnl.toFixed(2)}`}            colour={pnlColour(todayPnl)}    size={22} bg={pnlBg(todayPnl)} />
-        <StatBox label="OPEN POSITIONS" value={openCount}  colour={openCount > 0 ? "#3b82f6" : "#4a6080"} />
-        <StatBox label="ACTIVE STRATS"  value={`${g.active_strategies || 0}/${g.total_strategies || 0}`} colour="#e2e8f0" />
-        <StatBox label="SYSTEM HEALTH"  value={g.system_health || "OK"} colour={g.system_health === "OK" ? "#00ff88" : "#ff4455"} />
-        <VixBadge vix={vix} />
+      {/* Top stats */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <NiftyBox market={market} />
+        <StatTile label="CURRENT P&L"    value={fmtRs(g.total_pnl)}  colour={pnlC(g.total_pnl)}  bg={pnlBg(g.total_pnl)} />
+        <StatTile label="TODAY REALISED" value={fmtRs(todayPnl)}     colour={pnlC(todayPnl)}     bg={pnlBg(todayPnl)} />
+        <StatTile label="OPEN POSITIONS" value={openCount}           colour={openCount > 0 ? C.blue : C.muted} />
+        <StatTile label="ACTIVE STRATS"  value={`${g.active_strategies || 0}/${g.total_strategies || 0}`} colour={C.text} />
+        <StatTile label="SYSTEM HEALTH"  value={g.system_health || "OK"} colour={g.system_health === "OK" ? C.green : C.red} />
+        <VixBox vix={vix} />
       </div>
 
-      {/* Strategy Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16, marginBottom: 20 }}>
+      {/* Capital bar */}
+      <div style={{ marginBottom: 14 }}>
+        <CapitalBar trades={trades} global={g} />
+      </div>
+
+      {/* Strategy cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, marginBottom: 16 }}>
         {["saviour_combo", "survivor", "wave_extractor"].map(name => (
-          <StrategyCard key={name} name={name} data={s[name]} onStop={handleStop} onReset={handleReset} />
+          <StratCard key={name} name={name} data={s[name]} onStop={handleStop} onReset={handleReset} trades={trades} />
         ))}
       </div>
 
-      {/* Bottom Panel */}
-      <div style={{ background: "#0d1526", borderRadius: 14, border: "1px solid #1e2d47", overflow: "hidden" }}>
-        <div style={{ display: "flex", borderBottom: "1px solid #1e2d47", background: "#0a1020" }}>
-          {[
-            { key: "open",  label: `OPEN POSITIONS (${openCount})` },
-            { key: "log",   label: `TRADE LOG (${trades.filter(t => t.status === "CLOSED").length})` },
-            { key: "daily", label: "DAILY P&L" },
-          ].map(({ key, label }) => (
+      {/* Bottom panel */}
+      <div style={{ background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+        <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, background: C.panel, overflowX: "auto" }}>
+          {TABS.map(({ key, label }) => (
             <button key={key} onClick={() => setTab(key)} style={{
-              padding: "12px 20px", border: "none", background: "transparent",
-              color: tab === key ? "#00ff88" : "#4a6080",
-              fontWeight: 700, fontSize: 11, letterSpacing: 1.2, cursor: "pointer",
-              borderBottom: tab === key ? "2px solid #00ff88" : "2px solid transparent",
-              fontFamily: "'JetBrains Mono', monospace",
-            }}>
-              {label}
-            </button>
+              padding: "11px 18px", border: "none", background: "transparent",
+              color: tab === key ? C.green : C.muted,
+              fontWeight: 700, fontSize: 10, letterSpacing: 1, cursor: "pointer",
+              borderBottom: tab === key ? `2px solid ${C.green}` : "2px solid transparent",
+              whiteSpace: "nowrap",
+            }}>{label}</button>
           ))}
         </div>
-        <div style={{ padding: 20 }}>
-          {tab === "open"  && <OpenTradesPanel trades={trades} />}
-          {tab === "log"   && <TradeLog trades={trades} />}
-          {tab === "daily" && <DailyPnlBar trades={trades} />}
+        <div style={{ padding: 18 }}>
+          {tab === "positions" && <OpenPositions trades={trades} />}
+          {tab === "ledger"    && <TradeLedger trades={trades} />}
+          {tab === "execlog"   && <ExecutionLog trades={trades} />}
+          {tab === "perf"      && <PerformancePanel trades={trades} />}
+          {tab === "risk"      && <RiskPanel trades={trades} global={g} />}
         </div>
       </div>
 
-      <div style={{ textAlign: "center", marginTop: 16, fontSize: 10, color: "#1e2d47", letterSpacing: 1 }}>
-        LAST UPDATE: {data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : "—"}
+      <div style={{ textAlign: "center", marginTop: 12, fontSize: 9, color: C.dim, letterSpacing: 1 }}>
+        LAST UPDATE: {data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : "—"} · {trades.length} TRADES LOADED
       </div>
     </div>
   )

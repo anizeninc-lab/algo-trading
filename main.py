@@ -22,23 +22,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 def free_port(port: int):
     """Kill any process occupying the given port before startup."""
+    import platform
+    system = platform.system()
     try:
-        result = subprocess.run(
-            f'for /f "tokens=5" %a in (\'netstat -aon ^| find ":{port} "\') do taskkill /F /PID %a',
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
+        if system == "Windows":
+            cmd = f'for /f "tokens=5" %a in (\'netstat -aon | find ":{port} "\') do taskkill /F /PID %a'
+        else:  # Linux/OCI
+            cmd = f'lsof -ti:{port} | xargs -r kill -9'
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
         if result.returncode == 0 and result.stdout.strip():
             logger.info(f"Port {port} was in use — process killed successfully.")
         else:
             logger.info(f"Port {port} is free. Proceeding.")
     except Exception as e:
         logger.warning(f"Could not auto-free port {port}: {e}")
-
 
 def load_config() -> dict:
     config_path = Path("configs/saviour_combo.json")
@@ -48,19 +47,17 @@ def load_config() -> dict:
     logger.warning("No config file found. Using defaults.")
     return {}
 
-
 async def run_dashboard():
     config = uvicorn.Config(
         app="dashboard.api:app",
-        host="127.0.0.1",
+        host="0.0.0.0",  # ✅ PUBLIC ACCESS (was 127.0.0.1)
         port=8081,
         log_level="warning",
         reload=False,
     )
     server = uvicorn.Server(config)
-    logger.info("Dashboard starting on http://127.0.0.1:8081")
+    logger.info("🚀 Dashboard LIVE: http://92.4.90.188:8081")  # ✅ PUBLIC URL
     await server.serve()
-
 
 async def run_strategies(config: dict):
     from brokers import get_broker
@@ -81,7 +78,7 @@ async def run_strategies(config: dict):
         option_symbol=config.get("option_symbol", ""),
         sell_gap=config.get("sell_gap", 20.0),
         buy_gap=config.get("buy_gap", 20.0),
-        quantity=config.get("wave_quantity", 75),
+        quantity=config.get("wave_quantity", 65),
         cool_off_time=config.get("cool_off_time", 5.0),
         max_net_position=config.get("max_net_position", 4),
     )
@@ -94,8 +91,8 @@ async def run_strategies(config: dict):
         ce_symbol_gap=config.get("ce_symbol_gap", 300.0),
         pe_reset_gap=config.get("pe_reset_gap", 90.0),
         ce_reset_gap=config.get("ce_reset_gap", 90.0),
-        pe_quantity=config.get("pe_quantity", 75),
-        ce_quantity=config.get("ce_quantity", 75),
+        pe_quantity=config.get("pe_quantity", 65),
+        ce_quantity=config.get("ce_quantity", 65),
         pe_start=config.get("pe_start", 0.0),
         ce_start=config.get("ce_start", 0.0),
         min_price_to_sell=config.get("min_price_to_sell", 15.0),
@@ -121,6 +118,158 @@ async def run_strategies(config: dict):
         await combo.stop(reason="MANUAL")
         await vix_manager.stop()
 
+async def main():
+    # Automatically update config files with nearest weekly/monthly Nifty expiries
+    try:
+        from auto_rollover import perform_rollover
+        perform_rollover()
+    except Exception as e:
+        logger.error(f"Auto rollover skipped/failed: {e}")
+
+    config = load_config()
+
+    broker_name = os.getenv("BROKER_NAME", "")
+    if not broker_name:
+        logger.error("BROKER_NAME not set in .env file.")
+        sys.exit(1)
+
+    logger.info("🚀 Rahul Sharma Trading System STARTING")
+    logger.info(f"Broker: {broker_name}")
+    logger.info("📊 Dashboard: http://92.4.90.188:8081")  # ✅ PUBLIC URL
+    logger.info("Press Ctrl+C to stop all strategies")
+
+    await asyncio.gather(
+        run_dashboard(),
+        run_strategies(config),
+    )
+
+if __name__ == "__main__":
+    # Auto-free port 8081 (Windows + Linux)
+    free_port(8081)
+
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("🛑 System stopped by user.")
+# main.py
+import asyncio
+import json
+import logging
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import uvicorn
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler("logs/trading.log", encoding="utf-8"),
+    ],
+)
+logger = logging.getLogger(__name__)
+
+def free_port(port: int):
+    """Kill any process occupying the given port before startup."""
+    import platform
+    system = platform.system()
+    try:
+        if system == "Windows":
+            cmd = f'for /f "tokens=5" %a in (\'netstat -aon | find ":{port} "\') do taskkill /F /PID %a'
+        else:  # Linux/OCI
+            cmd = f'lsof -ti:{port} | xargs -r kill -9'
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            logger.info(f"Port {port} was in use — process killed successfully.")
+        else:
+            logger.info(f"Port {port} is free. Proceeding.")
+    except Exception as e:
+        logger.warning(f"Could not auto-free port {port}: {e}")
+
+def load_config() -> dict:
+    config_path = Path("configs/saviour_combo.json")
+    if config_path.exists():
+        with open(config_path) as f:
+            return json.load(f)
+    logger.warning("No config file found. Using defaults.")
+    return {}
+
+async def run_dashboard():
+    config = uvicorn.Config(
+        app="dashboard.api:app",
+        host="0.0.0.0",  # ✅ PUBLIC ACCESS (was 127.0.0.1)
+        port=8081,
+        log_level="warning",
+        reload=False,
+    )
+    server = uvicorn.Server(config)
+    logger.info("🚀 Dashboard LIVE: http://92.4.90.188:8081")  # ✅ PUBLIC URL
+    await server.serve()
+
+async def run_strategies(config: dict):
+    from brokers import get_broker
+    from core.vix_manager import vix_manager
+    from strategy.saviour_combo import SaviourCombo, SaviourComboConfig
+    from strategy.survivor import SurvivorConfig
+    from strategy.wave_extractor import WaveConfig
+
+    broker = get_broker()
+
+    # Start VIX manager first
+    await vix_manager.start()
+    logger.info(
+        f"VIX Manager started | VIX: {vix_manager.current_vix:.2f} | Regime: {vix_manager.regime_name}"
+    )
+
+    wave_cfg = WaveConfig(
+        option_symbol=config.get("option_symbol", ""),
+        sell_gap=config.get("sell_gap", 20.0),
+        buy_gap=config.get("buy_gap", 20.0),
+        quantity=config.get("wave_quantity", 65),
+        cool_off_time=config.get("cool_off_time", 5.0),
+        max_net_position=config.get("max_net_position", 4),
+    )
+
+    survivor_cfg = SurvivorConfig(
+        symbol_initials=config.get("symbol_initials", "NIFTY26MAR25"),
+        pe_gap=config.get("pe_gap", 15.0),
+        ce_gap=config.get("ce_gap", 15.0),
+        pe_symbol_gap=config.get("pe_symbol_gap", 300.0),
+        ce_symbol_gap=config.get("ce_symbol_gap", 300.0),
+        pe_reset_gap=config.get("pe_reset_gap", 90.0),
+        ce_reset_gap=config.get("ce_reset_gap", 90.0),
+        pe_quantity=config.get("pe_quantity", 65),
+        ce_quantity=config.get("ce_quantity", 65),
+        pe_start=config.get("pe_start", 0.0),
+        ce_start=config.get("ce_start", 0.0),
+        min_price_to_sell=config.get("min_price_to_sell", 15.0),
+    )
+
+    combo_cfg = SaviourComboConfig(
+        wave=wave_cfg,
+        survivor=survivor_cfg,
+        max_combined_loss=config.get("max_combined_loss", -5000.0),
+        auto_start_survivor=config.get("auto_start_survivor", True),
+        wave_net_threshold=config.get("wave_net_threshold", 2),
+        monitor_interval=config.get("monitor_interval", 10.0),
+    )
+
+    combo = SaviourCombo(broker, combo_cfg)
+    await combo.start()
+
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except asyncio.CancelledError:
+        logger.info("Strategy runner cancelled. Stopping...")
+        await combo.stop(reason="MANUAL")
+        await vix_manager.stop()
 
 async def main():
     # Automatically update config files with nearest weekly/monthly Nifty expiries
@@ -137,9 +286,9 @@ async def main():
         logger.error("BROKER_NAME not set in .env file.")
         sys.exit(1)
 
-    logger.info("Starting Rahul Sharma Trading System")
+    logger.info("🚀 Rahul Sharma Trading System STARTING")
     logger.info(f"Broker: {broker_name}")
-    logger.info(f"Dashboard: http://127.0.0.1:8081")
+    logger.info("📊 Dashboard: http://92.4.90.188:8081")  # ✅ PUBLIC URL
     logger.info("Press Ctrl+C to stop all strategies")
 
     await asyncio.gather(
@@ -147,12 +296,11 @@ async def main():
         run_strategies(config),
     )
 
-
 if __name__ == "__main__":
-    # Auto-free port 8081 before startup to prevent [Errno 10048] on Windows
+    # Auto-free port 8081 (Windows + Linux)
     free_port(8081)
 
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("System stopped by user.")
+        logger.info("🛑 System stopped by user.")
