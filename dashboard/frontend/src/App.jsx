@@ -77,7 +77,7 @@ function MiniSpark({ history, w = 80, h = 28 }) {
 }
 
 function CapitalBar({ trades, global: g }) {
-  const total = 100000
+  const total = 200000
   const used = trades.filter(t => t.status === "OPEN").reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0), 0)
   const available = Math.max(0, total - used)
   const pct = Math.min(100, (used / total) * 100)
