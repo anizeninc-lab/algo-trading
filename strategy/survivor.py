@@ -212,14 +212,18 @@ class SurvivorAlgo(BaseStrategy):
             ltp = await self.broker.get_ltp(symbol)
             sell_price = round(ltp * 0.98, 1) if ltp > 0 else 0.0
 
-            resp = await self.broker.place_order(Order(
-                symbol=symbol,
-                exchange="NFO",
-                order_type="SELL",
-                quantity=quantity,
-                product="I",
-                price=sell_price,
-            ))
+            if os.getenv("PAPER_TRADE", "false").lower() == "true":
+                self._signal(f"[PAPER] SELL {quantity} {symbol} @ {sell_price} (simulated)")
+                resp = type("R", (), {"status": "complete", "order_id": "PAPER", "message": ""})()
+            else:
+                resp = await self.broker.place_order(Order(
+                    symbol=symbol,
+                    exchange="NFO",
+                    order_type="SELL",
+                    quantity=quantity,
+                    product="I",
+                    price=sell_price,
+                ))
 
             if resp.status == "REJECTED":
                 self._signal(f"{direction} order REJECTED: {resp.message}")
@@ -314,14 +318,18 @@ class SurvivorAlgo(BaseStrategy):
             exit_price = round(current_price * 0.98, 1)  # Accept up to 2% less to sell
 
         try:
-            resp = await self.broker.place_order(Order(
-                symbol=trade["symbol"],
-                exchange="NFO",
-                order_type=exit_order_type,
-                quantity=trade["quantity"],
-                product="I",
-                price=exit_price,
-            ))
+            if os.getenv("PAPER_TRADE", "false").lower() == "true":
+                self._signal(f"[PAPER] {exit_order_type} {trade['quantity']} {trade['symbol']} @ {exit_price} (simulated)")
+                resp = type("R", (), {"status": "complete", "order_id": "PAPER", "message": ""})()
+            else:
+                resp = await self.broker.place_order(Order(
+                    symbol=trade["symbol"],
+                    exchange="NFO",
+                    order_type=exit_order_type,
+                    quantity=trade["quantity"],
+                    product="I",
+                    price=exit_price,
+                ))
 
             if resp.status == "REJECTED":
                 self._signal(f"Exit order REJECTED for {trade['symbol']}: {resp.message}")
