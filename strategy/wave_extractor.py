@@ -300,14 +300,19 @@ class WaveExtractor(BaseStrategy):
 
         # Place SELL limit order
         try:
-            sell_resp = await self.broker.place_order(Order(
-                symbol=self.cfg.option_symbol,
-                exchange="NFO",
-                order_type="SELL",
-                quantity=self.cfg.quantity,
-                product="I",
-                price=sell_price,
-            ))
+            if os.getenv("PAPER_TRADE", "false").lower() == "true":
+                self._signal(f"[PAPER] SELL {self.cfg.quantity} {self.cfg.option_symbol} @ {sell_price} (simulated)")
+                self._sell_order_id = "PAPER_SELL"
+                sell_resp = type("R", (), {"status": "complete", "order_id": "PAPER_SELL", "message": ""})()
+            else:
+                sell_resp = await self.broker.place_order(Order(
+                    symbol=self.cfg.option_symbol,
+                    exchange="NFO",
+                    order_type="SELL",
+                    quantity=self.cfg.quantity,
+                    product="I",
+                    price=sell_price,
+                ))
             self._sell_order_id = sell_resp.order_id
 
             if sell_resp.status == "REJECTED":
@@ -325,14 +330,19 @@ class WaveExtractor(BaseStrategy):
 
         # Place BUY limit order
         try:
-            buy_resp = await self.broker.place_order(Order(
-                symbol=self.cfg.option_symbol,
-                exchange="NFO",
-                order_type="BUY",
-                quantity=self.cfg.quantity,
-                product="I",
-                price=buy_price,
-            ))
+            if os.getenv("PAPER_TRADE", "false").lower() == "true":
+                self._signal(f"[PAPER] BUY {self.cfg.quantity} {self.cfg.option_symbol} @ {buy_price} (simulated)")
+                self._buy_order_id = "PAPER_BUY"
+                buy_resp = type("R", (), {"status": "complete", "order_id": "PAPER_BUY", "message": ""})()
+            else:
+                buy_resp = await self.broker.place_order(Order(
+                    symbol=self.cfg.option_symbol,
+                    exchange="NFO",
+                    order_type="BUY",
+                    quantity=self.cfg.quantity,
+                    product="I",
+                    price=buy_price,
+                ))
             self._buy_order_id = buy_resp.order_id
 
             if buy_resp.status == "REJECTED":
@@ -375,14 +385,18 @@ class WaveExtractor(BaseStrategy):
             exit_price = round(self._current_price * 0.98, 1)  # Accept up to 2% less to sell
 
         try:
-            resp = await self.broker.place_order(Order(
-                symbol=self.cfg.option_symbol,
-                exchange="NFO",
-                order_type=exit_order_type,
-                quantity=trade["quantity"],
-                product="I",
-                price=exit_price,
-            ))
+            if os.getenv("PAPER_TRADE", "false").lower() == "true":
+                self._signal(f"[PAPER] EXIT {exit_order_type} {trade['quantity']} {self.cfg.option_symbol} @ {exit_price} (simulated)")
+                resp = type("R", (), {"status": "complete", "order_id": "PAPER_EXIT", "message": ""})()
+            else:
+                resp = await self.broker.place_order(Order(
+                    symbol=self.cfg.option_symbol,
+                    exchange="NFO",
+                    order_type=exit_order_type,
+                    quantity=trade["quantity"],
+                    product="I",
+                    price=exit_price,
+                ))
             self._signal(
                 f"Exit order placed | {exit_order_type} MARKET | "
                 f"Reason: {reason} | Order ID: {resp.order_id}"
