@@ -1,6 +1,7 @@
 # strategy/saviour_combo.py
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 
 from brokers.base import AbstractBrokerGateway, Tick
@@ -56,9 +57,14 @@ class SaviourCombo:
         await self.wave.start()
 
         # If auto_start is disabled, start Survivor immediately
-        # If auto_start is enabled, monitor loop will start it
-        # when wave net position hits the threshold
         if not self.cfg.auto_start_survivor:
+            await self.survivor.start()
+            self._survivor_started = True
+
+        # In paper trade mode, always auto-start Survivor immediately
+        # since wave fills are simulated and net position may not reach threshold
+        if os.getenv("PAPER_TRADE", "false").lower() == "true" and not self._survivor_started:
+            logger.info("[saviour_combo] PAPER MODE: Auto-starting Survivor immediately")
             await self.survivor.start()
             self._survivor_started = True
 
@@ -68,12 +74,9 @@ class SaviourCombo:
 
         state_store.update_last_signal(
             self.name,
-            "Wave Extractor running"
-            + (
-                " | Survivor on standby"
-                if self.cfg.auto_start_survivor
-                else " | Survivor running"
-            ),
+            "Survivor auto-started | Wave net: 0"
+            if self._survivor_started
+            else "Wave Extractor running | Survivor on standby",
         )
         logger.info("[saviour_combo] Started successfully")
 
@@ -88,7 +91,6 @@ class SaviourCombo:
             except asyncio.CancelledError:
                 pass
 
-        # Stop survivor first (closes its positions), then wave
         if self._survivor_started:
             await self.survivor.stop(reason)
 
@@ -123,9 +125,11 @@ class SaviourCombo:
                     break
 
                 # Auto-start Survivor when Wave net position hits threshold
+                # (only in live mode — paper mode starts it immediately on start)
                 if (
                     self.cfg.auto_start_survivor
                     and not self._survivor_started
+                    and os.getenv("PAPER_TRADE", "false").lower() != "true"
                     and abs(self.wave._net_position) >= self.cfg.wave_net_threshold
                 ):
                     logger.info(
@@ -187,8 +191,6 @@ class SaviourCombo:
 
         for s in [wave_s, survivor_s]:
             if s:
-                # Use getattr with defaults to avoid AttributeError
-                # if state_store hasn't populated these fields yet
                 total_trades += getattr(s, "total_trades", 0)
                 open_trades  += getattr(s, "open_trades",  0)
                 open_orders  += getattr(s, "open_orders",  0)

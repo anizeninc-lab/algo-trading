@@ -37,6 +37,8 @@ class WaveExtractor(BaseStrategy):
         self._net_position     = 0
         self._sell_order_id    = ""
         self._buy_order_id     = ""
+        self._sell_price       = 0.0
+        self._buy_price        = 0.0
         self._bracket_active   = False
         self._in_cool_off      = False
         self._current_price    = 0.0
@@ -88,11 +90,6 @@ class WaveExtractor(BaseStrategy):
     # ── Background Position Sync ──────────────────────────────────────────────
 
     async def _position_sync_loop(self) -> None:
-        """
-        Runs every 30 seconds. Fetches actual positions from Upstox and
-        compares with bot's internal _net_position. If mismatch detected
-        (e.g. user manually closed trade on Upstox app), resyncs bot state.
-        """
         await asyncio.sleep(15)
         while not self._stop_flag:
             try:
@@ -104,6 +101,10 @@ class WaveExtractor(BaseStrategy):
             await asyncio.sleep(30)
 
     async def _sync_positions(self) -> None:
+        # Skip real position sync in paper trade mode
+        if os.getenv("PAPER_TRADE", "false").lower() == "true":
+            return
+
         positions = await self.broker.get_positions()
 
         actual_qty = 0
@@ -171,6 +172,51 @@ class WaveExtractor(BaseStrategy):
             await self._monitor_open_trades()
             self._calculate_pnl()
 
+            # ── Paper Trade Fill Simulator ──────────────────────────────────
+            if os.getenv("PAPER_TRADE", "false").lower() == "true":
+                price = tick.last_price
+                if self._bracket_active:
+                    # Simulate SELL fill when price rises to sell level
+                    if self._sell_order_id == "PAPER_SELL" and self._sell_price > 0 and price >= self._sell_price:
+                        self._signal(f"[PAPER] SELL filled @ {self._sell_price}")
+                        self._bracket_active = False
+                        self._net_position  -= 1
+                        trade = {
+                            "order_id":    "PAPER_SELL",
+                            "order_type":  "SELL",
+                            "entry_price": self._sell_price,
+                            "quantity":    self.cfg.quantity,
+                            "symbol":      self.cfg.option_symbol,
+                        }
+                        self._open_trades_data.append(trade)
+                        trade_logger.open_trade(trade)
+                        self._sell_order_id = ""
+                        self._buy_order_id  = ""  # Cancel opposing order
+                        risk_manager.register_trade(self.name)
+                        asyncio.create_task(self._cool_off_and_rebracket())
+                        return
+
+                    # Simulate BUY fill when price drops to buy level
+                    elif self._buy_order_id == "PAPER_BUY" and self._buy_price > 0 and price <= self._buy_price:
+                        self._signal(f"[PAPER] BUY filled @ {self._buy_price}")
+                        self._bracket_active = False
+                        self._net_position  += 1
+                        trade = {
+                            "order_id":    "PAPER_BUY",
+                            "order_type":  "BUY",
+                            "entry_price": self._buy_price,
+                            "quantity":    self.cfg.quantity,
+                            "symbol":      self.cfg.option_symbol,
+                        }
+                        self._open_trades_data.append(trade)
+                        trade_logger.open_trade(trade)
+                        self._buy_order_id  = ""
+                        self._sell_order_id = ""  # Cancel opposing order
+                        risk_manager.register_trade(self.name)
+                        asyncio.create_task(self._cool_off_and_rebracket())
+                        return
+            # ── End Paper Trade Fill Simulator ─────────────────────────────
+
             can_trade, reason = risk_manager.can_trade(self.name)
 
             if (
@@ -215,18 +261,13 @@ class WaveExtractor(BaseStrategy):
             self._net_position  -= 1
             self._bracket_active = False
             self._signal(f"SELL filled @ {price:.2f}")
-
-            # Register trade with risk manager
             risk_manager.register_trade(self.name)
-
-            # Store trade for SL/TP monitoring
             self._open_trades_data.append({
-                "order_id":   order_id,
-                "order_type": "SELL",
+                "order_id":    order_id,
+                "order_type":  "SELL",
                 "entry_price": price,
-                "quantity":   self.cfg.quantity,
+                "quantity":    self.cfg.quantity,
             })
-
             # Cancel the opposing BUY bracket order
             if self._buy_order_id:
                 await self.broker.cancel_order(self._buy_order_id)
@@ -237,18 +278,13 @@ class WaveExtractor(BaseStrategy):
             self._net_position  += 1
             self._bracket_active = False
             self._signal(f"BUY filled @ {price:.2f}")
-
-            # Register trade with risk manager
             risk_manager.register_trade(self.name)
-
-            # Store trade for SL/TP monitoring
             self._open_trades_data.append({
-                "order_id":   order_id,
-                "order_type": "BUY",
+                "order_id":    order_id,
+                "order_type":  "BUY",
                 "entry_price": price,
-                "quantity":   self.cfg.quantity,
+                "quantity":    self.cfg.quantity,
             })
-
             # Cancel the opposing SELL bracket order
             if self._sell_order_id:
                 await self.broker.cancel_order(self._sell_order_id)
@@ -267,19 +303,15 @@ class WaveExtractor(BaseStrategy):
             qty   = trade["quantity"]
             price = self._current_price
 
-            # Check per-trade stop loss (₹-3,000 by default from risk_manager)
             if risk_manager.check_trade_stop_loss(entry, price, qty, otype):
                 self._signal(
-                    f"STOP LOSS hit | {otype} | Entry: {entry:.2f} | "
-                    f"Current: {price:.2f}"
+                    f"STOP LOSS hit | {otype} | Entry: {entry:.2f} | Current: {price:.2f}"
                 )
                 await self._close_trade(trade, "STOP_LOSS")
 
-            # Check trailing profit (25% decay from entry for SELL trades)
             elif risk_manager.check_trailing_profit(entry, price, otype):
                 self._signal(
-                    f"TRAILING PROFIT hit | {otype} | Entry: {entry:.2f} | "
-                    f"Current: {price:.2f}"
+                    f"TRAILING PROFIT hit | {otype} | Entry: {entry:.2f} | Current: {price:.2f}"
                 )
                 await self._close_trade(trade, "TRAILING_PROFIT")
 
@@ -288,22 +320,27 @@ class WaveExtractor(BaseStrategy):
     async def _place_duo_bracket(self) -> None:
         if self._current_price == 0:
             return
+
         self._bracket_active = True  # Set immediately to prevent spam
 
         sell_price = round(self._current_price + self.cfg.sell_gap, 2)
         buy_price  = round(self._current_price - self.cfg.buy_gap, 2)
 
         if buy_price <= 0:
+            self._bracket_active = False
             return
+
+        # Store bracket levels for paper trade fill simulator
+        self._sell_price = sell_price
+        self._buy_price  = buy_price
 
         self._signal(f"Bracket | SELL {sell_price} | BUY {buy_price}")
 
-        # Place SELL limit order
+        # ── Place SELL limit order ────────────────────────────────────────────
         try:
             if os.getenv("PAPER_TRADE", "false").lower() == "true":
                 self._signal(f"[PAPER] SELL {self.cfg.quantity} {self.cfg.option_symbol} @ {sell_price} (simulated)")
                 self._sell_order_id = "PAPER_SELL"
-                sell_resp = type("R", (), {"status": "complete", "order_id": "PAPER_SELL", "message": ""})()
             else:
                 sell_resp = await self.broker.place_order(Order(
                     symbol=self.cfg.option_symbol,
@@ -313,14 +350,12 @@ class WaveExtractor(BaseStrategy):
                     product="I",
                     price=sell_price,
                 ))
-            self._sell_order_id = sell_resp.order_id
-
-            if sell_resp.status == "REJECTED":
-                self._signal(f"SELL order REJECTED: {sell_resp.message}")
-                self._bracket_active = False
-                asyncio.create_task(self._cool_off_and_rebracket())
-                return
-
+                self._sell_order_id = sell_resp.order_id
+                if sell_resp.status == "REJECTED":
+                    self._signal(f"SELL order REJECTED: {sell_resp.message}")
+                    self._bracket_active = False
+                    asyncio.create_task(self._cool_off_and_rebracket())
+                    return
             self._signal(f"SELL order placed: {self._sell_order_id} @ {sell_price}")
 
         except Exception as e:
@@ -328,12 +363,11 @@ class WaveExtractor(BaseStrategy):
             self._bracket_active = False
             return
 
-        # Place BUY limit order
+        # ── Place BUY limit order ─────────────────────────────────────────────
         try:
             if os.getenv("PAPER_TRADE", "false").lower() == "true":
                 self._signal(f"[PAPER] BUY {self.cfg.quantity} {self.cfg.option_symbol} @ {buy_price} (simulated)")
                 self._buy_order_id = "PAPER_BUY"
-                buy_resp = type("R", (), {"status": "complete", "order_id": "PAPER_BUY", "message": ""})()
             else:
                 buy_resp = await self.broker.place_order(Order(
                     symbol=self.cfg.option_symbol,
@@ -343,27 +377,24 @@ class WaveExtractor(BaseStrategy):
                     product="I",
                     price=buy_price,
                 ))
-            self._buy_order_id = buy_resp.order_id
-
-            if buy_resp.status == "REJECTED":
-                self._signal(f"BUY order REJECTED: {buy_resp.message}")
-                # Cancel the SELL we already placed
-                if self._sell_order_id:
-                    await self.broker.cancel_order(self._sell_order_id)
-                    self._signal(f"SELL {self._sell_order_id} cancelled due to BUY rejection")
-                    self._sell_order_id = ""
-                self._bracket_active = False
-                return
-
+                self._buy_order_id = buy_resp.order_id
+                if buy_resp.status == "REJECTED":
+                    self._signal(f"BUY order REJECTED: {buy_resp.message}")
+                    if self._sell_order_id and self._sell_order_id != "PAPER_SELL":
+                        await self.broker.cancel_order(self._sell_order_id)
+                        self._signal(f"SELL {self._sell_order_id} cancelled due to BUY rejection")
+                    self._sell_order_id  = ""
+                    self._buy_order_id   = ""
+                    self._bracket_active = False
+                    return
             self._signal(f"BUY order placed: {self._buy_order_id} @ {buy_price}")
-            self._bracket_active = True
 
         except Exception as e:
             logger.error(f"[wave_extractor] BUY order failed: {e}")
-            if self._sell_order_id:
+            if self._sell_order_id and self._sell_order_id != "PAPER_SELL":
                 await self.broker.cancel_order(self._sell_order_id)
-                self._signal(f"SELL {self._sell_order_id} cancelled due to BUY failure")
-                self._sell_order_id = ""
+            self._sell_order_id  = ""
+            self._buy_order_id   = ""
             self._bracket_active = False
 
     # ── Trade Exit ────────────────────────────────────────────────────────────
@@ -374,20 +405,17 @@ class WaveExtractor(BaseStrategy):
 
         self._open_trades_data.remove(trade)
 
-        # Exit direction is opposite of entry
         exit_order_type = "BUY" if trade["order_type"] == "SELL" else "SELL"
 
-        # MPP-style limit price — 2% slippage to guarantee fill
-        # Market orders are banned by SEBI (effective April 1 2026)
         if exit_order_type == "BUY":
-            exit_price = round(self._current_price * 1.02, 1)  # Pay up to 2% more to buy
+            exit_price = round(self._current_price * 1.02, 1)
         else:
-            exit_price = round(self._current_price * 0.98, 1)  # Accept up to 2% less to sell
+            exit_price = round(self._current_price * 0.98, 1)
 
         try:
             if os.getenv("PAPER_TRADE", "false").lower() == "true":
                 self._signal(f"[PAPER] EXIT {exit_order_type} {trade['quantity']} {self.cfg.option_symbol} @ {exit_price} (simulated)")
-                resp = type("R", (), {"status": "complete", "order_id": "PAPER_EXIT", "message": ""})()
+                exit_order_id = "PAPER_EXIT"
             else:
                 resp = await self.broker.place_order(Order(
                     symbol=self.cfg.option_symbol,
@@ -397,25 +425,30 @@ class WaveExtractor(BaseStrategy):
                     product="I",
                     price=exit_price,
                 ))
+                exit_order_id = resp.order_id
+
             self._signal(
-                f"Exit order placed | {exit_order_type} MARKET | "
-                f"Reason: {reason} | Order ID: {resp.order_id}"
+                f"Exit order placed | {exit_order_type} | "
+                f"Reason: {reason} | Order ID: {exit_order_id}"
             )
             self._closed_trades += 1
 
-            if exit_order_type == "BUY":
+            # Update P&L
+            entry = trade["entry_price"]
+            qty   = trade["quantity"]
+            if trade["order_type"] == "SELL":
+                self._realised_pnl += (entry - exit_price) * qty
                 self._net_position += 1
             else:
+                self._realised_pnl += (exit_price - entry) * qty
                 self._net_position -= 1
 
-            # Cool off before placing next bracket
-            await self._cool_off_and_rebracket()
+            asyncio.create_task(self._cool_off_and_rebracket())
 
         except Exception as e:
             logger.error(f"[wave_extractor] _close_trade failed: {e}")
 
     async def _close_all_positions(self) -> None:
-        """Emergency close — exits all open trades at market price."""
         if not self._open_trades_data:
             return
         self._signal(f"Closing all {len(self._open_trades_data)} open trade(s)...")
@@ -423,29 +456,27 @@ class WaveExtractor(BaseStrategy):
             await self._close_trade(trade, "EOD")
 
     async def _cancel_active_bracket(self) -> None:
-        """Cancel any pending bracket orders that haven't filled yet."""
-        if self._sell_order_id:
+        if self._sell_order_id and self._sell_order_id != "PAPER_SELL":
             try:
                 await self.broker.cancel_order(self._sell_order_id)
                 self._signal(f"Pending SELL bracket cancelled: {self._sell_order_id}")
             except Exception as e:
                 logger.error(f"[wave_extractor] Failed to cancel SELL bracket: {e}")
-            self._sell_order_id = ""
+        self._sell_order_id = ""
 
-        if self._buy_order_id:
+        if self._buy_order_id and self._buy_order_id != "PAPER_BUY":
             try:
                 await self.broker.cancel_order(self._buy_order_id)
                 self._signal(f"Pending BUY bracket cancelled: {self._buy_order_id}")
             except Exception as e:
                 logger.error(f"[wave_extractor] Failed to cancel BUY bracket: {e}")
-            self._buy_order_id = ""
+        self._buy_order_id = ""
 
         self._bracket_active = False
 
     # ── Utilities ─────────────────────────────────────────────────────────────
 
     async def _cool_off_and_rebracket(self) -> None:
-        """Wait cool_off_time seconds before allowing a new bracket."""
         self._in_cool_off = True
         self._signal(f"Cool-off started ({self.cfg.cool_off_time}s)")
         await asyncio.sleep(self.cfg.cool_off_time)
@@ -453,7 +484,6 @@ class WaveExtractor(BaseStrategy):
         self._signal("Cool-off complete — ready for next bracket")
 
     def _calculate_pnl(self) -> None:
-        """Calculate unrealised P&L across all open trades."""
         pnl = 0.0
         for trade in self._open_trades_data:
             entry = trade["entry_price"]
