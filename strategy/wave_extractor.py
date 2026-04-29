@@ -23,7 +23,7 @@ class WaveConfig:
     quantity:             int   = 65
     cool_off_time:        float = 5.0
     multiplier_scale:     list  = field(default_factory=lambda: [1.0, 1.3, 1.7, 2.2, 2.8])
-    max_net_position:     int   = 4
+    max_net_position:     int   = 2
     delta_limit:          float = 200.0
     nifty_instrument_key: str   = "NSE_INDEX|Nifty 50"
 
@@ -191,8 +191,8 @@ class WaveExtractor(BaseStrategy):
                         self._open_trades_data.append(trade)
                         trade_logger.open_trade(trade)
                         self._sell_order_id = ""
-                        self._buy_order_id  = ""  # Cancel opposing order
-                        risk_manager.register_trade(self.name)
+                        self._buy_order_id  = ""
+                        risk_manager.register_trade(self.name, "SELL")
                         asyncio.create_task(self._cool_off_and_rebracket())
                         return
 
@@ -211,8 +211,8 @@ class WaveExtractor(BaseStrategy):
                         self._open_trades_data.append(trade)
                         trade_logger.open_trade(trade)
                         self._buy_order_id  = ""
-                        self._sell_order_id = ""  # Cancel opposing order
-                        risk_manager.register_trade(self.name)
+                        self._sell_order_id = ""
+                        risk_manager.register_trade(self.name, "BUY")
                         asyncio.create_task(self._cool_off_and_rebracket())
                         return
             # ── End Paper Trade Fill Simulator ─────────────────────────────
@@ -261,14 +261,14 @@ class WaveExtractor(BaseStrategy):
             self._net_position  -= 1
             self._bracket_active = False
             self._signal(f"SELL filled @ {price:.2f}")
-            risk_manager.register_trade(self.name)
+            risk_manager.register_trade(self.name, "SELL")
             self._open_trades_data.append({
                 "order_id":    order_id,
                 "order_type":  "SELL",
                 "entry_price": price,
                 "quantity":    self.cfg.quantity,
+                "symbol":      self.cfg.option_symbol,
             })
-            # Cancel the opposing BUY bracket order
             if self._buy_order_id:
                 await self.broker.cancel_order(self._buy_order_id)
                 self._signal(f"Opposing BUY bracket cancelled: {self._buy_order_id}")
@@ -278,14 +278,14 @@ class WaveExtractor(BaseStrategy):
             self._net_position  += 1
             self._bracket_active = False
             self._signal(f"BUY filled @ {price:.2f}")
-            risk_manager.register_trade(self.name)
+            risk_manager.register_trade(self.name, "BUY")
             self._open_trades_data.append({
                 "order_id":    order_id,
                 "order_type":  "BUY",
                 "entry_price": price,
                 "quantity":    self.cfg.quantity,
+                "symbol":      self.cfg.option_symbol,
             })
-            # Cancel the opposing SELL bracket order
             if self._sell_order_id:
                 await self.broker.cancel_order(self._sell_order_id)
                 self._signal(f"Opposing SELL bracket cancelled: {self._sell_order_id}")
@@ -321,7 +321,7 @@ class WaveExtractor(BaseStrategy):
         if self._current_price == 0:
             return
 
-        self._bracket_active = True  # Set immediately to prevent spam
+        self._bracket_active = True
 
         sell_price = round(self._current_price + self.cfg.sell_gap, 2)
         buy_price  = round(self._current_price - self.cfg.buy_gap, 2)
@@ -427,21 +427,26 @@ class WaveExtractor(BaseStrategy):
                 ))
                 exit_order_id = resp.order_id
 
-            self._signal(
-                f"Exit order placed | {exit_order_type} | "
-                f"Reason: {reason} | Order ID: {exit_order_id}"
-            )
-            self._closed_trades += 1
-
-            # Update P&L
+            # Calculate and record P&L
             entry = trade["entry_price"]
             qty   = trade["quantity"]
             if trade["order_type"] == "SELL":
-                self._realised_pnl += (entry - exit_price) * qty
+                pnl = (entry - exit_price) * qty
                 self._net_position += 1
             else:
-                self._realised_pnl += (exit_price - entry) * qty
+                pnl = (exit_price - entry) * qty
                 self._net_position -= 1
+
+            self._realised_pnl  += pnl
+            self._closed_trades += 1
+
+            # Release capital back to risk manager
+            risk_manager.release_trade(self.name, trade["order_type"])
+
+            self._signal(
+                f"Exit order placed | {exit_order_type} | "
+                f"Reason: {reason} | P&L: ₹{pnl:.2f} | Order ID: {exit_order_id}"
+            )
 
             asyncio.create_task(self._cool_off_and_rebracket())
 

@@ -119,7 +119,7 @@ class SurvivorAlgo(BaseStrategy):
                 await self.stop(reason="MAX_DAILY_LOSS")
                 return
 
-            nifty_price = tick.last_price
+            nifty_price            = tick.last_price
             self._last_nifty_price = nifty_price
 
             # Fetch VIX-adjusted parameters
@@ -182,10 +182,10 @@ class SurvivorAlgo(BaseStrategy):
 
     async def _sell_option(
         self,
-        direction: str,
+        direction:   str,
         nifty_price: float,
-        gap: float,
-        quantity: int,
+        gap:         float,
+        quantity:    int,
     ) -> None:
         interval     = self.cfg.strike_interval
         base_strike  = nifty_price - gap if direction == "PE" else nifty_price + gap
@@ -197,7 +197,7 @@ class SurvivorAlgo(BaseStrategy):
         for _ in range(5):
             candidate = self._build_symbol(direction, final_strike)
             if os.getenv("PAPER_TRADE", "false").lower() == "true":
-                # In paper mode simulate a premium based on distance from spot
+                # Simulate premium in paper mode
                 premium = max(5.0, 50.0 - abs(nifty_price - final_strike) * 0.1)
             else:
                 premium = await self.broker.get_ltp(candidate)
@@ -258,7 +258,7 @@ class SurvivorAlgo(BaseStrategy):
                 "direction":  direction,
             })
 
-            risk_manager.register_trade(self.name)
+            risk_manager.register_trade(self.name, "SELL")
             self._signal(
                 f"SOLD {direction} {int(final_strike)} @ ₹{entry_price:.2f} | "
                 f"Order: {order_id}"
@@ -279,8 +279,8 @@ class SurvivorAlgo(BaseStrategy):
         for trade in list(self._open_trades_data):
             try:
                 if os.getenv("PAPER_TRADE", "false").lower() == "true":
-                    # Simulate current option price based on nifty movement
-                    curr_price = trade["entry"] * 0.95  # Assume slight decay
+                    # Simulate slight option decay for paper trades
+                    curr_price = trade["entry"] * 0.95
                 else:
                     curr_price = await self.broker.get_ltp(trade["symbol"])
 
@@ -310,7 +310,9 @@ class SurvivorAlgo(BaseStrategy):
 
     # ── Trade Exit ────────────────────────────────────────────────────────────
 
-    async def _close_trade(self, trade: dict, reason: str, current_price: float = 0.0) -> None:
+    async def _close_trade(
+        self, trade: dict, reason: str, current_price: float = 0.0
+    ) -> None:
         if trade not in self._open_trades_data:
             return
 
@@ -320,7 +322,10 @@ class SurvivorAlgo(BaseStrategy):
             if current_price == 0.0:
                 current_price = trade["entry"] * 0.95
             exit_price = round(current_price * 1.02, 1)
-            self._signal(f"[PAPER] {exit_order_type} {trade['quantity']} {trade['symbol']} @ {exit_price} (simulated)")
+            self._signal(
+                f"[PAPER] {exit_order_type} {trade['quantity']} "
+                f"{trade['symbol']} @ {exit_price} (simulated)"
+            )
             order_id = "PAPER_EXIT"
         else:
             if current_price == 0.0:
@@ -339,16 +344,20 @@ class SurvivorAlgo(BaseStrategy):
                     price=exit_price,
                 ))
                 if resp.status == "REJECTED":
-                    self._signal(f"Exit order REJECTED for {trade['symbol']}: {resp.message}")
+                    self._signal(
+                        f"Exit order REJECTED for {trade['symbol']}: {resp.message}"
+                    )
                     return
                 order_id = resp.order_id
             except Exception as e:
                 logger.error(f"[survivor] _close_trade failed for {trade['symbol']}: {e}")
                 return
 
-        pnl = trade_logger.close_trade(trade["id"], current_price, reason)
+        # Calculate P&L
+        pnl = (trade["entry"] - exit_price) * trade["quantity"]  # SELL trade profit
         self._realised_pnl += pnl
 
+        # Remove from open trades
         self._open_trades_data = [
             t for t in self._open_trades_data if t["id"] != trade["id"]
         ]
@@ -356,6 +365,11 @@ class SurvivorAlgo(BaseStrategy):
             self._open_trade_ids.remove(trade["id"])
 
         self._closed_trades += 1
+
+        # Release capital back to risk manager
+        risk_manager.release_trade(self.name, trade["order_type"])
+
+        trade_logger.close_trade(trade["id"], current_price, reason)
         self._update_pnl(self._realised_pnl, self._unrealised_pnl)
         self._signal(
             f"CLOSED {trade['symbol']} | Reason: {reason} | "
@@ -377,10 +391,9 @@ class SurvivorAlgo(BaseStrategy):
             entry = trade["entry"]
             qty   = trade["quantity"]
             if os.getenv("PAPER_TRADE", "false").lower() == "true":
-                # Simulate slight option decay for paper trades
                 curr = entry * 0.95
             else:
-                curr = entry  # Will be updated by real LTP calls
+                curr = entry
             if trade["order_type"] == "SELL":
                 unrealised += (entry - curr) * qty
             else:
