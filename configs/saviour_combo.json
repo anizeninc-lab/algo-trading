@@ -1,11 +1,11 @@
 {
-    "option_symbol": "NSE_FO|72267",
+    "option_symbol": "NSE_FO|74155",
     "sell_gap": 20.0,
     "buy_gap": 20.0,
     "wave_quantity": 65,
     "cool_off_time": 5.0,
     "max_net_position": 4,
-    "symbol_initials": "NIFTY28APR26",
+    "symbol_initials": "NIFTY05MAY26",
     "pe_gap": 10.0,
     "ce_gap": 10.0,
     "pe_symbol_gap": 350.0,

@@ -49,6 +49,7 @@ class SurvivorAlgo(BaseStrategy):
         self._unrealised_pnl   = 0.0
         self._last_nifty_price = 0.0
         self._closed_trades    = 0
+        self._ltp_cache        = {}  # symbol -> latest LTP
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -71,6 +72,9 @@ class SurvivorAlgo(BaseStrategy):
             symbols=[self.cfg.nifty_instrument_key],
             callback=self._on_tick_sync
         )
+        asyncio.create_task(self._refresh_ltp_loop())
+        logger.info("[survivor] LTP refresh loop started")
+        await self._reload_open_trades()
 
         logger.info(
             f"[survivor] PE Anchor: {self._pe_last_value} | "
@@ -270,6 +274,54 @@ class SurvivorAlgo(BaseStrategy):
     def _build_symbol(self, option_type: str, strike: float) -> str:
         return f"NSE_FO|{self.cfg.symbol_initials}{int(strike):05d}{option_type}"
 
+    async def _reload_open_trades(self) -> None:
+        """On startup, reload any OPEN trades from the database into memory."""
+        try:
+            open_trades = trade_logger.get_trades(strategy=self.name, status="OPEN")
+            if not open_trades:
+                logger.info("[survivor] No open trades found in database to reload.")
+                return
+            for t in open_trades:
+                # Avoid duplicates
+                if any(x["id"] == t["id"] for x in self._open_trades_data):
+                    continue
+                direction = "CE" if t["symbol"].endswith("CE") else "PE"
+                self._open_trades_data.append({
+                    "id":         t["id"],
+                    "order_type": t["order_type"],
+                    "entry":      t["entry_price"],
+                    "symbol":     t["symbol"],
+                    "quantity":   t["quantity"],
+                    "direction":  direction,
+                })
+                self._open_trade_ids.append(t["id"])
+            logger.info(f"[survivor] Reloaded {len(open_trades)} open trade(s) from database.")
+            self._signal(f"Reloaded {len(open_trades)} open trade(s) from previous session.")
+        except Exception as e:
+            logger.error(f"[survivor] Failed to reload open trades: {e}")
+
+    async def _refresh_ltp_loop(self) -> None:
+        """Background task: fetch LTP for all open trades every 3 seconds."""
+        while not self._stop_flag:
+            try:
+                for trade in list(self._open_trades_data):
+                    symbol = trade["symbol"]
+                    try:
+                        if os.getenv("PAPER_TRADE", "false").lower() == "true":
+                            ltp = await self.broker.get_ltp(symbol)
+                            if ltp == 0.0:
+                                # Simulate realistic decay for paper mode
+                                ltp = round(trade["entry"] * 0.95, 2)
+                        else:
+                            ltp = await self.broker.get_ltp(symbol)
+                        if ltp > 0:
+                            self._ltp_cache[symbol] = ltp
+                    except Exception as e:
+                        logger.debug(f"[survivor] LTP fetch failed for {symbol}: {e}")
+            except Exception as e:
+                logger.debug(f"[survivor] _refresh_ltp_loop error: {e}")
+            await asyncio.sleep(3)
+
     # ── Trade Monitoring (SL + Trailing Profit) ───────────────────────────────
 
     async def _monitor_open_trades(self, nifty_price: float = 0.0) -> None:
@@ -388,11 +440,16 @@ class SurvivorAlgo(BaseStrategy):
     def _calculate_pnl(self, nifty_price: float = 0.0) -> None:
         unrealised = 0.0
         for trade in self._open_trades_data:
-            entry = trade["entry"]
-            qty   = trade["quantity"]
-            if os.getenv("PAPER_TRADE", "false").lower() == "true":
-                curr = entry * 0.95
-            else:
+            entry  = trade["entry"]
+            qty    = trade["quantity"]
+            symbol = trade["symbol"]
+            try:
+                curr = self._ltp_cache.get(symbol, 0.0)
+                if curr == 0.0:
+                    curr = entry  # fallback until cache is populated
+            except Exception:
+                curr = entry
+            if curr == 0.0:
                 curr = entry
             if trade["order_type"] == "SELL":
                 unrealised += (entry - curr) * qty
