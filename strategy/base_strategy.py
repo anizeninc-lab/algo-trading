@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import os
 from abc import ABC, abstractmethod
 from datetime import datetime
 import pytz
@@ -46,7 +47,7 @@ class BaseStrategy(ABC):
         await self._publish(
             EventType.STATE_CHANGE,
             {
-                "state": StrategyState.RUNNING,
+                "state":   StrategyState.RUNNING,
                 "message": "Strategy started successfully",
             },
         )
@@ -55,17 +56,22 @@ class BaseStrategy(ABC):
     async def stop(self, reason: str = "MANUAL") -> None:
         logger.info(f"[{self.name}] Stopping ({reason})...")
         self._stop_flag = True
+
+        # Only cancel real orders in live mode — paper mode has no real orders
         try:
-            orders = await self.broker.get_orders()
-            for order in orders:
-                if order.order_id:
-                    await self.broker.cancel_order(order.order_id)
+            if os.getenv("PAPER_TRADE", "false").lower() != "true":
+                orders = await self.broker.get_orders()
+                for order in orders:
+                    if order.order_id:
+                        await self.broker.cancel_order(order.order_id)
         except Exception as e:
             logger.warning(f"[{self.name}] Error cancelling orders on stop: {e}")
+
         try:
             await self.on_stop()
         except Exception as e:
             logger.warning(f"[{self.name}] on_stop error: {e}")
+
         summary = trade_logger.get_pnl_summary(strategy=self.name)
         trade_logger.end_session(
             session_id=self._session_id,
@@ -128,13 +134,13 @@ class BaseStrategy(ABC):
         state_store.update_position(self.name, direction)
 
     def is_market_open(self) -> bool:
-        now = datetime.now(pytz.timezone("Asia/Kolkata"))
+        now     = datetime.now(pytz.timezone("Asia/Kolkata"))
         weekday = now.weekday()
         if weekday >= 5:
             return False
-        hour = now.hour
+        hour   = now.hour
         minute = now.minute
-        market_open = (hour > 9) or (hour == 9 and minute >= 15)
+        market_open  = (hour > 9) or (hour == 9 and minute >= 15)
         market_close = (hour < 15) or (hour == 15 and minute <= 30)
         return market_open and market_close
 
@@ -142,21 +148,19 @@ class BaseStrategy(ABC):
         """
         Returns True only if today is the actual expiry date configured
         in symbol_initials (e.g. 'NIFTY13APR26' → April 13, 2026).
-        Falls back to Thursday check only if config is missing or unparseable.
+        Falls back to Tuesday check only if config is missing or unparseable.
         """
-        # Try to read expiry date from config (set in saviour_combo.json)
         symbol_initials = self.config.get("symbol_initials", "")
         if symbol_initials:
             try:
-                # Format: NIFTY13APR26  → date part = last 7 chars = "13APR26"
-                date_part = symbol_initials.replace("NIFTY", "").replace("BANKNIFTY", "")
+                date_part   = symbol_initials.replace("NIFTY", "").replace("BANKNIFTY", "")
                 expiry_date = datetime.strptime(date_part, "%d%b%y").date()
                 return datetime.now().date() == expiry_date
             except Exception:
                 logger.warning(
-                    f"[{self.name}] Could not parse expiry from symbol_initials='{symbol_initials}'. "
-                    f"Falling back to Thursday check."
+                    f"[{self.name}] Could not parse expiry from "
+                    f"symbol_initials='{symbol_initials}'. "
+                    f"Falling back to Tuesday check."
                 )
-
-        # Fallback: treat every Thursday as expiry (original behaviour)
-        return datetime.now().weekday() == 3
+        # Fallback: treat every Tuesday as expiry (Nifty weekly expiry)
+        return datetime.now().weekday() == 1
