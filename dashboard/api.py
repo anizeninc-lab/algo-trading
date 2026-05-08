@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -141,6 +142,10 @@ async def get_trades(
         status=status,
         limit=limit
     )
+    for t in trades:
+        if t.get("status") == "OPEN":
+            t["unrealised_pnl"] = pnl_registry.get(t["id"], 0.0)
+            t["current_ltp"] = ltp_registry.get(t["id"], 0.0)
     return {"trades": trades, "count": len(trades)}
 
 
@@ -148,6 +153,27 @@ async def get_trades(
 async def get_trades_summary(strategy: str = None):
     return trade_logger.get_pnl_summary(strategy=strategy)
 
+
+# Global broker reference — set by main.py on startup
+broker_ref = None
+
+@app.get("/api/funds")
+async def get_funds():
+    """Get live account balance from Upstox."""
+    global broker_ref
+    if broker_ref is None:
+        return {"available": 0.0, "used": 0.0, "total": 0.0, "source": "unavailable"}
+    try:
+        margin = await broker_ref.get_margin()
+        return {
+            "available": round(margin.available, 2),
+            "used": round(margin.used, 2),
+            "total": round(margin.total, 2),
+            "source": "upstox"
+        }
+    except Exception as e:
+        logger.error(f"get_funds failed: {e}")
+        return {"available": 0.0, "used": 0.0, "total": 0.0, "source": "error"}
 
 @app.get("/api/events")
 async def get_events(
@@ -187,3 +213,31 @@ async def startup():
     logger.info("Dashboard API started. Event bus running.")
 
 
+
+# ── Unrealised PnL Registry ───────────────────────────────────────────────────
+# Strategies call: pnl_registry[trade_id] = unrealised_pnl
+pnl_registry: dict = {}
+ltp_registry: dict = {}  # trade_id -> current LTP
+
+@app.post("/api/toggle-paper")
+async def toggle_paper_mode():
+    try:
+        env_path = Path(".env")
+        if not env_path.exists():
+            return {"error": ".env file not found"}
+        env_text = env_path.read_text()
+        current = os.getenv("PAPER_TRADE", "false").lower() == "true"
+        new_val = "false" if current else "true"
+        if "PAPER_TRADE=" in env_text:
+            env_text = re.sub(r"PAPER_TRADE=.*", f"PAPER_TRADE={new_val}", env_text)
+        else:
+            env_text += f"\nPAPER_TRADE={new_val}\n"
+        env_path.write_text(env_text)
+        os.environ["PAPER_TRADE"] = new_val
+        mode = "PAPER" if new_val == "true" else "LIVE"
+        logger.info(f"Trading mode switched to: {mode}")
+        os.system("pm2 restart all")
+        return {"success": True, "paper_trade": new_val == "true", "mode": mode}
+    except Exception as e:
+        logger.error(f"toggle_paper_mode error: {e}")
+        return {"error": str(e)}

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from brokers.base import AbstractBrokerGateway, Order, Tick
 from core.event_bus import EventType
 from core.risk_manager import risk_manager
+from core.auto_config import fetch_instruments, find_symbol_from_instruments
 from core.state_store import Direction, state_store
 from core.trade_log import trade_logger
 from core.vix_manager import vix_manager
@@ -28,7 +29,7 @@ class SurvivorConfig:
     ce_quantity:       int   = 65
     pe_start:          float = 0.0
     ce_start:          float = 0.0
-    min_price_to_sell: float = 10.0
+    min_price_to_sell: float = 30.0
     nifty_instrument_key: str = "NSE_INDEX|Nifty 50"
     strike_interval:   float = 50.0
 
@@ -50,6 +51,8 @@ class SurvivorAlgo(BaseStrategy):
         self._last_nifty_price = 0.0
         self._closed_trades    = 0
         self._ltp_cache        = {}  # symbol -> latest LTP
+        self._instruments      = []  # cached instruments list
+        self._ikey_cache       = {}  # text symbol -> instrument key
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -94,7 +97,9 @@ class SurvivorAlgo(BaseStrategy):
 
     def _on_tick_sync(self, tick: Tick) -> None:
         try:
+            # Cache option LTP from websocket ticks
             if tick.last_price < 10000:
+                self._ltp_cache[tick.symbol] = tick.last_price
                 return
             if self._loop is None or self._loop.is_closed():
                 return
@@ -139,6 +144,9 @@ class SurvivorAlgo(BaseStrategy):
 
             can_trade, reason = risk_manager.can_trade(self.name)
 
+            if can_trade and len(self._open_trades_data) >= 2:
+                can_trade = False
+                reason = "Max open trades reached (2)"
             if can_trade:
                 # PE SELL TRIGGER — Nifty moved up enough from last PE anchor
                 if nifty_price - self._pe_last_value >= current_pe_gap:
@@ -262,6 +270,14 @@ class SurvivorAlgo(BaseStrategy):
                 "direction":  direction,
             })
 
+            # Subscribe to live ticks using instrument key
+            ikey = await self._get_instrument_key(symbol, direction, final_strike)
+            self.broker.subscribe_ticks(
+                symbols=[ikey],
+                callback=self._on_tick_sync
+            )
+            self._ikey_cache[symbol] = ikey
+
             risk_manager.register_trade(self.name, "SELL")
             self._signal(
                 f"SOLD {direction} {int(final_strike)} @ ₹{entry_price:.2f} | "
@@ -270,6 +286,33 @@ class SurvivorAlgo(BaseStrategy):
 
         except Exception as e:
             logger.error(f"[survivor] _sell_option failed for {direction}: {e}")
+
+    async def _get_instrument_key(self, symbol: str, direction: str, strike: float) -> str:
+        """Lookup instrument key for a text symbol for WebSocket subscription."""
+        if symbol in self._ikey_cache:
+            return self._ikey_cache[symbol]
+        try:
+            from datetime import datetime as dt, date, timedelta
+            import pytz
+            if not self._instruments:
+                self._instruments = fetch_instruments()
+            now = dt.now(pytz.timezone("Asia/Kolkata"))
+            # Find nearest Tuesday (including today if Tuesday)
+            days_ahead = (1 - now.weekday()) % 7
+            expiry = (now + timedelta(days=days_ahead)).date()
+            # Ensure strike is reasonable (not full symbol number)
+            clean_strike = int(strike) if strike < 100000 else int(str(int(strike))[-5:])
+            ikey = find_symbol_from_instruments(
+                self._instruments, expiry, clean_strike, direction
+            )
+            if ikey:
+                self._ikey_cache[symbol] = ikey
+                logger.info(f"[survivor] instrument key found: {symbol} -> {ikey}")
+                return ikey
+        except Exception as e:
+            logger.warning(f"[survivor] instrument key lookup failed: {e}")
+        logger.warning(f"[survivor] using text fallback for {symbol}")
+        return symbol  # fallback to text symbol
 
     def _build_symbol(self, option_type: str, strike: float) -> str:
         return f"NSE_FO|{self.cfg.symbol_initials}{int(strike):05d}{option_type}"
@@ -295,29 +338,35 @@ class SurvivorAlgo(BaseStrategy):
                     "direction":  direction,
                 })
                 self._open_trade_ids.append(t["id"])
+                # Subscribe to live ticks for reloaded trade
+                try:
+                    # Extract strike from symbol e.g. NSE_FO|NIFTY12MAY2624200PE -> 24200
+                    sym_name = t["symbol"].split("|")[-1]  # NIFTY12MAY2624200PE
+                    strike = float(''.join(filter(str.isdigit, sym_name))[-5:])
+                    ikey = await self._get_instrument_key(t["symbol"], direction, strike)
+                    self.broker.subscribe_ticks(
+                        symbols=[ikey],
+                        callback=self._on_tick_sync
+                    )
+                    logger.info(f"[survivor] Subscribed to ticks for reloaded trade: {ikey}")
+                except Exception as sub_e:
+                    logger.debug(f"[survivor] Could not subscribe for reloaded trade: {sub_e}")
             logger.info(f"[survivor] Reloaded {len(open_trades)} open trade(s) from database.")
             self._signal(f"Reloaded {len(open_trades)} open trade(s) from previous session.")
         except Exception as e:
             logger.error(f"[survivor] Failed to reload open trades: {e}")
 
     async def _refresh_ltp_loop(self) -> None:
-        """Background task: fetch LTP for all open trades every 3 seconds."""
+        """Background task: update P&L every 3 seconds using WebSocket LTP cache."""
         while not self._stop_flag:
             try:
                 for trade in list(self._open_trades_data):
                     symbol = trade["symbol"]
-                    try:
-                        if os.getenv("PAPER_TRADE", "false").lower() == "true":
-                            ltp = await self.broker.get_ltp(symbol)
-                            if ltp == 0.0:
-                                # Simulate realistic decay for paper mode
-                                ltp = round(trade["entry"] * 0.95, 2)
-                        else:
-                            ltp = await self.broker.get_ltp(symbol)
-                        if ltp > 0:
-                            self._ltp_cache[symbol] = ltp
-                    except Exception as e:
-                        logger.debug(f"[survivor] LTP fetch failed for {symbol}: {e}")
+                    # Use WebSocket cache only — no REST API calls
+                    cached = self._ltp_cache.get(symbol, 0.0)
+                    if cached == 0.0:
+                        # Fallback: simulate decay if no tick yet
+                        self._ltp_cache[symbol] = round(trade["entry"] * 0.95, 2)
             except Exception as e:
                 logger.debug(f"[survivor] _refresh_ltp_loop error: {e}")
             await asyncio.sleep(3)
@@ -446,7 +495,7 @@ class SurvivorAlgo(BaseStrategy):
             try:
                 curr = self._ltp_cache.get(symbol, 0.0)
                 if curr == 0.0:
-                    curr = entry  # fallback until cache is populated
+                    curr = entry * 0.95  # simulate decay if LTP not yet cached
             except Exception:
                 curr = entry
             if curr == 0.0:
@@ -457,6 +506,5 @@ class SurvivorAlgo(BaseStrategy):
                 unrealised += (curr - entry) * qty
         self._unrealised_pnl = round(unrealised, 2)
         self._update_pnl(self._realised_pnl, self._unrealised_pnl)
-
     def get_config(self) -> dict:
         return vars(self.cfg)

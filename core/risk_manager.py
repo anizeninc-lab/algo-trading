@@ -40,9 +40,9 @@ class RiskManager:
     def __init__(
         self,
         max_daily_loss:      float = -5000.0,
-        per_trade_loss:      float = -3000.0,
+        per_trade_loss:      float = -1500.0,
         trailing_profit_pct: float = 25.0,
-        max_trades_per_day:  int   = 6,
+        max_trades_per_day:  int   = 3,
         auto_stop_hour:      int   = 15,
         auto_stop_minute:    int   = 10,
     ):
@@ -287,9 +287,9 @@ class RiskManager:
 # ─── Global singleton ─────────────────────────────────────────────────────────
 risk_manager = RiskManager(
     max_daily_loss      = -5000.0,
-    per_trade_loss      = -3000.0,
+    per_trade_loss      = -1500.0,
     trailing_profit_pct = 25.0,
-    max_trades_per_day  = 6,
+    max_trades_per_day  = 3,
     auto_stop_hour      = 15,
     auto_stop_minute    = 10,
 )

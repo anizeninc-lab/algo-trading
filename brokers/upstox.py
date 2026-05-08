@@ -12,8 +12,12 @@ from upstox_client.rest import ApiException
 from brokers.base import (AbstractBrokerGateway, MarginData, Order,
                           OrderResponse, Position, Tick)
 
-load_dotenv()
+load_dotenv(override=True)
 logger = logging.getLogger(__name__)
+
+# ─── HARDCAP — NEVER change this without careful testing ─────────────────────
+MAX_QTY_PER_ORDER = 65  # 1 lot of Nifty options = 65 qty. Bot should NEVER place more.
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 class UpstoxAdapter(AbstractBrokerGateway):
@@ -79,6 +83,19 @@ class UpstoxAdapter(AbstractBrokerGateway):
         return []
 
     async def place_order(self, order: Order) -> OrderResponse:
+        # ── QUANTITY HARDCAP ─────────────────────────────────────────────────
+        # This is a safety guard. Bot should NEVER place more than 1 lot (65 qty).
+        # If quantity exceeds this, it means there is a bug — block the order.
+        if order.quantity > MAX_QTY_PER_ORDER:
+            logger.error(
+                f"⛔ ORDER BLOCKED BY HARDCAP — "
+                f"Requested qty: {order.quantity} exceeds max allowed: {MAX_QTY_PER_ORDER}. "
+                f"Symbol: {order.symbol} | Type: {order.order_type}. "
+                f"This is a safety block to prevent over-ordering bugs."
+            )
+            return OrderResponse(order_id="BLOCKED_HARDCAP", status="REJECTED",
+                                 message=f"Quantity {order.quantity} exceeds hardcap of {MAX_QTY_PER_ORDER}")
+        # ─────────────────────────────────────────────────────────────────────
         try:
             body = upstox_client.PlaceOrderV3Request(
                 quantity=order.quantity,
@@ -168,8 +185,18 @@ class UpstoxAdapter(AbstractBrokerGateway):
                 upstox_client.ApiClient(self._configuration)
             )
             resp = user_api.get_user_fund_margin(segment="SEC", api_version="2.0")
-            available = float(resp.data.equity.available_margin)
-            used = float(resp.data.equity.used_margin)
+            data = resp.data
+            import re, ast
+            equity_raw = data.get("equity", "{}") if isinstance(data, dict) else str(data.equity)
+            try:
+                equity = ast.literal_eval(equity_raw) if isinstance(equity_raw, str) else equity_raw
+                available = float(equity.get("available_margin", 0))
+                used = float(equity.get("used_margin", 0))
+            except Exception:
+                av = re.search(r"available_margin[^:]*:\s*([\d.]+)", str(equity_raw))
+                us = re.search(r"used_margin[^:]*:\s*([\d.]+)", str(equity_raw))
+                available = float(av.group(1)) if av else 0.0
+                used = float(us.group(1)) if us else 0.0
             return MarginData(available=available, used=used, total=available + used)
         except ApiException as e:
             logger.error(f"get_margin failed: {e}")
@@ -196,13 +223,13 @@ class UpstoxAdapter(AbstractBrokerGateway):
                 try:
                     feeds = msg.get("feeds", {})
                     logger.info(f"[FEEDS] Type: {type(feeds)} | Count: {len(feeds)} | Keys: {list(feeds.keys())[:5]}")
-                    
+
                     items = list(feeds.items())
                     logger.info(f"[FEEDS ITEMS] {len(items)} items")
-                    
+
                     for sym, data in items:
                         logger.info(f"[FEED DATA] Symbol: {sym} | Data Type: {type(data)} | Data Keys: {list(data.keys()) if hasattr(data, 'keys') else 'N/A'}")
-                        
+
                         full_feed = {}
                         source_ff = {}
                         if isinstance(data, dict):
@@ -230,7 +257,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
 
                         if ltp:
                             logger.info(f"[ALL TICKS] Symbol: {sym} | LTP: {ltp}")
-                            
+
                             if 'Nifty 50' in sym or 'NIFTY50' in sym or 'Nifty 50' in str(sym):
                                 logger.info(f"[NIFTY UPDATE] Symbol: {sym} | LTP: {ltp}")
                                 from core.state_store import state_store
