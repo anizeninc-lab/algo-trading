@@ -49,6 +49,7 @@ class WaveExtractor(BaseStrategy):
         self._open_trades_data = []
         self._closed_trades    = 0
         self._sync_task        = None
+        self._closing_lock     = asyncio.Lock()
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -447,9 +448,18 @@ class WaveExtractor(BaseStrategy):
     # ── Trade Exit ────────────────────────────────────────────────────────────
 
     async def _close_trade(self, trade: dict, reason: str) -> None:
+        async with self._closing_lock:
+            if trade not in self._open_trades_data:
+                return
+            await self._do_close_trade(trade, reason)
+
+    async def _do_close_trade(self, trade: dict, reason: str) -> None:
         if trade not in self._open_trades_data:
             return
-
+        qty = trade.get("quantity", 65)
+        if qty > 65:
+            logger.error(f"[wave_extractor] HARDCAP: close qty {qty} exceeds 65 - capping")
+            trade["quantity"] = 65
         self._open_trades_data.remove(trade)
 
         exit_order_type = "BUY" if trade["order_type"] == "SELL" else "SELL"
