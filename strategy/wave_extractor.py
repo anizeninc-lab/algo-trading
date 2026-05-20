@@ -151,8 +151,11 @@ class WaveExtractor(BaseStrategy):
                 self._open_trades_data = []
                 logger.info("[wave_extractor] Bracket reset after external position close.")
                 self._signal("Position closed externally — resynced, ready to re-enter")
+                asyncio.create_task(self._cool_off_and_rebracket())
             else:
-                self._signal(f"Position resynced to {actual_net} from Upstox")
+                self._in_cool_off = True
+                self._signal(f"Position resynced to {actual_net} from Upstox — cool-off started")
+                asyncio.create_task(self._cool_off_and_rebracket())
 
     # ── Tick Handling ─────────────────────────────────────────────────────────
 
