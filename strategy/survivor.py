@@ -77,6 +77,7 @@ class SurvivorAlgo(BaseStrategy):
         )
         asyncio.create_task(self._refresh_ltp_loop())
         logger.info("[survivor] LTP refresh loop started")
+        await asyncio.sleep(5)  # Wait for WebSocket
         await self._reload_open_trades()
 
         logger.info(
@@ -96,6 +97,10 @@ class SurvivorAlgo(BaseStrategy):
     # ── Tick Handling ─────────────────────────────────────────────────────────
 
     def _on_tick_sync(self, tick: Tick) -> None:
+        if self._stop_flag:
+            return
+        if self._stop_flag:
+            return
         try:
             # Cache option LTP from websocket ticks
             if tick.last_price < 10000:
@@ -297,9 +302,19 @@ class SurvivorAlgo(BaseStrategy):
             if not self._instruments:
                 self._instruments = fetch_instruments()
             now = dt.now(pytz.timezone("Asia/Kolkata"))
-            # Find nearest Tuesday (including today if Tuesday)
-            days_ahead = (1 - now.weekday()) % 7
-            expiry = (now + timedelta(days=days_ahead)).date()
+            # Extract expiry directly from symbol e.g. NIFTY19MAY2623400PE -> 2026-05-19
+            try:
+                sym_name = symbol.split("|")[-1]
+                day = int(sym_name[5:7])
+                month_str = sym_name[7:10].upper()
+                month_map = {"JAN":1,"FEB":2,"MAR":3,"APR":4,"MAY":5,"JUN":6,
+                             "JUL":7,"AUG":8,"SEP":9,"OCT":10,"NOV":11,"DEC":12}
+                month = month_map[month_str]
+                year = now.year if month >= now.month else now.year + 1
+                expiry = date(year, month, day)
+            except Exception:
+                days_ahead = (3 - now.weekday()) % 7
+                expiry = (now + timedelta(days=days_ahead)).date()
             # Ensure strike is reasonable (not full symbol number)
             clean_strike = int(strike) if strike < 100000 else int(str(int(strike))[-5:])
             ikey = find_symbol_from_instruments(
@@ -348,9 +363,10 @@ class SurvivorAlgo(BaseStrategy):
                         symbols=[ikey],
                         callback=self._on_tick_sync
                     )
+                    self._ikey_cache[t["symbol"]] = ikey
                     logger.info(f"[survivor] Subscribed to ticks for reloaded trade: {ikey}")
                 except Exception as sub_e:
-                    logger.debug(f"[survivor] Could not subscribe for reloaded trade: {sub_e}")
+                    logger.error(f"[survivor] Could not subscribe for reloaded trade: {sub_e}")
             logger.info(f"[survivor] Reloaded {len(open_trades)} open trade(s) from database.")
             self._signal(f"Reloaded {len(open_trades)} open trade(s) from previous session.")
         except Exception as e:
@@ -483,6 +499,8 @@ class SurvivorAlgo(BaseStrategy):
         self._signal(f"Closing all {len(self._open_trades_data)} open trade(s)...")
         for trade in list(self._open_trades_data):
             await self._close_trade(trade, "EOD")
+        self._unrealised_pnl = 0.0
+        self._update_pnl(self._realised_pnl, 0.0)
 
     # ── P&L Calculation ───────────────────────────────────────────────────────
 
@@ -493,7 +511,8 @@ class SurvivorAlgo(BaseStrategy):
             qty    = trade["quantity"]
             symbol = trade["symbol"]
             try:
-                curr = self._ltp_cache.get(symbol, 0.0)
+                ikey = self._ikey_cache.get(symbol, symbol)
+                curr = self._ltp_cache.get(ikey, self._ltp_cache.get(symbol, 0.0))
                 if curr == 0.0:
                     curr = entry * 0.95  # simulate decay if LTP not yet cached
             except Exception:
@@ -506,5 +525,18 @@ class SurvivorAlgo(BaseStrategy):
                 unrealised += (curr - entry) * qty
         self._unrealised_pnl = round(unrealised, 2)
         self._update_pnl(self._realised_pnl, self._unrealised_pnl)
+        # Update live P&L registry for dashboard
+        try:
+            from dashboard.api import pnl_registry, ltp_registry
+            for trade in self._open_trades_data:
+                entry = trade["entry"]
+                qty   = trade["quantity"]
+                ikey  = self._ikey_cache.get(trade["symbol"], trade["symbol"])
+                curr  = self._ltp_cache.get(ikey, self._ltp_cache.get(trade["symbol"], entry))
+                pnl   = (entry - curr) * qty if trade["order_type"] == "SELL" else (curr - entry) * qty
+                pnl_registry[trade["id"]] = round(pnl, 2)
+                ltp_registry[trade["id"]] = curr
+        except Exception:
+            pass
     def get_config(self) -> dict:
         return vars(self.cfg)
