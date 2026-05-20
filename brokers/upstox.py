@@ -319,7 +319,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
                             self._order_callback({
                                 "order_id": oid,
                                 "status": "COMPLETE",
-                                "average_price": getattr(o, "price", 0),
+                                "average_price": getattr(o, "average_price", 0) or getattr(o, "price", 0),
                                 "symbol": getattr(o, "symbol", ""),
                                 "order_type": getattr(o, "order_type", ""),
                             })
