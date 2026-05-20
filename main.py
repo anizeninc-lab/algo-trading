@@ -2,7 +2,9 @@
 import asyncio
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -17,7 +19,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("logs/trading.log", encoding="utf-8"),
+        RotatingFileHandler("logs/trading.log", maxBytes=50*1024*1024, backupCount=7, encoding="utf-8"),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -67,6 +69,9 @@ async def run_strategies(config: dict):
     from strategy.wave_extractor import WaveConfig
 
     broker = get_broker()
+    # Share broker with dashboard API for funds endpoint
+    import dashboard.api as dashboard_api
+    dashboard_api.broker_ref = broker
 
     # Start VIX manager first
     await vix_manager.start()
@@ -146,6 +151,11 @@ async def main():
 if __name__ == "__main__":
     # Auto-free port 8081 (Windows + Linux)
     free_port(8081)
+
+    def _handle_sigterm(signum, frame):
+        logger.info("SIGTERM received")
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, _handle_sigterm)
 
     try:
         asyncio.run(main())
@@ -156,6 +166,7 @@ import asyncio
 import json
 import logging
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -170,7 +181,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("logs/trading.log", encoding="utf-8"),
+        RotatingFileHandler("logs/trading.log", maxBytes=50*1024*1024, backupCount=7, encoding="utf-8"),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -220,6 +231,9 @@ async def run_strategies(config: dict):
     from strategy.wave_extractor import WaveConfig
 
     broker = get_broker()
+    # Share broker with dashboard API for funds endpoint
+    import dashboard.api as dashboard_api
+    dashboard_api.broker_ref = broker
 
     # Start VIX manager first
     await vix_manager.start()
@@ -299,6 +313,11 @@ async def main():
 if __name__ == "__main__":
     # Auto-free port 8081 (Windows + Linux)
     free_port(8081)
+
+    def _handle_sigterm(signum, frame):
+        logger.info("SIGTERM received")
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, _handle_sigterm)
 
     try:
         asyncio.run(main())

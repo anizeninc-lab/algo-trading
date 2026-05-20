@@ -8,6 +8,7 @@ from datetime import datetime
 from brokers.base import AbstractBrokerGateway, Order, Tick
 from core.event_bus import EventType
 from core.risk_manager import risk_manager
+from dashboard.api import pnl_registry, ltp_registry
 from core.state_store import Direction, state_store
 from core.trade_log import trade_logger
 from strategy.base_strategy import BaseStrategy
@@ -70,6 +71,26 @@ class WaveExtractor(BaseStrategy):
         self.broker.on_order_update(self._on_order_update)
 
         self._sync_task = asyncio.create_task(self._position_sync_loop())
+
+        # Reload open trades from DB on startup (handles restarts)
+        today = __import__('datetime').date.today().isoformat()
+        open_trades = [t for t in trade_logger.get_trades(strategy=self.name, status="OPEN") if t.get('entry_time', '')[:10] == today]
+        for t in open_trades:
+            if t.get("symbol") == self.cfg.option_symbol:
+                self._open_trades_data.append({
+                    "id":          t.get("trade_id", ""),
+                    "order_id":    t.get("broker_order_id", "RESTORED"),
+                    "order_type":  t.get("order_type"),
+                    "entry_price": t.get("entry_price"),
+                    "quantity":    t.get("quantity"),
+                    "symbol":      t.get("symbol"),
+                })
+                self._net_position += 1 if t.get("order_type") == "BUY" else -1
+        if self._open_trades_data:
+            self._signal(f"Restored {len(self._open_trades_data)} open trade(s) from DB")
+            pos = "LONG" if self._net_position > 0 else "SHORT" if self._net_position < 0 else "FLAT"
+            self._update_position(pos)
+            self._update_pnl(self._realised_pnl, self._unrealised_pnl)
 
         self._signal(
             f"Started | Symbol: {self.cfg.option_symbol} | "
@@ -135,6 +156,8 @@ class WaveExtractor(BaseStrategy):
     # ── Tick Handling ─────────────────────────────────────────────────────────
 
     def _on_tick_sync(self, tick: Tick) -> None:
+        if self._stop_flag:
+            return
         if self._loop and self._loop.is_running():
             asyncio.run_coroutine_threadsafe(self.on_tick(tick), self._loop)
         else:
@@ -189,10 +212,20 @@ class WaveExtractor(BaseStrategy):
                             "symbol":      self.cfg.option_symbol,
                         }
                         self._open_trades_data.append(trade)
-                        trade_logger.open_trade(trade)
+                        trade_logger.open_trade(
+                            strategy=self.name,
+                            broker=type(self.broker).__name__,
+                            symbol=trade['symbol'],
+                            order_type=trade['order_type'],
+                            quantity=trade['quantity'],
+                            entry_price=trade['entry_price'],
+                            broker_order_id=trade['order_id'],
+                        )
                         self._sell_order_id = ""
                         self._buy_order_id  = ""
                         risk_manager.register_trade(self.name, "SELL")
+                        self._update_pnl(self._realised_pnl, self._unrealised_pnl)
+                        self._update_position("SHORT")
                         asyncio.create_task(self._cool_off_and_rebracket())
                         return
 
@@ -209,10 +242,20 @@ class WaveExtractor(BaseStrategy):
                             "symbol":      self.cfg.option_symbol,
                         }
                         self._open_trades_data.append(trade)
-                        trade_logger.open_trade(trade)
+                        trade_logger.open_trade(
+                            strategy=self.name,
+                            broker=type(self.broker).__name__,
+                            symbol=trade['symbol'],
+                            order_type=trade['order_type'],
+                            quantity=trade['quantity'],
+                            entry_price=trade['entry_price'],
+                            broker_order_id=trade['order_id'],
+                        )
                         self._buy_order_id  = ""
                         self._sell_order_id = ""
                         risk_manager.register_trade(self.name, "BUY")
+                        self._update_pnl(self._realised_pnl, self._unrealised_pnl)
+                        self._update_position("LONG")
                         asyncio.create_task(self._cool_off_and_rebracket())
                         return
             # ── End Paper Trade Fill Simulator ─────────────────────────────
@@ -237,6 +280,10 @@ class WaveExtractor(BaseStrategy):
 
     def _on_order_update(self, update: dict) -> None:
         try:
+            if self._stop_flag:
+                return
+            if self._stop_flag:
+                return
             if os.getenv("PAPER_TRADE", "false").lower() == "true":
                 return
             asyncio.run_coroutine_threadsafe(
@@ -498,7 +545,15 @@ class WaveExtractor(BaseStrategy):
                 pnl += (entry - self._current_price) * qty
             else:
                 pnl += (self._current_price - entry) * qty
+            try:
+                tid = trade.get("id", "")
+                if tid:
+                    pnl_registry[tid] = round(pnl, 2)
+                    ltp_registry[tid] = self._current_price
+            except Exception:
+                pass
         self._unrealised_pnl = pnl
+        self._update_pnl(self._realised_pnl, self._unrealised_pnl)
 
     def get_config(self) -> dict:
         return vars(self.cfg)
