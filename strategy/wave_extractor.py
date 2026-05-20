@@ -79,7 +79,7 @@ class WaveExtractor(BaseStrategy):
         for t in open_trades:
             if t.get("symbol") == self.cfg.option_symbol:
                 self._open_trades_data.append({
-                    "id":          t.get("trade_id", ""),
+                    "id":          t.get("id", ""),
                     "order_id":    t.get("broker_order_id", "RESTORED"),
                     "order_type":  t.get("order_type"),
                     "entry_price": t.get("entry_price"),
