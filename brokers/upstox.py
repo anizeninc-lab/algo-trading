@@ -35,6 +35,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
         self._portfolio_api = None
         self._market_api = None
         self._ws_thread = None
+        self._streamer = None
         self._tick_callbacks = {}
         self._order_callback = None
         self._connected = False
@@ -160,17 +161,18 @@ class UpstoxAdapter(AbstractBrokerGateway):
             orders = []
             if resp and resp.data:
                 for o in resp.data:
-                    orders.append(
-                        Order(
+                    ord_obj = Order(
                             symbol=getattr(o, "instrument_token", ""),
                             exchange=getattr(o, "exchange", ""),
                             order_type=getattr(o, "transaction_type", ""),
                             quantity=getattr(o, "quantity", 0),
                             product=getattr(o, "product", ""),
-                            price=getattr(o, "price", 0.0),
+                            price=getattr(o, "average_price", 0.0) or getattr(o, "price", 0.0),
                             order_id=getattr(o, "order_id", ""),
                         )
-                    )
+                    ord_obj.status = getattr(o, "status", "")
+                    ord_obj.average_price = getattr(o, "average_price", 0.0)
+                    orders.append(ord_obj)
             return orders
         except ApiException as e:
             logger.error(f"get_orders failed: {e}")
@@ -206,14 +208,21 @@ class UpstoxAdapter(AbstractBrokerGateway):
         for sym in symbols:
             self._tick_callbacks[sym] = callback
 
-        if self._ws_thread and self._ws_thread.is_alive():
-            logger.info(f"Added callback for {symbols} to existing WebSocket")
-            return
 
+        if self._ws_thread and self._ws_thread.is_alive():
+            logger.info(f"Restarting WebSocket to add new symbols: {symbols}")
+            try:
+                if self._streamer:
+                    self._streamer.close()
+            except Exception:
+                pass
+            self._ws_thread = None
+            self._streamer = None
+            import time; time.sleep(1)
         all_symbols = list(self._tick_callbacks.keys())
 
         def _run_streamer():
-            streamer = upstox_client.MarketDataStreamerV3(
+            self._streamer = upstox_client.MarketDataStreamerV3(
                 upstox_client.ApiClient(self._configuration), all_symbols, "full"
             )
 
@@ -279,15 +288,48 @@ class UpstoxAdapter(AbstractBrokerGateway):
                 except Exception as e:
                     logger.error(f"Tick processing error: {e}", exc_info=True)
 
-            streamer.on("message", on_message)
-            streamer.on("open", lambda: logger.info("WebSocket connected to Upstox"))
-            streamer.on("error", lambda e: logger.error(f"WebSocket error: {e}"))
-            streamer.on("close", lambda *args: logger.warning("WebSocket closed"))
-            streamer.connect()
+            self._streamer.on("message", on_message)
+            self._streamer.on("open", lambda: logger.info("WebSocket connected to Upstox"))
+            self._streamer.on("error", lambda e: logger.error(f"WebSocket error: {e}"))
+            self._streamer.on("close", lambda *args: logger.warning("WebSocket closed"))
+            self._streamer.connect()
 
         self._ws_thread = threading.Thread(target=_run_streamer, daemon=True)
         self._ws_thread.start()
         logger.info(f"WebSocket started with symbols: {all_symbols}")
+
+        # Start order polling thread to detect live order fills
+        self._known_order_states = {}
+        def _poll_orders():
+            import time
+            import asyncio
+            while True:
+                time.sleep(3)
+                try:
+                    if not self._order_callback:
+                        continue
+                    loop = asyncio.new_event_loop()
+                    orders = loop.run_until_complete(self.get_orders())
+                    loop.close()
+                    for o in orders:
+                        oid = o.order_id
+                        prev = self._known_order_states.get(oid)
+                        if prev != "complete" and getattr(o, "status", "") == "complete":
+                            logger.info(f"[ORDER POLL] Order filled: {oid}")
+                            self._order_callback({
+                                "order_id": oid,
+                                "status": "COMPLETE",
+                                "average_price": getattr(o, "price", 0),
+                                "symbol": getattr(o, "symbol", ""),
+                                "order_type": getattr(o, "order_type", ""),
+                            })
+                        self._known_order_states[oid] = getattr(o, "status", "")
+                except Exception as e:
+                    logger.warning(f"[ORDER POLL] Error: {e}")
+
+        self._order_poll_thread = threading.Thread(target=_poll_orders, daemon=True)
+        self._order_poll_thread.start()
+        logger.info("Order polling thread started")
 
     def unsubscribe_ticks(self, symbols: list) -> None:
         for sym in symbols:
