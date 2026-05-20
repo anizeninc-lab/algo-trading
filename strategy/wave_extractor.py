@@ -404,6 +404,7 @@ class WaveExtractor(BaseStrategy):
                 self._sell_order_id = sell_resp.order_id
                 if sell_resp.status == "REJECTED":
                     self._signal(f"SELL order REJECTED: {sell_resp.message}")
+                    self._sell_order_id  = ""
                     self._bracket_active = False
                     asyncio.create_task(self._cool_off_and_rebracket())
                     return
@@ -437,6 +438,7 @@ class WaveExtractor(BaseStrategy):
                     self._sell_order_id  = ""
                     self._buy_order_id   = ""
                     self._bracket_active = False
+                    asyncio.create_task(self._cool_off_and_rebracket())
                     return
             self._signal(f"BUY order placed: {self._buy_order_id} @ {buy_price}")
 
