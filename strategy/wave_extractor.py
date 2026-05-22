@@ -1,3 +1,4 @@
+from core.strategy_filter import strategy_filter
 # strategy/wave_extractor.py
 import asyncio
 import logging
@@ -265,6 +266,11 @@ class WaveExtractor(BaseStrategy):
             # ── End Paper Trade Fill Simulator ─────────────────────────────
 
             can_trade, reason = risk_manager.can_trade(self.name)
+            if can_trade:
+                sf_ok, sf_reason = strategy_filter.can_trade("wave_extractor")
+                if not sf_ok:
+                    can_trade = False
+                    reason = f"[context] {sf_reason}"
 
             if (
                 not self._bracket_active

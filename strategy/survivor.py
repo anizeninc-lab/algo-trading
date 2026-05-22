@@ -1,3 +1,4 @@
+from core.strategy_filter import strategy_filter
 # strategy/survivor.py
 import asyncio
 import logging
@@ -148,6 +149,11 @@ class SurvivorAlgo(BaseStrategy):
             self._calculate_pnl(nifty_price)
 
             can_trade, reason = risk_manager.can_trade(self.name)
+            if can_trade:
+                sf_ok, sf_reason = strategy_filter.can_trade("survivor")
+                if not sf_ok:
+                    can_trade = False
+                    reason = f"[context] {sf_reason}"
 
             if can_trade and len(self._open_trades_data) >= 2:
                 can_trade = False
