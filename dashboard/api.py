@@ -17,6 +17,19 @@ from core.state_store import state_store, StrategyState
 from core.trade_log import trade_logger
 from core.vix_manager import vix_manager
 
+# ── New: market context + astro ───────────────────────────────────────────────
+try:
+    from core.market_context import market_context
+    _MARKET_CONTEXT_AVAILABLE = True
+except ImportError:
+    _MARKET_CONTEXT_AVAILABLE = False
+
+try:
+    from core.astro_calendar import astro_calendar
+    _ASTRO_AVAILABLE = True
+except ImportError:
+    _ASTRO_AVAILABLE = False
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -69,6 +82,28 @@ def _build_payload() -> dict:
 
     summary["paper_trade"] = os.getenv("PAPER_TRADE", "false").lower() == "true"
 
+    # ── Market context (Layer 1) ───────────────────────────────────────────────
+    market_ctx = None
+    if _MARKET_CONTEXT_AVAILABLE:
+        try:
+            from core.strategy_filter import strategy_filter
+            market_ctx = strategy_filter.context_summary()
+        except Exception:
+            pass
+
+    # ── Astro calendar ────────────────────────────────────────────────────────
+    astro = None
+    if _ASTRO_AVAILABLE:
+        try:
+            today = astro_calendar.today()
+            week  = astro_calendar.week_ahead()
+            astro = {
+                "today":      today.to_dict() if today else None,
+                "week_ahead": [d.to_dict() for d in week],
+            }
+        except Exception:
+            pass
+
     return {
         "timestamp":  datetime.now().isoformat(),
         "global":     summary,
@@ -80,7 +115,9 @@ def _build_payload() -> dict:
             "halt":    vix_manager.should_halt(),
             "params":  vix_manager.get_params(),
         },
-        "market": state_store.get_market_data(),
+        "market":      state_store.get_market_data(),
+        "market_ctx":  market_ctx,   # NEW: PCR, regime, OI, opening range
+        "astro":       astro,        # NEW: astro day strength + windows
     }
 
 
@@ -210,14 +247,20 @@ if FRONTEND_DIR.exists():
 @app.on_event("startup")
 async def startup():
     asyncio.create_task(event_bus.start())
+    # Start market context engine if available
+    if _MARKET_CONTEXT_AVAILABLE:
+        try:
+            market_context.start()
+            logger.info("MarketContextEngine started from dashboard startup")
+        except Exception as e:
+            logger.warning(f"MarketContextEngine start failed: {e}")
     logger.info("Dashboard API started. Event bus running.")
 
 
-
 # ── Unrealised PnL Registry ───────────────────────────────────────────────────
-# Strategies call: pnl_registry[trade_id] = unrealised_pnl
 pnl_registry: dict = {}
-ltp_registry: dict = {}  # trade_id -> current LTP
+ltp_registry: dict = {}
+
 
 @app.post("/api/toggle-paper")
 async def toggle_paper_mode():

@@ -24,72 +24,40 @@ const C = {
 
 const pnlC  = v => (v || 0) >= 0 ? C.green : C.red
 const pnlBg = v => (v || 0) >= 0 ? "rgba(0,232,122,0.07)" : "rgba(255,61,90,0.07)"
+
 const STATE_C = { RUNNING: C.green, STOPPED: C.muted, ERROR: C.red, IDLE: C.blue }
+
 const fmt = (n, d = 2) => n != null ? Number(n).toFixed(d) : "—"
 const fmtRs = (n, d = 2) => n != null ? `₹${fmt(n, d)}` : "—"
 const fmtTime = s => s ? s.slice(11, 19) : "—"
+const fmtDate = s => s ? s.slice(0, 10) : "—"
 
-// ─── Kill Switch ──────────────────────────────────────────────────────────────
-function KillSwitch({ strategies }) {
-  const [confirm, setConfirm]   = useState(false)
-  const [killing,  setKilling]  = useState(false)
-  const [done,     setDone]     = useState(false)
-  const timerRef = useRef(null)
-
-  async function doKill() {
-    setKilling(true)
-    const names = Object.keys(strategies).filter(n => strategies[n]?.state === "RUNNING")
-    await Promise.allSettled(names.map(n => axios.post(`${API}/api/strategy/${n}/stop`)))
-    setKilling(false)
-    setDone(true)
-    setConfirm(false)
-    setTimeout(() => setDone(false), 4000)
-  }
-
-  function handleClick() {
-    if (!confirm) {
-      setConfirm(true)
-      timerRef.current = setTimeout(() => setConfirm(false), 4000)
-    } else {
-      clearTimeout(timerRef.current)
-      doKill()
+function useCapital() {
+  const [capital, setCapital] = useState({ available: 0, used: 0, total: 0 })
+  useEffect(() => {
+    async function fetch() {
+      try {
+        const r = await axios.get(`${API}/api/health`)
+        if (r.data) setCapital(prev => ({ ...prev }))
+      } catch {}
     }
-  }
+    fetch()
+    const id = setInterval(fetch, 30000)
+    return () => clearInterval(id)
+  }, [])
+  return capital
+}
 
-  const runningCount = Object.values(strategies).filter(s => s?.state === "RUNNING").length
-
+function Pill({ label, colour, size = 11 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      {confirm && (
-        <span style={{ fontSize: 10, color: C.orange, fontWeight: 700, animation: "pulse 0.5s infinite" }}>
-          ⚠ CONFIRM — CLOSES ALL {runningCount} RUNNING
-        </span>
-      )}
-      <button
-        onClick={handleClick}
-        disabled={killing || runningCount === 0}
-        style={{
-          padding: "7px 16px",
-          borderRadius: 6,
-          border: `1px solid ${done ? C.green : confirm ? C.orange : C.red}60`,
-          background: done ? C.green + "20" : confirm ? C.orange + "20" : C.red + "18",
-          color: done ? C.green : confirm ? C.orange : C.red,
-          fontWeight: 800,
-          fontSize: 11,
-          cursor: runningCount === 0 ? "not-allowed" : "pointer",
-          fontFamily: "monospace",
-          letterSpacing: 1,
-          opacity: runningCount === 0 ? 0.4 : 1,
-          transition: "all 0.2s",
-        }}
-      >
-        {killing ? "⏳ STOPPING..." : done ? "✓ ALL STOPPED" : confirm ? "⚡ CLICK AGAIN!" : "⛔ KILL ALL"}
-      </button>
-    </div>
+    <span style={{
+      background: colour + "18", color: colour, borderRadius: 3,
+      padding: "2px 8px", fontSize: size, fontWeight: 700, letterSpacing: 0.8,
+      border: `1px solid ${colour}30`, whiteSpace: "nowrap",
+    }}>{label}</span>
   )
 }
 
-// ─── Sparkline ────────────────────────────────────────────────────────────────
 function MiniSpark({ history, w = 80, h = 28 }) {
   if (!history || history.length < 2) return <div style={{ width: w, height: h }} />
   const vals = history.map(x => x.pnl)
@@ -108,55 +76,29 @@ function MiniSpark({ history, w = 80, h = 28 }) {
   )
 }
 
-// ─── Pill ─────────────────────────────────────────────────────────────────────
-function Pill({ label, colour, size = 11 }) {
-  return (
-    <span style={{
-      background: colour + "18", color: colour, borderRadius: 3,
-      padding: "2px 8px", fontSize: size, fontWeight: 700, letterSpacing: 0.8,
-      border: `1px solid ${colour}30`, whiteSpace: "nowrap",
-    }}>{label}</span>
-  )
-}
-
-// ─── Capital Bar ──────────────────────────────────────────────────────────────
-function CapitalBar({ trades, funds }) {
-  const TRADING_CAPITAL = 150000
-  const open  = trades.filter(t => t.status === "OPEN")
-  const inTrades = open.reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0), 0)
-  const marginLocked = open.reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0) * 5, 0)
-  const upstoxBalance = funds ? funds.total : 0
-  const upstoxAvailable = funds ? funds.available : 0
-  const closedTrades = trades.filter(t => t.status === "CLOSED")
-  const totalPnl = closedTrades.reduce((s, t) => s + (t.realised_pnl || 0), 0)
-  const currentCapital = TRADING_CAPITAL + totalPnl
-  const pnlPct = ((totalPnl / TRADING_CAPITAL) * 100).toFixed(2)
-  const pct = Math.min(100, (marginLocked / TRADING_CAPITAL) * 100)
+function CapitalBar({ trades, global: g }) {
+  const total = 200000
+  const used = trades.filter(t => t.status === "OPEN").reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0), 0)
+  const available = Math.max(0, total - used)
+  const pct = Math.min(100, (used / total) * 100)
   const barC = pct > 80 ? C.red : pct > 50 ? C.orange : C.green
-  const items = [
-    { label: "UPSTOX BALANCE",  val: upstoxBalance > 0 ? fmtRs(upstoxBalance) : "—", col: C.cyan, sub: upstoxAvailable > 0 ? "Avail: " + fmtRs(upstoxAvailable) : null },
-    { label: "TRADING CAPITAL", val: fmtRs(TRADING_CAPITAL), col: C.text, sub: "Fixed limit" },
-    { label: "CURRENT CAPITAL", val: fmtRs(currentCapital), col: pnlC(totalPnl), sub: (totalPnl >= 0 ? "+" : "") + pnlPct + "%" },
-    { label: "MARGIN USED",     val: fmtRs(marginLocked), col: marginLocked > 0 ? C.orange : C.muted, sub: marginLocked > 0 ? pct.toFixed(1) + "% of limit" : null },
-  ]
-
-
-
-
 
   return (
-    <div style={{ background: C.card, borderRadius: 10, padding: "14px 18px", border: `1px solid ${C.border}` }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+    <div style={{ background: C.card, borderRadius: 10, padding: "14px 18px", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1.5 }}>CAPITAL OVERVIEW</span>
         <span style={{ fontSize: 10, color: barC, fontWeight: 700 }}>{pct.toFixed(1)}% USED</span>
       </div>
-      {/* Aligned grid — equal columns */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 10 }}>
-        {items.map(({ label, val, col, sub }) => (
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        {[
+          { label: "TOTAL",     val: fmtRs(total),     col: C.text },
+          { label: "AVAILABLE", val: fmtRs(available), col: C.green },
+          { label: "IN TRADES", val: fmtRs(used),      col: used > 0 ? C.orange : C.muted },
+          { label: "FREE MARGIN", val: fmtRs(available), col: C.cyan },
+        ].map(({ label, val, col }) => (
           <div key={label}>
-            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 2 }}>{label}</div>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>{label}</div>
             <div style={{ fontSize: 13, fontWeight: 800, color: col, fontFamily: "monospace" }}>{val}</div>
-            {sub && <div style={{ fontSize: 9, color: col, opacity: 0.8, marginTop: 2 }}>{sub}</div>}
           </div>
         ))}
       </div>
@@ -167,9 +109,8 @@ function CapitalBar({ trades, funds }) {
   )
 }
 
-// ─── Nifty Box ────────────────────────────────────────────────────────────────
 function NiftyBox({ market }) {
-  const [prev, setPrev]   = useState(0)
+  const [prev, setPrev] = useState(0)
   const [flash, setFlash] = useState(null)
   const price = market?.nifty_price || 0
   useEffect(() => {
@@ -195,7 +136,6 @@ function NiftyBox({ market }) {
   )
 }
 
-// ─── Stat Tile ────────────────────────────────────────────────────────────────
 function StatTile({ label, value, colour, sub, bg }) {
   return (
     <div style={{ background: bg || C.card, borderRadius: 10, padding: "12px 16px", border: `1px solid ${C.border}`, minWidth: 100 }}>
@@ -206,10 +146,9 @@ function StatTile({ label, value, colour, sub, bg }) {
   )
 }
 
-// ─── VIX Box ─────────────────────────────────────────────────────────────────
 function VixBox({ vix }) {
   if (!vix) return null
-  const v   = vix.value
+  const v = vix.value
   const col = v >= 25 ? C.red : v >= 20 ? C.orange : v >= 16 ? C.yellow : C.green
   return (
     <div style={{ background: C.card, borderRadius: 10, padding: "12px 16px", border: `1px solid ${col}30`, minWidth: 120 }}>
@@ -222,21 +161,17 @@ function VixBox({ vix }) {
   )
 }
 
-// ─── Strategy Card ────────────────────────────────────────────────────────────
 function StratCard({ name, data, onStop, onReset, trades }) {
-  const title       = name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
-  const myTrades    = trades.filter(t => t.strategy === name)
-  const openTrades  = myTrades.filter(t => t.status === "OPEN")
+  const title = name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+  const myTrades = trades.filter(t => t.strategy === name)
+  const openTrades = myTrades.filter(t => t.status === "OPEN")
   const closedTrades = myTrades.filter(t => t.status === "CLOSED")
-  const winCount    = closedTrades.filter(t => (t.realised_pnl || 0) > 0).length
-  const winRate     = closedTrades.length > 0 ? ((winCount / closedTrades.length) * 100).toFixed(0) : "—"
+  const winCount = closedTrades.filter(t => (t.realised_pnl || 0) > 0).length
+  const winRate = closedTrades.length > 0 ? ((winCount / closedTrades.length) * 100).toFixed(0) : "—"
   const capitalUsed = openTrades.reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0), 0)
   const capitalLimit = 40000
-  const capPct      = Math.min(100, (capitalUsed / capitalLimit) * 100)
-  const capCol      = capPct > 80 ? C.red : capPct > 50 ? C.orange : C.green
-
-  // Live unrealised PnL = sum of all open trades' unrealised_pnl
-  const liveUnrealised = openTrades.reduce((s, t) => s + (t.unrealised_pnl || 0), 0)
+  const capPct = Math.min(100, (capitalUsed / capitalLimit) * 100)
+  const capCol = capPct > 80 ? C.red : capPct > 50 ? C.orange : C.green
 
   if (!data) return (
     <div style={{ background: C.card, borderRadius: 12, padding: 18, border: `1px solid ${C.border}`, minHeight: 180, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -244,9 +179,8 @@ function StratCard({ name, data, onStop, onReset, trades }) {
     </div>
   )
 
-  const realised   = data.realised_pnl || 0
-  // Use live unrealised from trades if available, else fall back to state_store
-  const unrealised = liveUnrealised !== 0 ? liveUnrealised : (data.unrealised_pnl || 0)
+  const realised   = data.realised_pnl   || 0
+  const unrealised = data.unrealised_pnl || 0
   const net        = realised + unrealised
   const col        = STATE_C[data.state] || C.muted
   const capEff     = capitalUsed > 0 ? ((net / capitalUsed) * 100).toFixed(1) : "—"
@@ -272,10 +206,7 @@ function StratCard({ name, data, onStop, onReset, trades }) {
           </div>
           <div>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>UNREALISED</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: pnlC(unrealised), fontFamily: "monospace" }}>
-              {fmtRs(unrealised)}
-              {openTrades.length > 0 && <span style={{ fontSize: 8, color: C.cyan, marginLeft: 4 }}>LIVE</span>}
-            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: pnlC(unrealised), fontFamily: "monospace" }}>{fmtRs(unrealised)}</div>
           </div>
         </div>
         <div style={{ marginLeft: "auto" }}>
@@ -283,12 +214,13 @@ function StratCard({ name, data, onStop, onReset, trades }) {
         </div>
       </div>
 
-      {/* Stats grid — aligned */}
+      {/* Stats grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
         {[
-          { label: "POSITION",    val: data.position || "FLAT" },
-          { label: "OPEN TRADES", val: openTrades.length },
-          { label: "WIN RATE",    val: winRate !== "—" ? `${winRate}%` : "—" },
+          { label: "POSITION",   val: data.position || "FLAT" },
+          { label: "OPEN TRADES", val: data.open_trades || 0 },
+          { label: "TOTAL",      val: data.total_trades || 0 },
+          { label: "WIN RATE",   val: winRate !== "—" ? `${winRate}%` : "—" },
         ].map(({ label, val }) => (
           <div key={label} style={{ background: C.panel, borderRadius: 6, padding: "7px 9px", border: `1px solid ${C.border2}` }}>
             <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 0.8 }}>{label}</div>
@@ -303,7 +235,7 @@ function StratCard({ name, data, onStop, onReset, trades }) {
           <span style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>CAPITAL ALLOCATION</span>
           <span style={{ fontSize: 9, color: capCol, fontWeight: 700 }}>{capPct.toFixed(0)}% OF {fmtRs(capitalLimit)}</span>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 6 }}>
+        <div style={{ display: "flex", gap: 12, marginBottom: 6 }}>
           <div><div style={{ fontSize: 8, color: C.muted }}>USED</div><div style={{ fontSize: 11, fontWeight: 700, color: capCol, fontFamily: "monospace" }}>{fmtRs(capitalUsed)}</div></div>
           <div><div style={{ fontSize: 8, color: C.muted }}>REMAINING</div><div style={{ fontSize: 11, fontWeight: 700, color: C.green, fontFamily: "monospace" }}>{fmtRs(capitalLimit - capitalUsed)}</div></div>
           <div><div style={{ fontSize: 8, color: C.muted }}>EFFICIENCY</div><div style={{ fontSize: 11, fontWeight: 700, color: C.cyan, fontFamily: "monospace" }}>{capEff !== "—" ? `${capEff}%` : "—"}</div></div>
@@ -318,6 +250,7 @@ function StratCard({ name, data, onStop, onReset, trades }) {
         {data.last_signal || "— no signal yet —"}
       </div>
 
+      {/* Error */}
       {data.error_message && (
         <div style={{ color: C.red, fontSize: 10, background: "#ff3d5a10", borderRadius: 6, padding: "6px 10px" }}>⚠ {data.error_message}</div>
       )}
@@ -337,117 +270,14 @@ function StratCard({ name, data, onStop, onReset, trades }) {
   )
 }
 
-// ─── Open Positions — Live PnL ────────────────────────────────────────────────
-function OpenPositions({ trades, market }) {
-  const open = trades.filter(t => t.status === "OPEN")
-  if (open.length === 0) return (
-    <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No open positions</div>
-  )
-
-  const totalUnrealised = open.reduce((s, t) => s + (t.unrealised_pnl || 0), 0)
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {/* Summary row */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px", background: pnlBg(totalUnrealised), borderRadius: 8, border: `1px solid ${pnlC(totalUnrealised)}20` }}>
-        <span style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>
-          {open.length} OPEN POSITION{open.length !== 1 ? "S" : ""}
-        </span>
-        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-          <span style={{ fontSize: 10, color: C.muted }}>TOTAL UNREALISED</span>
-          <span style={{ fontSize: 18, fontWeight: 800, color: pnlC(totalUnrealised), fontFamily: "monospace" }}>
-            {fmtRs(totalUnrealised)}
-          </span>
-          <span style={{ fontSize: 9, color: C.cyan, fontWeight: 700 }}>● LIVE</span>
-        </div>
-      </div>
-
-      {open.map((t, i) => {
-        const unreal    = t.unrealised_pnl || 0
-        const entryPremium = (t.entry_price || 0) * (t.quantity || 0)
-        const currentLtp   = t.current_ltp && t.current_ltp > 0 ? t.current_ltp : t.entry_price
-        const premium      = currentLtp * (t.quantity || 0)
-        const estMargin    = entryPremium * 5
-        // Live PnL % change
-        const pnlPct    = entryPremium > 0 ? ((unreal / entryPremium) * 100).toFixed(1) : null
-
-        return (
-          <div key={t.id || i} style={{
-            background: C.panel,
-            borderRadius: 10,
-            padding: "12px 16px",
-            border: `1px solid ${pnlC(unreal)}25`,
-            display: "grid",
-            gridTemplateColumns: "repeat(8, 1fr) auto",
-            alignItems: "center",
-            gap: 12,
-          }}>
-            <div>
-              <div style={{ fontSize: 8, color: C.muted, fontWeight: 700 }}>STRATEGY</div>
-              <div style={{ fontSize: 11, color: C.text, fontWeight: 700 }}>{t.strategy}</div>
-            </div>
-            <div style={{ gridColumn: "span 2" }}>
-              <div style={{ fontSize: 8, color: C.muted, fontWeight: 700 }}>SYMBOL</div>
-              <div style={{ fontSize: 10, color: C.text, fontFamily: "monospace" }}>{t.symbol}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 8, color: C.muted, fontWeight: 700 }}>DIR</div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: t.order_type === "SELL" ? C.red : C.green }}>{t.order_type}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 8, color: C.muted, fontWeight: 700 }}>QTY</div>
-              <div style={{ fontSize: 12, color: C.text }}>{t.quantity}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 8, color: C.muted, fontWeight: 700 }}>ENTRY ₹</div>
-              <div style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{fmtRs(t.entry_price)}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 8, color: C.muted, fontWeight: 700 }}>PREMIUM</div>
-              <div style={{ fontSize: 11, color: C.orange, fontFamily: "monospace" }}>{fmtRs(premium)}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 8, color: C.muted, fontWeight: 700 }}>EST MARGIN</div>
-              <div style={{ fontSize: 11, color: C.cyan, fontFamily: "monospace" }}>{fmtRs(estMargin)}</div>
-            </div>
-            {/* Live PnL — right aligned, prominent */}
-            <div style={{
-              textAlign: "right",
-              background: pnlBg(unreal),
-              borderRadius: 8,
-              padding: "8px 14px",
-              border: `1px solid ${pnlC(unreal)}30`,
-              minWidth: 130,
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-                <span style={{ fontSize: 8, color: C.muted, fontWeight: 700 }}>UNREALISED P&L</span>
-                <span style={{ fontSize: 8, color: C.cyan, fontWeight: 700 }}>● LIVE</span>
-              </div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: pnlC(unreal), fontFamily: "monospace" }}>
-                {fmtRs(unreal)}
-              </div>
-              {pnlPct !== null && (
-                <div style={{ fontSize: 9, color: pnlC(unreal), marginTop: 2 }}>
-                  {unreal >= 0 ? "+" : ""}{pnlPct}%
-                </div>
-              )}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// ─── Trade Ledger ─────────────────────────────────────────────────────────────
 function TradeLedger({ trades }) {
   const [selected, setSelected] = useState(null)
-  const [filter,   setFilter]   = useState("ALL")
+  const [filter, setFilter] = useState("ALL")
 
   const filtered = trades.filter(t => {
-    if (filter === "ALL")       return true
-    if (filter === "OPEN")      return t.status === "OPEN"
-    if (filter === "CLOSED")    return t.status === "CLOSED"
+    if (filter === "ALL") return true
+    if (filter === "OPEN") return t.status === "OPEN"
+    if (filter === "CLOSED") return t.status === "CLOSED"
     if (filter === "CANCELLED") return t.status === "CANCELLED"
     return true
   })
@@ -457,20 +287,25 @@ function TradeLedger({ trades }) {
   if (selected) {
     const t = selected
     const premium = (t.entry_price || 0) * (t.quantity || 0)
-    const margin  = premium * 5
+    const margin = premium * 5
     const maxRisk = premium * 0.35
-    const rr      = maxRisk > 0 ? ((t.realised_pnl || 0) / maxRisk).toFixed(2) : "—"
+    const rr = maxRisk > 0 ? ((t.realised_pnl || 0) / maxRisk).toFixed(2) : "—"
     return (
       <div>
         <button onClick={() => setSelected(null)} style={{ background: C.panel, border: `1px solid ${C.border}`, color: C.cyan, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 11, fontFamily: "monospace", marginBottom: 16 }}>
           ← BACK TO LEDGER
         </button>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {/* Trade Info */}
           <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
             <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>TRADE DETAILS</div>
             {[
-              ["Trade ID", t.id || "—"], ["Strategy", t.strategy || "—"], ["Instrument", t.symbol || "—"],
-              ["Direction", t.order_type || "—"], ["Quantity", t.quantity || "—"], ["Status", t.status || "—"],
+              ["Trade ID", t.id || "—"],
+              ["Strategy", t.strategy || "—"],
+              ["Instrument", t.symbol || "—"],
+              ["Direction", t.order_type || "—"],
+              ["Quantity", t.quantity || "—"],
+              ["Status", t.status || "—"],
               ["Broker Order ID", t.broker_order_id || "—"],
             ].map(([label, val]) => (
               <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border2}` }}>
@@ -479,13 +314,32 @@ function TradeLedger({ trades }) {
               </div>
             ))}
           </div>
+          {/* Capital Info */}
           <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
             <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>CAPITAL & RISK</div>
             {[
-              ["Entry Price", fmtRs(t.entry_price)], ["Exit Price", fmtRs(t.exit_price)],
-              ["Premium", fmtRs(premium)], ["Est. Margin", fmtRs(margin)],
-              ["Max Risk", fmtRs(maxRisk)], ["Realised P&L", fmtRs(t.realised_pnl)],
+              ["Entry Price", fmtRs(t.entry_price)],
+              ["Exit Price", fmtRs(t.exit_price)],
+              ["Premium Paid/Recv", fmtRs(premium)],
+              ["Est. Margin Used", fmtRs(margin)],
+              ["Max Capital at Risk", fmtRs(maxRisk)],
+              ["Realised P&L", fmtRs(t.realised_pnl)],
               ["Risk/Reward", rr],
+            ].map(([label, val]) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border2}` }}>
+                <span style={{ fontSize: 11, color: C.muted }}>{label}</span>
+                <span style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{val}</span>
+              </div>
+            ))}
+          </div>
+          {/* Timing */}
+          <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>EXECUTION TIMING</div>
+            {[
+              ["Entry Time", t.entry_time ? t.entry_time.slice(0, 19).replace("T", " ") : "—"],
+              ["Exit Time", t.exit_time ? t.exit_time.slice(0, 19).replace("T", " ") : "—"],
+              ["Duration", t.entry_time && t.exit_time ? `${Math.round((new Date(t.exit_time) - new Date(t.entry_time)) / 60000)} min` : "—"],
+              ["Notes", t.notes || "—"],
             ].map(([label, val]) => (
               <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border2}` }}>
                 <span style={{ fontSize: 11, color: C.muted }}>{label}</span>
@@ -500,6 +354,7 @@ function TradeLedger({ trades }) {
 
   return (
     <div>
+      {/* Filter bar */}
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         {["ALL", "OPEN", "CLOSED", "CANCELLED"].map(f => (
           <button key={f} onClick={() => setFilter(f)} style={{
@@ -510,6 +365,7 @@ function TradeLedger({ trades }) {
           }}>{f} ({trades.filter(t => f === "ALL" ? true : t.status === f).length})</button>
         ))}
       </div>
+
       {filtered.length === 0 ? (
         <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No trades found</div>
       ) : (
@@ -524,12 +380,11 @@ function TradeLedger({ trades }) {
             </thead>
             <tbody>
               {filtered.map((t, i) => {
-                const premium   = (t.entry_price || 0) * (t.quantity || 0)
+                const premium = (t.entry_price || 0) * (t.quantity || 0)
                 const statusCol = t.status === "OPEN" ? C.blue : t.status === "CLOSED" ? C.green : C.muted
-                // For open trades show live unrealised pnl, for closed show realised
-                const pnlVal    = t.status === "OPEN" ? (t.unrealised_pnl || 0) : (t.realised_pnl || 0)
                 return (
-                  <tr key={t.id || i} onClick={() => setSelected(t)}
+                  <tr key={t.id || i}
+                    onClick={() => setSelected(t)}
                     style={{ borderBottom: `1px solid ${C.border2}`, cursor: "pointer" }}
                     onMouseEnter={e => e.currentTarget.style.background = C.panel}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -544,10 +399,7 @@ function TradeLedger({ trades }) {
                     <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace" }}>{fmtRs(t.exit_price)}</td>
                     <td style={{ padding: "8px 12px", color: C.orange, fontFamily: "monospace" }}>{fmtRs(premium)}</td>
                     <td style={{ padding: "8px 12px" }}><Pill label={t.status} colour={statusCol} size={9} /></td>
-                    <td style={{ padding: "8px 12px", fontWeight: 700, color: pnlC(pnlVal), fontFamily: "monospace" }}>
-                      {fmtRs(pnlVal)}
-                      {t.status === "OPEN" && <span style={{ fontSize: 8, color: C.cyan, marginLeft: 3 }}>●</span>}
-                    </td>
+                    <td style={{ padding: "8px 12px", fontWeight: 700, color: pnlC(t.realised_pnl), fontFamily: "monospace" }}>{fmtRs(t.realised_pnl)}</td>
                   </tr>
                 )
               })}
@@ -559,15 +411,32 @@ function TradeLedger({ trades }) {
   )
 }
 
-// ─── Execution Log ────────────────────────────────────────────────────────────
 function ExecutionLog({ trades }) {
   const logs = []
   trades.forEach(t => {
-    if (t.entry_time) logs.push({ time: t.entry_time, type: "ENTRY", msg: `${t.order_type} ${t.symbol} @ ₹${fmt(t.entry_price)} (Qty ${t.quantity})`, strategy: t.strategy, orderId: t.broker_order_id, col: t.order_type === "SELL" ? C.red : C.green })
-    if (t.exit_time)  logs.push({ time: t.exit_time, type: "EXIT", msg: `EXIT ${t.symbol} @ ₹${fmt(t.exit_price)} (P&L: ${fmtRs(t.realised_pnl)})`, strategy: t.strategy, orderId: t.broker_order_id, col: pnlC(t.realised_pnl) })
+    if (t.entry_time) logs.push({
+      time: t.entry_time,
+      type: "ENTRY",
+      msg: `${t.order_type} ${t.symbol} @ ₹${fmt(t.entry_price)} (Qty ${t.quantity})`,
+      strategy: t.strategy,
+      orderId: t.broker_order_id,
+      col: t.order_type === "SELL" ? C.red : C.green,
+    })
+    if (t.exit_time) logs.push({
+      time: t.exit_time,
+      type: "EXIT",
+      msg: `EXIT ${t.symbol} @ ₹${fmt(t.exit_price)} (P&L: ${fmtRs(t.realised_pnl)})`,
+      strategy: t.strategy,
+      orderId: t.broker_order_id,
+      col: pnlC(t.realised_pnl),
+    })
   })
   logs.sort((a, b) => new Date(b.time) - new Date(a.time))
-  if (logs.length === 0) return <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No execution history yet</div>
+
+  if (logs.length === 0) return (
+    <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No execution history yet</div>
+  )
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 400, overflowY: "auto" }}>
       {logs.map((log, i) => (
@@ -583,34 +452,37 @@ function ExecutionLog({ trades }) {
   )
 }
 
-// ─── Performance Panel ────────────────────────────────────────────────────────
 function PerformancePanel({ trades }) {
   const closed = trades.filter(t => t.status === "CLOSED")
-  const wins   = closed.filter(t => (t.realised_pnl || 0) > 0)
+  const wins = closed.filter(t => (t.realised_pnl || 0) > 0)
   const losses = closed.filter(t => (t.realised_pnl || 0) < 0)
   const totalPnl = closed.reduce((s, t) => s + (t.realised_pnl || 0), 0)
-  const avgWin   = wins.length > 0 ? wins.reduce((s, t) => s + t.realised_pnl, 0) / wins.length : 0
-  const avgLoss  = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + t.realised_pnl, 0) / losses.length) : 0
-  const winRate  = closed.length > 0 ? (wins.length / closed.length * 100).toFixed(1) : 0
+  const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.realised_pnl, 0) / wins.length : 0
+  const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + t.realised_pnl, 0) / losses.length) : 0
+  const winRate = closed.length > 0 ? (wins.length / closed.length * 100).toFixed(1) : 0
   const profitFactor = avgLoss > 0 ? (avgWin * wins.length / (avgLoss * losses.length)).toFixed(2) : "—"
+
+  // Daily equity
   const byDate = {}
-  closed.forEach(t => { if (!t.exit_time) return; const d = t.exit_time.slice(0, 10); byDate[d] = (byDate[d] || 0) + (t.realised_pnl || 0) })
-  const days   = Object.entries(byDate).sort((a, b) => a[0].localeCompare(b[0])).slice(-14)
+  closed.forEach(t => {
+    if (!t.exit_time) return
+    const d = t.exit_time.slice(0, 10)
+    byDate[d] = (byDate[d] || 0) + (t.realised_pnl || 0)
+  })
+  const days = Object.entries(byDate).sort((a, b) => a[0].localeCompare(b[0])).slice(-14)
   const maxAbs = Math.max(...days.map(d => Math.abs(d[1])), 1)
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Metrics */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
         {[
-          { label: "TOTAL TRADES",   val: closed.length,    col: C.text },
-          { label: "WIN RATE",       val: `${winRate}%`,    col: Number(winRate) >= 50 ? C.green : C.red },
-          { label: "AVG WIN",        val: fmtRs(avgWin),    col: C.green },
-          { label: "AVG LOSS",       val: fmtRs(-avgLoss),  col: C.red },
-          { label: "PROFIT FACTOR",  val: profitFactor,     col: Number(profitFactor) >= 1 ? C.green : C.red },
-          { label: "TOTAL P&L",      val: fmtRs(totalPnl),  col: pnlC(totalPnl) },
-          { label: "RETURN ON CAPITAL", val: `${(totalPnl / 150000 * 100).toFixed(2)}%`, col: pnlC(totalPnl) },
-          { label: "TRADING DAYS",   val: Object.keys(byDate).length, col: C.text },
-          { label: "AVG P&L/DAY",    val: fmtRs(Object.keys(byDate).length > 0 ? totalPnl / Object.keys(byDate).length : 0), col: pnlC(totalPnl) },
-          { label: "ANNUALISED ROI (DEPLOYED)", val: `${(totalPnl / 15000 * 250).toFixed(1)}%`, col: pnlC(totalPnl) },
+          { label: "TOTAL TRADES", val: closed.length, col: C.text },
+          { label: "WIN RATE", val: `${winRate}%`, col: Number(winRate) >= 50 ? C.green : C.red },
+          { label: "AVG WIN", val: fmtRs(avgWin), col: C.green },
+          { label: "AVG LOSS", val: fmtRs(-avgLoss), col: C.red },
+          { label: "PROFIT FACTOR", val: profitFactor, col: Number(profitFactor) >= 1 ? C.green : C.red },
+          { label: "TOTAL P&L", val: fmtRs(totalPnl), col: pnlC(totalPnl) },
         ].map(({ label, val, col }) => (
           <div key={label} style={{ background: C.panel, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border}` }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>{label}</div>
@@ -618,6 +490,8 @@ function PerformancePanel({ trades }) {
           </div>
         ))}
       </div>
+
+      {/* Daily equity curve */}
       <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
         <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>DAILY P&L (LAST 14 DAYS)</div>
         {days.length === 0 ? (
@@ -625,7 +499,7 @@ function PerformancePanel({ trades }) {
         ) : (
           <div style={{ display: "flex", gap: 6, alignItems: "flex-end", height: 80 }}>
             {days.map(([date, pnl]) => {
-              const h   = Math.max(4, (Math.abs(pnl) / maxAbs) * 68)
+              const h = Math.max(4, (Math.abs(pnl) / maxAbs) * 68)
               const col = pnl >= 0 ? C.green : C.red
               return (
                 <div key={date} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
@@ -638,73 +512,84 @@ function PerformancePanel({ trades }) {
           </div>
         )}
       </div>
+
+      {/* Per-strategy breakdown */}
       <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
-        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>DAILY BREAKDOWN</div>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-          <thead>
-            <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-              {["DATE","TRADES","TOTAL P&L","BEST TRADE","WORST TRADE","ROI"].map(h => (
-                <th key={h} style={{ padding: "6px 8px", textAlign: h === "DATE" ? "left" : "right", color: C.muted, fontWeight: 700, fontSize: 9, letterSpacing: 1 }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries((() => {
-              const byD = {}
-              closed.forEach(t => {
-                if (!t.exit_time) return
-                const d = t.exit_time.slice(0, 10)
-                if (!byD[d]) byD[d] = { trades: 0, pnl: 0, best: -Infinity, worst: Infinity }
-                byD[d].trades++
-                byD[d].pnl += (t.realised_pnl || 0)
-                byD[d].best = Math.max(byD[d].best, t.realised_pnl || 0)
-                byD[d].worst = Math.min(byD[d].worst, t.realised_pnl || 0)
-              })
-              return byD
-            })()).sort((a, b) => b[0].localeCompare(a[0])).map(([date, d]) => (
-              <tr key={date} style={{ borderBottom: `1px solid ${C.border}20` }}>
-                <td style={{ padding: "7px 8px", color: C.text, fontFamily: "monospace" }}>{date}</td>
-                <td style={{ padding: "7px 8px", textAlign: "right", color: C.muted }}>{d.trades}</td>
-                <td style={{ padding: "7px 8px", textAlign: "right", color: pnlC(d.pnl), fontWeight: 700, fontFamily: "monospace" }}>{fmtRs(d.pnl)}</td>
-                <td style={{ padding: "7px 8px", textAlign: "right", color: C.green, fontFamily: "monospace" }}>{fmtRs(d.best)}</td>
-                <td style={{ padding: "7px 8px", textAlign: "right", color: C.red, fontFamily: "monospace" }}>{fmtRs(d.worst)}</td>
-                <td style={{ padding: "7px 8px", textAlign: "right", color: pnlC(d.pnl), fontFamily: "monospace" }}>{(d.pnl / 200000 * 100).toFixed(3)}%</td>
-              </tr>
-            ))}
-            <tr style={{ borderTop: `1px solid ${C.border}` }}>
-              <td style={{ padding: "7px 8px", color: C.text, fontWeight: 700 }}>TOTAL</td>
-              <td style={{ padding: "7px 8px", textAlign: "right", color: C.muted, fontWeight: 700 }}>{closed.length}</td>
-              <td style={{ padding: "7px 8px", textAlign: "right", color: pnlC(totalPnl), fontWeight: 700, fontFamily: "monospace" }}>{fmtRs(totalPnl)}</td>
-              <td colSpan={2}></td>
-              <td style={{ padding: "7px 8px", textAlign: "right", color: pnlC(totalPnl), fontWeight: 700, fontFamily: "monospace" }}>{(totalPnl / 200000 * 100).toFixed(3)}%</td>
-            </tr>
-          </tbody>
-        </table>
+        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>STRATEGY BREAKDOWN</div>
+        {["wave_extractor", "survivor", "saviour_combo"].map(name => {
+          const st = closed.filter(t => t.strategy === name)
+          const stPnl = st.reduce((s, t) => s + (t.realised_pnl || 0), 0)
+          const stWin = st.filter(t => (t.realised_pnl || 0) > 0).length
+          const stWR = st.length > 0 ? (stWin / st.length * 100).toFixed(0) : "—"
+          return (
+            <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border2}` }}>
+              <span style={{ fontSize: 11, color: C.text }}>{name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</span>
+              <div style={{ display: "flex", gap: 16 }}>
+                <span style={{ fontSize: 11, color: C.muted }}>{st.length} trades</span>
+                <span style={{ fontSize: 11, color: C.cyan }}>{stWR !== "—" ? `${stWR}% WR` : "—"}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: pnlC(stPnl), fontFamily: "monospace" }}>{fmtRs(stPnl)}</span>
+              </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
 }
 
-// ─── Risk Panel ───────────────────────────────────────────────────────────────
-function RiskPanel({ trades }) {
-  const open               = trades.filter(t => t.status === "OPEN")
+function OpenPositions({ trades }) {
+  const open = trades.filter(t => t.status === "OPEN")
+  if (open.length === 0) return (
+    <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No open positions</div>
+  )
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {open.map((t, i) => {
+        const unreal = t.unrealised_pnl || 0
+        const premium = (t.entry_price || 0) * (t.quantity || 0)
+        const estMargin = premium * 5
+        return (
+          <div key={t.id || i} style={{ background: C.panel, borderRadius: 10, padding: "12px 16px", border: `1px solid ${pnlC(unreal)}20`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>STRATEGY</div><div style={{ fontSize: 12, color: C.text, fontWeight: 700 }}>{t.strategy}</div></div>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>SYMBOL</div><div style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{t.symbol}</div></div>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>DIR</div><div style={{ fontSize: 12, fontWeight: 700, color: t.order_type === "SELL" ? C.red : C.green }}>{t.order_type}</div></div>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>QTY</div><div style={{ fontSize: 12, color: C.text }}>{t.quantity}</div></div>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>ENTRY ₹</div><div style={{ fontSize: 12, color: C.text, fontFamily: "monospace" }}>{fmtRs(t.entry_price)}</div></div>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>ENTRY TIME</div><div style={{ fontSize: 11, color: C.muted, fontFamily: "monospace" }}>{fmtTime(t.entry_time)}</div></div>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>PREMIUM</div><div style={{ fontSize: 11, color: C.orange, fontFamily: "monospace" }}>{fmtRs(premium)}</div></div>
+              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>EST MARGIN</div><div style={{ fontSize: 11, color: C.cyan, fontFamily: "monospace" }}>{fmtRs(estMargin)}</div></div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>UNREALISED P&L</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: pnlC(unreal), fontFamily: "monospace" }}>{fmtRs(unreal)}</div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function RiskPanel({ trades, global: g }) {
+  const open = trades.filter(t => t.status === "OPEN")
   const totalCapitalAtRisk = open.reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0) * 0.35, 0)
-  const totalMarginUsed    = open.reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0) * 5, 0)
-  const maxDailyLoss       = 5000
-  const todayStr           = new Date().toISOString().slice(0, 10)
-  const todayPnl           = trades.filter(t => t.status === "CLOSED" && t.exit_time?.slice(0, 10) === todayStr).reduce((s, t) => s + (t.realised_pnl || 0), 0)
-  const ddPct              = Math.min(100, (Math.abs(Math.min(0, todayPnl)) / maxDailyLoss) * 100)
-  const ddCol              = ddPct > 80 ? C.red : ddPct > 50 ? C.orange : C.green
+  const totalMarginUsed = open.reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0) * 5, 0)
+  const maxDailyLoss = 5000
+  const todayPnl = trades.filter(t => t.status === "CLOSED" && t.exit_time?.slice(0, 10) === new Date().toISOString().slice(0, 10)).reduce((s, t) => s + (t.realised_pnl || 0), 0)
+  const ddPct = Math.min(100, (Math.abs(Math.min(0, todayPnl)) / maxDailyLoss) * 100)
+  const ddCol = ddPct > 80 ? C.red : ddPct > 50 ? C.orange : C.green
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
         {[
           { label: "MAX CAPITAL AT RISK", val: fmtRs(totalCapitalAtRisk), col: totalCapitalAtRisk > 10000 ? C.red : C.orange },
-          { label: "EST MARGIN LOCKED",   val: fmtRs(totalMarginUsed),    col: C.cyan },
-          { label: "DAILY LOSS LIMIT",    val: fmtRs(maxDailyLoss),       col: C.muted },
-          { label: "TODAY P&L",           val: fmtRs(todayPnl),           col: pnlC(todayPnl) },
-          { label: "OPEN POSITIONS",      val: open.length,               col: open.length > 2 ? C.orange : C.green },
-          { label: "MAX CONCURRENT",      val: "4",                       col: C.muted },
+          { label: "EST MARGIN LOCKED", val: fmtRs(totalMarginUsed), col: C.cyan },
+          { label: "DAILY LOSS LIMIT", val: fmtRs(maxDailyLoss), col: C.muted },
+          { label: "TODAY P&L", val: fmtRs(todayPnl), col: pnlC(todayPnl) },
+          { label: "OPEN POSITIONS", val: open.length, col: open.length > 2 ? C.orange : C.green },
+          { label: "MAX CONCURRENT", val: "4", col: C.muted },
         ].map(({ label, val, col }) => (
           <div key={label} style={{ background: C.panel, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border}` }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>{label}</div>
@@ -712,6 +597,8 @@ function RiskPanel({ trades }) {
           </div>
         ))}
       </div>
+
+      {/* Drawdown meter */}
       <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
           <span style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>DAILY LOSS METER</span>
@@ -720,90 +607,283 @@ function RiskPanel({ trades }) {
         <div style={{ height: 8, background: C.border, borderRadius: 4 }}>
           <div style={{ height: "100%", width: `${ddPct}%`, background: ddCol, borderRadius: 4, transition: "width 0.5s" }} />
         </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+          <span style={{ fontSize: 9, color: C.muted }}>₹0</span>
+          <span style={{ fontSize: 9, color: C.orange }}>₹2,500 (50%)</span>
+          <span style={{ fontSize: 9, color: C.red }}>₹5,000 (100%)</span>
+        </div>
+      </div>
+
+      {/* Alerts */}
+      <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>ACTIVE ALERTS</div>
+        {[
+          { condition: open.length >= 3, msg: "⚠ High position count — approaching max concurrent trades", col: C.orange },
+          { condition: ddPct > 80, msg: "🔴 Daily loss near limit — consider stopping", col: C.red },
+          { condition: ddPct > 50, msg: "⚠ 50% of daily loss limit reached", col: C.orange },
+          { condition: totalCapitalAtRisk > 15000, msg: "⚠ High capital at risk across open positions", col: C.orange },
+        ].filter(a => a.condition).map((a, i) => (
+          <div key={i} style={{ fontSize: 11, color: a.col, padding: "6px 10px", background: a.col + "12", borderRadius: 6, marginBottom: 6, border: `1px solid ${a.col}25` }}>{a.msg}</div>
+        ))}
+        {open.length < 3 && ddPct <= 50 && (
+          <div style={{ fontSize: 11, color: C.green, padding: "6px 10px", background: C.green + "12", borderRadius: 6, border: `1px solid ${C.green}25` }}>✓ All systems normal — no active risk alerts</div>
+        )}
       </div>
     </div>
   )
 }
 
-
-
-function PaperToggle({ isPaper }) {
-  const [loading, setLoading] = useState(false)
-  const [confirm, setConfirm] = useState(false)
-  const timerRef = useRef(null)
-
-  async function handleToggle() {
-    if (isPaper) {
-      if (!confirm) {
-        setConfirm(true)
-        timerRef.current = setTimeout(() => setConfirm(false), 4000)
-        return
-      }
-      clearTimeout(timerRef.current)
-      setConfirm(false)
-    }
-    setLoading(true)
-    try {
-      await axios.post(`${API}/api/toggle-paper`)
-    } catch (e) {
-      alert("Toggle failed: " + (e.response?.data?.error || e.message))
-    }
-    setLoading(false)
-  }
-
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      {confirm && (
-        <span style={{ fontSize: 10, color: C.red, fontWeight: 700, animation: "pulse 0.5s infinite" }}>
-          ⚠ SWITCHES TO REAL MONEY!
-        </span>
-      )}
-      <div onClick={loading ? null : handleToggle} style={{
-        display: "flex", alignItems: "center", gap: 8,
-        background: isPaper ? "rgba(245,158,11,0.12)" : "rgba(255,61,90,0.12)",
-        border: `1px solid ${isPaper ? C.orange : C.red}50`,
-        borderRadius: 8, padding: "6px 12px",
-        cursor: loading ? "not-allowed" : "pointer",
-        transition: "all 0.2s", opacity: loading ? 0.6 : 1,
-      }}>
-        <div style={{
-          width: 36, height: 18, borderRadius: 9,
-          background: isPaper ? C.orange + "40" : C.red + "40",
-          border: `1px solid ${isPaper ? C.orange : C.red}60`,
-          position: "relative", transition: "all 0.3s",
-        }}>
-          <div style={{
-            position: "absolute", top: 2,
-            left: isPaper ? 18 : 2,
-            width: 12, height: 12, borderRadius: "50%",
-            background: isPaper ? C.orange : C.red,
-            transition: "left 0.3s",
-            boxShadow: `0 0 6px ${isPaper ? C.orange : C.red}`,
-          }} />
-        </div>
-        <span style={{ fontSize: 11, fontWeight: 800, color: isPaper ? C.orange : C.red, fontFamily: "monospace", letterSpacing: 0.5 }}>
-          {loading ? "..." : isPaper ? "PAPER 🟢" : "LIVE 🔴"}
-        </span>
-      </div>
-    </div>
-  )
-}// ─── App Root ─────────────────────────────────────────────────────────────────
 const DEFAULT = {
   global: { total_pnl: 0, active_strategies: 0, total_strategies: 0, system_health: "OK", broker_status: {}, paper_trade: false },
-  strategies: {}, vix: null,
+  strategies: {},
+  vix: null,
   market: { nifty_price: 0, nifty_updated: "", option_price: 0, option_symbol: "" },
 }
+
+// ─── PASTE THIS COMPONENT INTO App.jsx ───────────────────────────────────────
+// Insert anywhere BEFORE the App() function (e.g. after VixBox component)
+// Then inside App() return, replace the {/* Kill Switch Bar */} section
+// with <ContextBar marketCtx={data.market_ctx} astro={data.astro} />
+
+// ─── Regime colours ───────────────────────────────────────────────────────────
+const REGIME_META = {
+  trending_bull:   { label: "▲ TREND BULL",    colour: "#00e87a" },
+  trending_bear:   { label: "▼ TREND BEAR",    colour: "#ff3d5a" },
+  range:           { label: "↔ RANGE",          colour: "#3b82f6" },
+  reversal_watch:  { label: "⚡ REVERSAL",      colour: "#f59e0b" },
+  opening:         { label: "⏳ OPENING RANGE", colour: "#8b5cf6" },
+  closed:          { label: "○ CLOSED",         colour: "#3a5070" },
+}
+
+const ASTRO_COLOUR = {
+  green: "#00e87a",
+  amber: "#f59e0b",
+  red:   "#ff3d5a",
+}
+
+// ─── PCR Gauge (inline SVG arc) ───────────────────────────────────────────────
+function PcrGauge({ pcr = 1.0 }) {
+  // Arc from 0.5 to 1.5 mapped to 0–180 degrees
+  const pct   = Math.min(Math.max((pcr - 0.5) / 1.0, 0), 1)
+  const angle = pct * 180 - 90   // -90 = left, 0 = top, 90 = right
+  const rad   = (angle * Math.PI) / 180
+  const r     = 28
+  const cx    = 36, cy = 36
+  const nx    = cx + r * Math.sin(rad)
+  const ny    = cy - r * Math.cos(rad)
+  const col   = pcr > 1.3 ? "#00e87a" : pcr < 0.7 ? "#ff3d5a" : "#3b82f6"
+
+  // Arc path (semicircle bottom half)
+  const arcPath = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`
+
+  return (
+    <svg width={72} height={44} viewBox="0 0 72 44">
+      <path d={arcPath} fill="none" stroke="#1a2840" strokeWidth={5} strokeLinecap="round" />
+      <path d={arcPath} fill="none" stroke={col} strokeWidth={5} strokeLinecap="round"
+        strokeDasharray={`${pct * 88} 88`} opacity={0.8} />
+      <line x1={cx} y1={cy} x2={nx} y2={ny} stroke={col} strokeWidth={2} strokeLinecap="round" />
+      <circle cx={cx} cy={cy} r={3} fill={col} />
+      <text x={cx} y={cy + 14} textAnchor="middle" fill={col} fontSize={10} fontWeight="800" fontFamily="monospace">
+        {pcr?.toFixed(2)}
+      </text>
+    </svg>
+  )
+}
+
+// ─── OI Bar ───────────────────────────────────────────────────────────────────
+function OiBar({ ceOi = 0, peOi = 0 }) {
+  const total = (ceOi + peOi) || 1
+  const cePct = (ceOi / total) * 100
+  const pePct = (peOi / total) * 100
+  const fmtL  = n => n > 1e6 ? `${(n / 1e6).toFixed(1)}M` : n > 1e3 ? `${(n / 1e3).toFixed(0)}K` : String(n)
+  return (
+    <div style={{ width: 140 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: "#3a5070", marginBottom: 3, letterSpacing: 0.5 }}>
+        <span style={{ color: "#ff3d5a" }}>CE {fmtL(ceOi)}</span>
+        <span style={{ color: "#00e87a" }}>PE {fmtL(peOi)}</span>
+      </div>
+      <div style={{ height: 6, borderRadius: 3, background: "#1a2840", overflow: "hidden", display: "flex" }}>
+        <div style={{ width: `${cePct}%`, background: "#ff3d5a", opacity: 0.8 }} />
+        <div style={{ width: `${pePct}%`, background: "#00e87a", opacity: 0.8 }} />
+      </div>
+    </div>
+  )
+}
+
+// ─── Context Bar (the new panel) ──────────────────────────────────────────────
+function ContextBar({ marketCtx, astro }) {
+  const ctx    = marketCtx || {}
+  const today  = astro?.today
+  const regime = REGIME_META[ctx.regime] || { label: ctx.regime || "—", colour: "#3a5070" }
+  const aCol   = today ? ASTRO_COLOUR[today.alert_level] : "#3a5070"
+
+  const cell = (label, children, extra = {}) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, ...extra }}>
+      <span style={{ fontSize: 8, color: "#3a5070", letterSpacing: 1, fontWeight: 700 }}>{label}</span>
+      {children}
+    </div>
+  )
+
+  return (
+    <div style={{
+      marginBottom: 10,
+      background: "#0a1220",
+      borderRadius: 8,
+      padding: "10px 16px",
+      border: "1px solid #1a2840",
+      display: "flex",
+      gap: 24,
+      alignItems: "center",
+      flexWrap: "wrap",
+      overflowX: "auto",
+    }}>
+
+      {/* Regime */}
+      {cell("REGIME",
+        <span style={{
+          fontSize: 11, fontWeight: 800, color: regime.colour,
+          background: regime.colour + "18", borderRadius: 4,
+          padding: "2px 8px", border: `1px solid ${regime.colour}30`,
+          letterSpacing: 0.5, whiteSpace: "nowrap",
+        }}>{regime.label}</span>
+      )}
+
+      {/* PCR Gauge */}
+      {cell("PCR", <PcrGauge pcr={ctx.pcr} />)}
+
+      {/* OI Bars */}
+      {cell("OPEN INTEREST", <OiBar ceOi={ctx.total_ce_oi} peOi={ctx.total_pe_oi} />)}
+
+      {/* OI Deltas */}
+      {cell("OI DELTA",
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <span style={{ fontSize: 9, color: (ctx.ce_oi_delta || 0) > 0 ? "#ff3d5a" : "#00e87a", fontWeight: 700 }}>
+            CE {(ctx.ce_oi_delta || 0) > 0 ? "+" : ""}{ctx.ce_oi_delta?.toLocaleString() || "—"}
+          </span>
+          <span style={{ fontSize: 9, color: (ctx.pe_oi_delta || 0) > 0 ? "#00e87a" : "#ff3d5a", fontWeight: 700 }}>
+            PE {(ctx.pe_oi_delta || 0) > 0 ? "+" : ""}{ctx.pe_oi_delta?.toLocaleString() || "—"}
+          </span>
+        </div>
+      )}
+
+      {/* Divider */}
+      <div style={{ width: 1, height: 40, background: "#1a2840", flexShrink: 0 }} />
+
+      {/* Opening Range */}
+      {cell("OPENING RANGE",
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {ctx.or_locked ? (
+            <>
+              <span style={{ fontSize: 9, color: "#00e87a", fontWeight: 700 }}>
+                H: {ctx.or_high?.toFixed(0) || "—"}
+              </span>
+              <span style={{ fontSize: 9, color: "#ff3d5a", fontWeight: 700 }}>
+                L: {ctx.or_low?.toFixed(0) || "—"}
+              </span>
+            </>
+          ) : (
+            <span style={{ fontSize: 9, color: "#f59e0b", fontWeight: 700 }}>
+              {ctx.regime === "opening" ? "⏳ COLLECTING..." : "NOT LOCKED"}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* ATM + Max Pain */}
+      {cell("ATM / MAX PAIN",
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <span style={{ fontSize: 9, color: "#3b82f6", fontWeight: 700 }}>
+            ATM: {ctx.atm_strike || "—"}
+          </span>
+          <span style={{ fontSize: 9, color: "#8b5cf6", fontWeight: 700 }}>
+            MP: {ctx.max_pain || "—"}
+          </span>
+        </div>
+      )}
+
+      {/* PCR Spike */}
+      {ctx.pcr_spike && (
+        <div style={{
+          background: "#f59e0b18", border: "1px solid #f59e0b40",
+          borderRadius: 4, padding: "4px 10px",
+          fontSize: 9, fontWeight: 800, color: "#f59e0b", letterSpacing: 0.5,
+          animation: "pulse 1s infinite",
+        }}>
+          ⚡ PCR SPIKE — ENTRIES FROZEN
+        </div>
+      )}
+
+      {/* Divider */}
+      <div style={{ width: 1, height: 40, background: "#1a2840", flexShrink: 0 }} />
+
+      {/* Astro today */}
+      {today ? (
+        <>
+          {cell("ASTRO TODAY",
+            <span style={{
+              fontSize: 11, fontWeight: 800, color: aCol,
+              background: aCol + "18", borderRadius: 4,
+              padding: "2px 8px", border: `1px solid ${aCol}30`,
+              letterSpacing: 0.5, whiteSpace: "nowrap",
+            }}>{today.strength}</span>
+          )}
+          {cell("BEST WINDOW",
+            <span style={{ fontSize: 9, color: "#00e87a", fontWeight: 700 }}>
+              {today.best_window}
+            </span>
+          )}
+          {cell("AVOID",
+            <span style={{ fontSize: 9, color: "#ff3d5a", fontWeight: 700 }}>
+              {today.avoid}
+            </span>
+          )}
+          {!today.trading_allowed && (
+            <div style={{
+              background: "#ff3d5a18", border: "1px solid #ff3d5a40",
+              borderRadius: 4, padding: "4px 10px",
+              fontSize: 9, fontWeight: 800, color: "#ff3d5a", letterSpacing: 0.5,
+              animation: "pulse 1s infinite",
+            }}>
+              🚫 ASTRO: NO TRADING TODAY
+            </div>
+          )}
+          {today.trading_allowed && today.qty_multiplier < 1 && (
+            <div style={{
+              background: "#f59e0b18", border: "1px solid #f59e0b40",
+              borderRadius: 4, padding: "4px 10px",
+              fontSize: 9, fontWeight: 800, color: "#f59e0b", letterSpacing: 0.5,
+            }}>
+              ⚠ REDUCED QTY ({today.qty_multiplier * 100}%)
+            </div>
+          )}
+        </>
+      ) : (
+        cell("ASTRO TODAY",
+          <span style={{ fontSize: 9, color: "#3a5070" }}>No data</span>
+        )
+      )}
+
+      {/* Last update */}
+      <div style={{ marginLeft: "auto", fontSize: 8, color: "#3a5070", textAlign: "right", whiteSpace: "nowrap" }}>
+        OI: {ctx.oi_updated_at || "—"}
+      </div>
+    </div>
+  )
+}
+
 
 export default function App() {
   const [data,     setData]     = useState(DEFAULT)
   const [trades,   setTrades]   = useState([])
-  const [funds,    setFunds]    = useState(null)
   const [wsStatus, setWsStatus] = useState("CONNECTING")
   const [tab,      setTab]      = useState("positions")
   const wsRef = useRef(null)
   const [now, setNow] = useState(new Date())
 
-  useEffect(() => { const id = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(id) }, [])
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
     function connect() {
@@ -830,35 +910,25 @@ export default function App() {
     return () => clearInterval(id)
   }, [])
 
-  useEffect(() => {
-    async function fetchFunds() {
-      try {
-        const res = await axios.get(`${API}/api/funds`)
-        setFunds(res.data)
-      } catch {}
-    }
-    fetchFunds()
-    const fid = setInterval(fetchFunds, 30000)
-    return () => clearInterval(fid)
-  }, [])
-
   async function handleStop(name) {
     try { await axios.post(`${API}/api/strategy/${name}/stop`) }
     catch (e) { alert(`Stop failed: ${e.response?.data?.error || e.message}`) }
   }
+
   async function handleReset(name) {
     try { await axios.post(`${API}/api/strategy/${name}/reset`) }
     catch (e) { alert(`Reset failed: ${e.response?.data?.error || e.message}`) }
   }
 
-  const g          = data.global
-  const s          = data.strategies
-  const vix        = data.vix
-  const market     = data.market || {}
-  const openCount  = trades.filter(t => t.status === "OPEN").length
-  const todayStr   = now.toISOString().slice(0, 10)
-  const todayPnl   = trades.filter(t => t.status === "CLOSED" && t.exit_time?.slice(0, 10) === todayStr).reduce((s, t) => s + (t.realised_pnl || 0), 0)
-  const brokerOn   = Object.values(g.broker_status || {}).some(v => v === "CONNECTED")
+  const g         = data.global
+  const s         = data.strategies
+  const vix       = data.vix
+  const market    = data.market || {}
+  const openCount = trades.filter(t => t.status === "OPEN").length
+  const todayStr  = now.toISOString().slice(0, 10)
+  const todayPnl  = trades.filter(t => t.status === "CLOSED" && t.exit_time?.slice(0, 10) === todayStr).reduce((s, t) => s + (t.realised_pnl || 0), 0)
+  const brokerOn  = Object.values(g.broker_status || {}).some(v => v === "CONNECTED")
+  const closedCount = trades.filter(t => t.status === "CLOSED").length
 
   const TABS = [
     { key: "positions", label: `POSITIONS (${openCount})` },
@@ -877,7 +947,6 @@ export default function App() {
         ::-webkit-scrollbar-track { background: #060b14; }
         ::-webkit-scrollbar-thumb { background: #1a2840; border-radius: 4px; }
         button { font-family: inherit; }
-        @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.5 } }
       `}</style>
 
       {/* Header */}
@@ -890,9 +959,7 @@ export default function App() {
           <span style={{ fontSize: 11, color: C.muted }}>{now.toLocaleTimeString("en-IN")}</span>
           <Pill label={wsStatus === "CONNECTED" ? "● LIVE" : wsStatus === "RECONNECTING" ? "◌ RECONNECTING" : "○ OFFLINE"} colour={wsStatus === "CONNECTED" ? C.green : wsStatus === "RECONNECTING" ? C.orange : C.red} />
           <Pill label={brokerOn ? "BROKER ON" : "BROKER OFF"} colour={brokerOn ? C.green : C.red} />
-          <PaperToggle isPaper={g.paper_trade} />
-          {/* ── KILL SWITCH ── */}
-          <KillSwitch strategies={s} />
+          <Pill label={`PAPER: ${g.paper_trade ? "ON" : "OFF"}`} colour={g.paper_trade ? C.orange : C.blue} />
         </div>
       </div>
 
@@ -907,15 +974,10 @@ export default function App() {
         <VixBox vix={vix} />
       </div>
 
-      {/* Kill Switch Bar */}
-      <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center", background: "#0d1526", borderRadius: 8, padding: "10px 16px", border: "1px solid #ff3d5a30" }}>
-        <span style={{ fontSize: 10, color: "#3a5070", fontWeight: 700, letterSpacing: 1 }}>⚡ EMERGENCY CONTROLS</span>
-        <KillSwitch strategies={s} />
-      </div>
-
+      <ContextBar marketCtx={data.market_ctx} astro={data.astro} />
       {/* Capital bar */}
       <div style={{ marginBottom: 14 }}>
-        <CapitalBar trades={trades} funds={funds} />
+        <CapitalBar trades={trades} global={g} />
       </div>
 
       {/* Strategy cards */}
@@ -939,7 +1001,7 @@ export default function App() {
           ))}
         </div>
         <div style={{ padding: 18 }}>
-          {tab === "positions" && <OpenPositions trades={trades} market={market} />}
+          {tab === "positions" && <OpenPositions trades={trades} />}
           {tab === "ledger"    && <TradeLedger trades={trades} />}
           {tab === "execlog"   && <ExecutionLog trades={trades} />}
           {tab === "perf"      && <PerformancePanel trades={trades} />}
