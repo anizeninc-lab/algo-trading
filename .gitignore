@@ -9,3 +9,13 @@ wheels/
 # Virtual environments
 .venv
 logs/
+*.bak*
+*.backup*
+*.bak
+.env
+.env.clean
+*_patch.py
+ws_patch*.py
+fix_upstox.py
+check_proto.py
+api_strategy_patch.py
