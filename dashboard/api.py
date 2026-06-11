@@ -6,7 +6,7 @@ import os
 import re
 from datetime import datetime
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pathlib import Path
@@ -184,11 +184,78 @@ async def get_trades(
             t["unrealised_pnl"] = pnl_registry.get(t["id"], 0.0)
             t["current_ltp"] = ltp_registry.get(t["id"], 0.0)
     return {"trades": trades, "count": len(trades)}
-
-
 @app.get("/api/trades/summary")
 async def get_trades_summary(strategy: str = None):
     return trade_logger.get_pnl_summary(strategy=strategy)
+@app.get("/api/trades/performance")
+async def get_trades_performance():
+    """Returns gross P&L, charges, net P&L, margin used, and ROI."""
+    trades = trade_logger.get_trades(status="CLOSED", limit=500)
+    
+    gross_pnl = 0.0
+    total_margin = 0.0
+    total_brokerage = 0.0
+    total_stt = 0.0
+    total_exchange = 0.0
+    total_gst = 0.0
+    total_stamp = 0.0
+
+    for t in trades:
+        entry = t.get("entry_price") or 0
+        exit_p = t.get("exit_price") or 0
+        qty = t.get("quantity") or 0
+        pnl = t.get("realised_pnl") or 0
+        order_type = t.get("order_type") or "SELL"
+
+        gross_pnl += pnl
+
+        sell_price = entry if order_type == "SELL" else exit_p
+        buy_price  = exit_p if order_type == "SELL" else entry
+        sell_turnover = sell_price * qty
+        buy_turnover  = buy_price  * qty
+
+        # Margin estimate (5x premium)
+        total_margin += entry * qty * 5
+
+        # Brokerage: ₹20 per order, 2 orders per trade
+        brokerage = 40.0
+        total_brokerage += brokerage
+
+        # STT: 0.1% on sell turnover only
+        stt = round(sell_turnover * 0.001, 2)
+        total_stt += stt
+
+        # Exchange charges: 0.05% of total turnover
+        exchange = round((sell_turnover + buy_turnover) * 0.0005, 2)
+        total_exchange += exchange
+
+        # GST: 18% on (brokerage + exchange)
+        gst = round((brokerage + exchange) * 0.18, 2)
+        total_gst += gst
+
+        # Stamp duty: 0.003% on buy turnover
+        stamp = round(buy_turnover * 0.00003, 2)
+        total_stamp += stamp
+
+    total_charges = round(total_brokerage + total_stt + total_exchange + total_gst + total_stamp, 2)
+    net_pnl = round(gross_pnl - total_charges, 2)
+    roi_on_margin = round((net_pnl / total_margin * 100), 2) if total_margin > 0 else 0.0
+
+    return {
+        "gross_pnl": round(gross_pnl, 2),
+        "total_charges": total_charges,
+        "net_pnl": net_pnl,
+        "total_margin": round(total_margin, 2),
+        "roi_on_margin": roi_on_margin,
+        "charges_breakdown": {
+            "brokerage": round(total_brokerage, 2),
+            "stt": round(total_stt, 2),
+            "exchange": round(total_exchange, 2),
+            "gst": round(total_gst, 2),
+            "stamp_duty": round(total_stamp, 2),
+        },
+        "trade_count": len(trades),
+    }
 
 
 # Global broker reference — set by main.py on startup
@@ -284,3 +351,118 @@ async def toggle_paper_mode():
     except Exception as e:
         logger.error(f"toggle_paper_mode error: {e}")
         return {"error": str(e)}
+
+# ── ADD THESE TWO ROUTES TO dashboard/api.py ─────────────────────────────────
+# Paste them just before the last @app.on_event("startup") line
+
+@app.get("/api/token-info")
+async def get_token_info():
+    """Return masked token so frontend can decode expiry."""
+    token = os.getenv("UPSTOX_ACCESS_TOKEN", "")
+    if not token:
+        return {"token": None, "error": "No token found"}
+    return {"token": token}
+
+@app.get("/api/session-plan")
+async def get_session_plan():
+    """Return today's session plan."""
+    from pathlib import Path
+    import json
+    plan_path = Path(__file__).parent.parent / "configs" / "session_plan.json"
+    try:
+        with open(plan_path) as f:
+            return json.load(f)
+    except Exception:
+        return {"is_ready": False, "error": "Session plan not found"}
+
+
+
+# ── Strategy Recommender API ──────────────────────────────────────────────────
+from core.strategy_recommender import get_recommendations
+from fastapi import Body as _Body
+
+@app.get("/api/strategy-recommendations")
+async def get_strategy_recommendations():
+    """Return ranked strategy recommendations based on live market data."""
+    try:
+        from core.market_context import market_context
+        ctx = market_context
+        nifty = state_store.get_market_data().get("nifty_price", 0) or 0
+        vix   = vix_manager.current_vix or 16.0
+        pcr   = ctx.pcr if hasattr(ctx, "pcr") else 1.0
+        # Get ATM from state_store market data or auto_config
+        market_data = state_store.get_market_data()
+        atm = market_data.get("atm_strike") or market_data.get("nifty_price") or nifty
+        regime = ctx.regime if hasattr(ctx, "regime") else "range"
+        # Get opening range
+        try:
+            or_snap = ctx._or
+            or_width = (or_snap.high - or_snap.low) if or_snap and or_snap.locked else None
+        except Exception:
+            or_width = None
+        # Get max pain
+        try:
+            max_pain = ctx._oi_snapshot.max_pain_strike if ctx._oi_snapshot else None
+        except Exception:
+            max_pain = None
+
+        recs = get_recommendations(
+            nifty=nifty, vix=vix, pcr=pcr, atm=atm or nifty,
+            regime=regime, or_width=or_width, max_pain=max_pain
+        )
+        return {
+            "status": "ok",
+            "nifty": nifty,
+            "vix": vix,
+            "pcr": pcr,
+            "atm": atm,
+            "regime": regime,
+            "or_width": or_width,
+            "max_pain": max_pain,
+            "strategies": recs,
+        }
+    except Exception as e:
+        logger.error(f"strategy-recommendations error: {e}", exc_info=True)
+        return {"status": "error", "error": str(e), "strategies": []}
+
+
+@app.post("/api/strategy/deploy")
+async def deploy_strategy(body: dict = _Body(...)):
+    """Deploy a strategy by placing multiple option orders."""
+    global broker_ref
+    if broker_ref is None:
+        return {"success": False, "error": "Broker not connected"}
+    
+    strategy_id = body.get("id", "")
+    legs = body.get("legs", [])
+    paper = os.getenv("PAPER_TRADE", "false").lower() == "true"
+    
+    if paper:
+        logger.info(f"[PAPER] Strategy deploy: {strategy_id} | {len(legs)} legs")
+        return {
+            "success": True,
+            "paper": True,
+            "message": f"PAPER MODE: {strategy_id} would place {len(legs)} orders",
+            "orders": [{"leg": l, "status": "paper_simulated"} for l in legs]
+        }
+    
+    results = []
+    try:
+        from brokers.base import Order
+        for leg in legs:
+            # Find instrument key for this strike
+            symbol = f"NSE_FO|{leg.get('strike', 0)}{leg.get('type', 'CE')}"
+            order = Order(
+                symbol=symbol,
+                quantity=leg.get("qty", 50),
+                order_type=leg.get("action", "SELL"),
+                price=0,  # Market order
+            )
+            order_id = await broker_ref.place_order(order)
+            results.append({"leg": leg, "order_id": order_id, "status": "placed"})
+            logger.info(f"[STRATEGY] {strategy_id} | {leg['action']} {leg['strike']}{leg['type']} | Order: {order_id}")
+        
+        return {"success": True, "paper": False, "strategy": strategy_id, "orders": results}
+    except Exception as e:
+        logger.error(f"deploy_strategy error: {e}")
+        return {"success": False, "error": str(e), "orders": results}

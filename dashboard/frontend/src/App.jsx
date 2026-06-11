@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react"
 import axios from "axios"
+import { useState, useEffect, useRef } from "react"
 
 const API = "http://92.4.90.188:8081"
 const WS  = "ws://92.4.90.188:8081/ws/updates"
@@ -24,21 +24,196 @@ const C = {
 
 const pnlC  = v => (v || 0) >= 0 ? C.green : C.red
 const pnlBg = v => (v || 0) >= 0 ? "rgba(0,232,122,0.07)" : "rgba(255,61,90,0.07)"
-
 const STATE_C = { RUNNING: C.green, STOPPED: C.muted, ERROR: C.red, IDLE: C.blue }
-
 const fmt = (n, d = 2) => n != null ? Number(n).toFixed(d) : "—"
 const fmtRs = (n, d = 2) => n != null ? `₹${fmt(n, d)}` : "—"
 const fmtTime = s => s ? s.slice(11, 19) : "—"
-const fmtDate = s => s ? s.slice(0, 10) : "—"
+
+// ── Calendar Data ─────────────────────────────────────────────────────────────
+const CALENDAR = {
+  "2026-05-25": { nakshatra: "Rohini", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and low-risk trend-following trades." },
+  "2026-05-26": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Market opening hour", advice: "Avoid impulsive entries and aggressive option buying." },
+  "2026-05-27": { nakshatra: "Ardra", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best day for structured intraday execution and analysis." },
+  "2026-05-28": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better suited for long-term investment decisions." },
+  "2026-05-29": { nakshatra: "Pushya", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Strong day for profits, scaling positions, and financial decisions." },
+  "2026-06-01": { nakshatra: "Rohini", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-06-02": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-06-03": { nakshatra: "Ardra", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-06-04": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-06-05": { nakshatra: "Pushya", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-06-08": { nakshatra: "Ashlesha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-06-09": { nakshatra: "Magha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-06-10": { nakshatra: "Purva Phalguni", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-06-11": { nakshatra: "Uttara Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-06-12": { nakshatra: "Hasta", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-06-15": { nakshatra: "Chitra", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-06-16": { nakshatra: "Swati", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-06-17": { nakshatra: "Vishakha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-06-18": { nakshatra: "Anuradha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-06-19": { nakshatra: "Jyeshtha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-06-22": { nakshatra: "Moola", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-06-23": { nakshatra: "Purva Ashadha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-06-24": { nakshatra: "Uttara Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-06-25": { nakshatra: "Shravana", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-06-26": { nakshatra: "Dhanishta", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-06-29": { nakshatra: "Shatabhisha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-06-30": { nakshatra: "Purva Bhadrapada", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-07-01": { nakshatra: "Rohini", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-07-02": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-07-03": { nakshatra: "Ardra", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-07-06": { nakshatra: "Punarvasu", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-07-07": { nakshatra: "Pushya", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-07-08": { nakshatra: "Ashlesha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-07-09": { nakshatra: "Magha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-07-10": { nakshatra: "Purva Phalguni", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-07-13": { nakshatra: "Uttara Phalguni", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-07-14": { nakshatra: "Hasta", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-07-15": { nakshatra: "Chitra", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-07-16": { nakshatra: "Swati", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-07-17": { nakshatra: "Vishakha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-07-20": { nakshatra: "Anuradha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-07-21": { nakshatra: "Jyeshtha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-07-22": { nakshatra: "Moola", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-07-23": { nakshatra: "Purva Ashadha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-07-24": { nakshatra: "Uttara Ashadha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-07-27": { nakshatra: "Shravana", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-07-28": { nakshatra: "Dhanishta", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-07-29": { nakshatra: "Shatabhisha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-07-30": { nakshatra: "Purva Bhadrapada", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-07-31": { nakshatra: "Uttara Bhadrapada", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-08-03": { nakshatra: "Rohini", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-08-04": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-08-05": { nakshatra: "Ardra", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-08-06": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-08-07": { nakshatra: "Pushya", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-08-10": { nakshatra: "Ashlesha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-08-11": { nakshatra: "Magha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-08-12": { nakshatra: "Purva Phalguni", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-08-13": { nakshatra: "Uttara Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-08-14": { nakshatra: "Hasta", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-08-17": { nakshatra: "Chitra", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-08-18": { nakshatra: "Swati", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-08-19": { nakshatra: "Vishakha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-08-20": { nakshatra: "Anuradha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-08-21": { nakshatra: "Jyeshtha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-08-24": { nakshatra: "Moola", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-08-25": { nakshatra: "Purva Ashadha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-08-26": { nakshatra: "Uttara Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-08-27": { nakshatra: "Shravana", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-08-28": { nakshatra: "Dhanishta", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-08-31": { nakshatra: "Shatabhisha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-09-01": { nakshatra: "Rohini", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-09-02": { nakshatra: "Mrigashira", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-09-03": { nakshatra: "Ardra", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-09-04": { nakshatra: "Punarvasu", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-09-07": { nakshatra: "Pushya", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-09-08": { nakshatra: "Ashlesha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-09-09": { nakshatra: "Magha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-09-10": { nakshatra: "Purva Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-09-11": { nakshatra: "Uttara Phalguni", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-09-14": { nakshatra: "Hasta", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-09-15": { nakshatra: "Chitra", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-09-16": { nakshatra: "Swati", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-09-17": { nakshatra: "Vishakha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-09-18": { nakshatra: "Anuradha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-09-21": { nakshatra: "Jyeshtha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-09-22": { nakshatra: "Moola", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-09-23": { nakshatra: "Purva Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-09-24": { nakshatra: "Uttara Ashadha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-09-25": { nakshatra: "Shravana", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-09-28": { nakshatra: "Dhanishta", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-09-29": { nakshatra: "Shatabhisha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-09-30": { nakshatra: "Purva Bhadrapada", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-10-01": { nakshatra: "Rohini", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-10-02": { nakshatra: "Mrigashira", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-10-05": { nakshatra: "Ardra", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-10-06": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-10-07": { nakshatra: "Pushya", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-10-08": { nakshatra: "Ashlesha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-10-09": { nakshatra: "Magha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-10-12": { nakshatra: "Purva Phalguni", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-10-13": { nakshatra: "Uttara Phalguni", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-10-14": { nakshatra: "Hasta", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-10-15": { nakshatra: "Chitra", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-10-16": { nakshatra: "Swati", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-10-19": { nakshatra: "Vishakha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-10-20": { nakshatra: "Anuradha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-10-21": { nakshatra: "Jyeshtha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-10-22": { nakshatra: "Moola", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-10-23": { nakshatra: "Purva Ashadha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-10-26": { nakshatra: "Uttara Ashadha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-10-27": { nakshatra: "Shravana", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-10-28": { nakshatra: "Dhanishta", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-10-29": { nakshatra: "Shatabhisha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-10-30": { nakshatra: "Purva Bhadrapada", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-11-02": { nakshatra: "Rohini", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-11-03": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-11-04": { nakshatra: "Ardra", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-11-05": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-11-06": { nakshatra: "Pushya", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-11-09": { nakshatra: "Ashlesha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-11-10": { nakshatra: "Magha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-11-11": { nakshatra: "Purva Phalguni", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-11-12": { nakshatra: "Uttara Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-11-13": { nakshatra: "Hasta", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-11-16": { nakshatra: "Chitra", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-11-17": { nakshatra: "Swati", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-11-18": { nakshatra: "Vishakha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-11-19": { nakshatra: "Anuradha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-11-20": { nakshatra: "Jyeshtha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-11-23": { nakshatra: "Moola", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-11-24": { nakshatra: "Purva Ashadha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-11-25": { nakshatra: "Uttara Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-11-26": { nakshatra: "Shravana", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-11-27": { nakshatra: "Dhanishta", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-11-30": { nakshatra: "Shatabhisha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-12-01": { nakshatra: "Rohini", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-12-02": { nakshatra: "Mrigashira", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-12-03": { nakshatra: "Ardra", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-12-04": { nakshatra: "Punarvasu", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-12-07": { nakshatra: "Pushya", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-12-08": { nakshatra: "Ashlesha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-12-09": { nakshatra: "Magha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-12-10": { nakshatra: "Purva Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-12-11": { nakshatra: "Uttara Phalguni", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-12-14": { nakshatra: "Hasta", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-12-15": { nakshatra: "Chitra", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-12-16": { nakshatra: "Swati", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-12-17": { nakshatra: "Vishakha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-12-18": { nakshatra: "Anuradha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-12-21": { nakshatra: "Jyeshtha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-12-22": { nakshatra: "Moola", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-12-23": { nakshatra: "Purva Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-12-24": { nakshatra: "Uttara Ashadha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-12-25": { nakshatra: "Shravana", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
+  "2026-12-28": { nakshatra: "Dhanishta", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
+  "2026-12-29": { nakshatra: "Shatabhisha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-12-30": { nakshatra: "Purva Bhadrapada", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-12-31": { nakshatra: "Uttara Bhadrapada", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+}
+
+function getTodayCalendar() {
+  const ist = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
+  return CALENDAR[ist] || null
+}
+
+// ── Token expiry from JWT ─────────────────────────────────────────────────────
+function parseTokenExpiry(token) {
+  try {
+    const part = token.split(".")[1]
+    const pad = part + "=".repeat((4 - part.length % 4) % 4)
+    const payload = JSON.parse(atob(pad))
+    return payload.exp ? new Date(payload.exp * 1000) : null
+  } catch { return null }
+}
 
 function useCapital() {
   const [capital, setCapital] = useState({ available: 0, used: 0, total: 0 })
   useEffect(() => {
     async function fetch() {
       try {
-        const r = await axios.get(`${API}/api/health`)
-        if (r.data) setCapital(prev => ({ ...prev }))
+        const r = await axios.get(`${API}/api/funds`)
+        if (r.data) setCapital(r.data)
       } catch {}
     }
     fetch()
@@ -76,13 +251,399 @@ function MiniSpark({ history, w = 80, h = 28 }) {
   )
 }
 
-function CapitalBar({ trades, global: g }) {
-  const total = 200000
+// ── Token Expiry Countdown ────────────────────────────────────────────────────
+function TokenCountdown({ token }) {
+  const [remaining, setRemaining] = useState(null)
+  const expiry = token ? parseTokenExpiry(token) : null
+
+  useEffect(() => {
+    if (!expiry) return
+    const tick = () => {
+      const diff = Math.floor((expiry - new Date()) / 1000)
+      setRemaining(diff)
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [expiry])
+
+  if (!expiry || remaining === null) return (
+    <div style={{ background: C.card, borderRadius: 8, padding: "8px 14px", border: `1px solid ${C.border}`, minWidth: 140 }}>
+      <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>TOKEN EXPIRY</div>
+      <div style={{ fontSize: 12, color: C.muted, fontFamily: "monospace", marginTop: 2 }}>Unknown</div>
+    </div>
+  )
+
+  const hours = Math.floor(remaining / 3600)
+  const mins  = Math.floor((remaining % 3600) / 60)
+  const secs  = remaining % 60
+  const col   = remaining < 3600 ? C.red : remaining < 7200 ? C.orange : C.green
+  const label = remaining < 0 ? "EXPIRED!" : `${hours}h ${mins}m ${secs}s`
+
+  return (
+    <div style={{ background: C.card, borderRadius: 8, padding: "8px 14px", border: `1px solid ${col}40`, minWidth: 140 }}>
+      <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 2 }}>TOKEN EXPIRY</div>
+      <div style={{ fontSize: 13, fontWeight: 800, color: col, fontFamily: "monospace" }}>{label}</div>
+      {remaining < 3600 && remaining > 0 && (
+        <div style={{ fontSize: 9, color: C.orange, marginTop: 2 }}>⚠ Run get_token.py soon!</div>
+      )}
+      {remaining < 0 && (
+        <div style={{ fontSize: 9, color: C.red, marginTop: 2 }}>🔴 Bot is blind — refresh token!</div>
+      )}
+    </div>
+  )
+}
+
+// ── Auto-Stop Countdown ───────────────────────────────────────────────────────
+function AutoStopCountdown() {
+  const [remaining, setRemaining] = useState(null)
+
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date()
+      const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }))
+      const stop = new Date(ist)
+      stop.setHours(15, 10, 0, 0)
+      const diff = Math.floor((stop - ist) / 1000)
+      setRemaining(diff)
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  if (remaining === null) return null
+
+  const hours = Math.floor(Math.abs(remaining) / 3600)
+  const mins  = Math.floor((Math.abs(remaining) % 3600) / 60)
+  const secs  = Math.abs(remaining) % 60
+  const fired = remaining <= 0
+  const col   = fired ? C.muted : remaining < 1800 ? C.orange : C.cyan
+
+  return (
+    <div style={{ background: C.card, borderRadius: 8, padding: "8px 14px", border: `1px solid ${col}40`, minWidth: 140 }}>
+      <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 2 }}>AUTO-STOP (3:10 PM)</div>
+      <div style={{ fontSize: 13, fontWeight: 800, color: col, fontFamily: "monospace" }}>
+        {fired ? "FIRED ✓" : `${hours}h ${mins}m ${secs}s`}
+      </div>
+      {!fired && remaining < 1800 && (
+        <div style={{ fontSize: 9, color: C.orange, marginTop: 2 }}>⚠ Approaching auto-stop</div>
+      )}
+    </div>
+  )
+}
+
+// ── Paper/Live Toggle ─────────────────────────────────────────────────────────
+function PaperLiveToggle({ isPaper }) {
+  const [localPaper, setLocalPaper] = useState(isPaper)
+  const [toggling, setToggling]     = useState(false)
+  const [msg, setMsg]               = useState("")
+
+  useEffect(() => { setLocalPaper(isPaper) }, [isPaper])
+
+  const handleToggle = async () => {
+    if (toggling) return
+    setToggling(true)
+    setMsg("")
+    try {
+      const res = await axios.post(`${API}/api/toggle-paper`)
+      if (res.data.success !== false) {
+        setLocalPaper(res.data.paper_trade)
+        setMsg(res.data.paper_trade ? "✓ Switched to PAPER — bot restarting..." : "⚠ Switched to LIVE — bot restarting...")
+      } else {
+        setMsg("Failed: " + (res.data.error || "unknown"))
+      }
+    } catch (e) {
+      setMsg("Error: " + e.message)
+    }
+    setToggling(false)
+    setTimeout(() => setMsg(""), 6000)
+  }
+
+  const col = localPaper ? C.orange : C.red
+
+  return (
+    <div style={{ background: C.card, borderRadius: 8, padding: "8px 14px", border: `2px solid ${col}50`, minWidth: 180 }}>
+      <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>TRADING MODE</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontSize: 11, color: localPaper ? C.orange : C.muted, fontWeight: localPaper ? 800 : 400 }}>PAPER</span>
+        {/* Toggle */}
+        <div onClick={handleToggle} style={{
+          width: 44, height: 24, borderRadius: 99,
+          background: localPaper ? "#f59e0b" : "#ff3d5a",
+          position: "relative", cursor: toggling ? "wait" : "pointer",
+          border: `1px solid ${col}`,
+          transition: "background 0.3s",
+          flexShrink: 0,
+        }}>
+          <div style={{
+            width: 18, height: 18, borderRadius: "50%",
+            background: "#fff",
+            position: "absolute", top: 3,
+            left: localPaper ? 3 : 23,
+            transition: "left 0.3s",
+          }} />
+        </div>
+        <span style={{ fontSize: 11, color: !localPaper ? C.red : C.muted, fontWeight: !localPaper ? 800 : 400 }}>LIVE</span>
+      </div>
+      {msg && (
+        <div style={{ fontSize: 9, color: msg.includes("⚠") ? C.red : C.green, marginTop: 5 }}>{msg}</div>
+      )}
+    </div>
+  )
+}
+
+// ── Astro Calendar Panel ──────────────────────────────────────────────────────
+function AstroCalendarPanel() {
+  const cal = getTodayCalendar()
+  const today = new Date().toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "long", day: "numeric", month: "short" })
+
+  if (!cal) return (
+    <div style={{ background: C.card, borderRadius: 10, padding: "14px 18px", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>✦ ASTRO TRADING CALENDAR</div>
+      <div style={{ fontSize: 12, color: C.muted }}>No calendar data for today ({today})</div>
+    </div>
+  )
+
+  return (
+    <div style={{ background: C.card, borderRadius: 10, padding: "14px 18px", border: `2px solid ${cal.ratingCol}40`, display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-start" }}>
+      {/* Header */}
+      <div style={{ minWidth: 140 }}>
+        <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>✦ ASTRO CALENDAR · {today.toUpperCase()}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 18, fontWeight: 800, color: cal.ratingCol }}>{cal.rating.toUpperCase()}</span>
+          <span style={{ fontSize: 10, color: cal.ratingCol, background: cal.ratingCol + "20", padding: "2px 8px", borderRadius: 4, border: `1px solid ${cal.ratingCol}40` }}>{cal.tara}</span>
+        </div>
+        <div style={{ fontSize: 11, color: C.text, marginTop: 4 }}>🌙 {cal.nakshatra}</div>
+      </div>
+
+      {/* Divider */}
+      <div style={{ width: 1, background: C.border, alignSelf: "stretch" }} />
+
+      {/* Favourable */}
+      <div>
+        <div style={{ fontSize: 9, color: C.green, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>✓ FAVOURABLE WINDOW</div>
+        <div style={{ fontSize: 14, fontWeight: 800, color: C.green, fontFamily: "monospace" }}>{cal.fav}</div>
+      </div>
+
+      {/* Avoid */}
+      <div>
+        <div style={{ fontSize: 9, color: C.red, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>✗ AVOID</div>
+        <div style={{ fontSize: 14, fontWeight: 800, color: C.red, fontFamily: "monospace" }}>{cal.avoid}</div>
+      </div>
+
+      {/* Divider */}
+      <div style={{ width: 1, background: C.border, alignSelf: "stretch" }} />
+
+      {/* Advice */}
+      <div style={{ flex: 1, minWidth: 200 }}>
+        <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>TODAY'S ADVICE</div>
+        <div style={{ fontSize: 12, color: C.text, lineHeight: 1.6, borderLeft: `3px solid ${cal.ratingCol}`, paddingLeft: 10 }}>{cal.advice}</div>
+      </div>
+    </div>
+  )
+}
+
+// ── Session Plan Panel ────────────────────────────────────────────────────────
+function SessionPlanPanel() {
+  const [plan, setPlan] = useState(null)
+
+  useEffect(() => {
+    async function fetchPlan() {
+      try {
+        const r = await axios.get(`${API}/api/session-plan`)
+        setPlan(r.data)
+      } catch {}
+    }
+    fetchPlan()
+    const id = setInterval(fetchPlan, 30000)
+    return () => clearInterval(id)
+  }, [])
+
+  if (!plan || !plan.is_ready) return (
+    <div style={{ background: C.card, borderRadius: 10, padding: "14px 18px", border: `1px solid ${C.border}` }}>
+      <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>SESSION PLAN</div>
+      <div style={{ fontSize: 12, color: C.muted }}>Waiting for 9:30 AM session plan...</div>
+    </div>
+  )
+
+  const regCol = plan.regime === "range" ? C.blue : C.green
+  const confCol = plan.confidence === "HIGH" ? C.green : plan.confidence === "MEDIUM" ? C.orange : C.red
+  const rs = plan.scores || {}
+  const maxScore = Math.max(rs.range_score || 0, rs.trending_score || 0, 1)
+
+  return (
+    <div style={{ background: C.card, borderRadius: 10, padding: "14px 18px", border: `1px solid ${C.border}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>SESSION PLAN · {plan.produced_at ? plan.produced_at.slice(11, 16) : "—"}</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <span style={{ fontSize: 10, fontWeight: 800, color: regCol, background: regCol + "20", padding: "2px 8px", borderRadius: 4, border: `1px solid ${regCol}40` }}>
+            {plan.regime?.toUpperCase()}
+          </span>
+          <span style={{ fontSize: 10, fontWeight: 800, color: confCol, background: confCol + "20", padding: "2px 8px", borderRadius: 4, border: `1px solid ${confCol}40` }}>
+            {plan.confidence}
+          </span>
+        </div>
+      </div>
+
+      {/* Score bars */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+        {[
+          { label: "RANGE SCORE", val: rs.range_score || 0, col: C.blue },
+          { label: "TREND SCORE", val: rs.trending_score || 0, col: C.green },
+        ].map(({ label, val, col }) => (
+          <div key={label}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+              <span style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>{label}</span>
+              <span style={{ fontSize: 9, color: col, fontWeight: 800 }}>{val}</span>
+            </div>
+            <div style={{ height: 6, background: C.border, borderRadius: 3 }}>
+              <div style={{ height: "100%", width: `${(val / maxScore) * 100}%`, background: col, borderRadius: 3, transition: "width 0.5s" }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Key signals */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+        {rs.vix_signal && <span style={{ fontSize: 9, color: C.muted, background: C.panel, padding: "3px 8px", borderRadius: 4, border: `1px solid ${C.border}` }}>VIX: {rs.vix_signal}</span>}
+        {rs.or_width_signal && <span style={{ fontSize: 9, color: C.muted, background: C.panel, padding: "3px 8px", borderRadius: 4, border: `1px solid ${C.border}` }}>{rs.or_width_signal}</span>}
+        {rs.pcr_signal && <span style={{ fontSize: 9, color: C.muted, background: C.panel, padding: "3px 8px", borderRadius: 4, border: `1px solid ${C.border}` }}>{rs.pcr_signal}</span>}
+      </div>
+
+      {/* Strategy gates */}
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ flex: 1, background: plan.survivor_active ? "#00e87a12" : "#ff3d5a12", borderRadius: 6, padding: "6px 10px", border: `1px solid ${plan.survivor_active ? C.green : C.red}30`, textAlign: "center" }}>
+          <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>SURVIVOR</div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: plan.survivor_active ? C.green : C.red }}>{plan.survivor_active ? "✅ ACTIVE" : "❌ BLOCKED"}</div>
+        </div>
+        <div style={{ flex: 1, background: plan.wave_active ? "#00e87a12" : "#ff3d5a12", borderRadius: 6, padding: "6px 10px", border: `1px solid ${plan.wave_active ? C.green : C.red}30`, textAlign: "center" }}>
+          <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>WAVE</div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: plan.wave_active ? C.green : C.red }}>{plan.wave_active ? "✅ ACTIVE" : "❌ BLOCKED"}</div>
+        </div>
+        <div style={{ flex: 1, background: C.panel, borderRadius: 6, padding: "6px 10px", border: `1px solid ${C.border}`, textAlign: "center" }}>
+          <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>LIMIT</div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: C.red }}>{fmtRs(plan.daily_loss_limit)}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ── P&L LINE CHART ────────────────────────────────────────────────────────────
+function PnlLineChart({ trades, height = 180 }) {
+  const w = 560, h = height
+  const pad = { top: 20, right: 50, bottom: 28, left: 58 }
+  const iw = w - pad.left - pad.right
+  const ih = h - pad.top - pad.bottom
+
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayTrades = trades
+    .filter(t => t.status === "CLOSED" && t.exit_time?.slice(0, 10) === todayStr && t.exit_time)
+    .sort((a, b) => new Date(a.exit_time) - new Date(b.exit_time))
+
+  const points = [{ time: "09:15", cumPnl: 0, pnl: 0 }]
+  let cumPnl = 0
+  todayTrades.forEach(t => {
+    cumPnl += (t.realised_pnl || 0)
+    points.push({ time: t.exit_time?.slice(11, 16) || "", cumPnl, pnl: t.realised_pnl || 0, strategy: t.strategy })
+  })
+  if (points.length === 1) {
+    const now = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false })
+    points.push({ time: now, cumPnl: 0, pnl: 0 })
+  }
+
+  const minPnl = Math.min(...points.map(p => p.cumPnl), -500)
+  const maxPnl = Math.max(...points.map(p => p.cumPnl), 500)
+  const range  = maxPnl - minPnl || 1
+
+  const toX = i => pad.left + (i / Math.max(points.length - 1, 1)) * iw
+  const toY = v => pad.top + ih - ((v - minPnl) / range) * ih
+  const zeroY = toY(0)
+  const lastPnl = points[points.length - 1]?.cumPnl || 0
+  const lineCol = lastPnl >= 0 ? "#00e87a" : "#ff3d5a"
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${toX(i).toFixed(1)} ${toY(p.cumPnl).toFixed(1)}`).join(" ")
+  const fillD = `${pathD} L ${toX(points.length-1).toFixed(1)} ${zeroY.toFixed(1)} L ${toX(0).toFixed(1)} ${zeroY.toFixed(1)} Z`
+  const yTicks = [-5000, 0, Math.round(maxPnl/2), maxPnl].filter(v => v >= minPnl && v <= maxPnl)
+
+  return (
+    <div style={{ width: "100%", overflowX: "auto" }}>
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet" style={{ display: "block" }}>
+        {yTicks.map(v => (
+          <g key={v}>
+            <line x1={pad.left} y1={toY(v)} x2={pad.left+iw} y2={toY(v)} stroke="#1a2840" strokeWidth={1} strokeDasharray="4 4" />
+            <text x={pad.left-4} y={toY(v)+4} textAnchor="end" fill={v === 0 ? "#3a5070" : v < 0 ? "#ff3d5a60" : "#00e87a60"} fontSize={9} fontFamily="monospace">
+              {v >= 0 ? `+₹${v}` : `-₹${Math.abs(v)}`}
+            </text>
+          </g>
+        ))}
+        <line x1={pad.left} y1={zeroY} x2={pad.left+iw} y2={zeroY} stroke="#3a5070" strokeWidth={1.5} />
+        {toY(-5000) >= pad.top && toY(-5000) <= pad.top+ih && (
+          <line x1={pad.left} y1={toY(-5000)} x2={pad.left+iw} y2={toY(-5000)} stroke="#ff3d5a" strokeWidth={1} strokeDasharray="6 3" opacity={0.4} />
+        )}
+        {points.length > 1 && <path d={fillD} fill={lineCol} opacity={0.07} />}
+        {points.length > 1 && <path d={pathD} fill="none" stroke={lineCol} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />}
+        {points.slice(1).map((p, i) => (
+          <circle key={i} cx={toX(i+1)} cy={toY(p.cumPnl)} r={4} fill={p.pnl >= 0 ? "#00e87a" : "#ff3d5a"} stroke="#060b14" strokeWidth={1.5}>
+            <title>{p.time} | {p.strategy} | ₹{p.pnl?.toFixed(0)} | Total: ₹{p.cumPnl?.toFixed(0)}</title>
+          </circle>
+        ))}
+        {points.length > 1 && (
+          <text x={toX(points.length-1)+6} y={toY(lastPnl)+4} fill={lineCol} fontSize={11} fontWeight="800" fontFamily="monospace">
+            {lastPnl >= 0 ? "+" : ""}₹{lastPnl.toFixed(0)}
+          </text>
+        )}
+        {points.length <= 1 && (
+          <text x={w/2} y={h/2} textAnchor="middle" fill="#3a5070" fontSize={12} fontFamily="monospace">No closed trades today</text>
+        )}
+        {[points[0], points[Math.floor(points.length/2)], points[points.length-1]].filter(Boolean).map((p, i, arr) => {
+          const idx = points.indexOf(p)
+          return <text key={i} x={toX(idx)} y={pad.top+ih+16} textAnchor="middle" fill="#3a5070" fontSize={8} fontFamily="monospace">{p.time}</text>
+        })}
+      </svg>
+    </div>
+  )
+}
+
+
+// ── SOUND ALERTS ─────────────────────────────────────────────────────────────
+function playTone(freq, duration, type = "sine", vol = 0.3) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const osc  = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain); gain.connect(ctx.destination)
+    osc.type = type
+    osc.frequency.setValueAtTime(freq, ctx.currentTime)
+    gain.gain.setValueAtTime(vol, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration)
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + duration)
+  } catch {}
+}
+
+function playTradeWin()  { playTone(523,0.12); setTimeout(()=>playTone(659,0.12),130); setTimeout(()=>playTone(784,0.2),260) }
+function playTradeLoss() { playTone(400,0.2,"sawtooth",0.2); setTimeout(()=>playTone(280,0.3,"sawtooth",0.2),220) }
+function playLossAlarm() { for(let i=0;i<3;i++){setTimeout(()=>playTone(880,0.18,"square",0.35),i*320); setTimeout(()=>playTone(440,0.18,"square",0.35),i*320+160)} }
+
+function SoundControl({ enabled, onToggle }) {
+  return (
+    <button onClick={onToggle} style={{
+      background: enabled ? "#00e87a18" : "transparent",
+      border: `1px solid ${enabled ? "#00e87a40" : "#1a2840"}`,
+      borderRadius: 6, padding: "4px 10px",
+      color: enabled ? "#00e87a" : "#3a5070",
+      fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "monospace",
+    }}>{enabled ? "🔊 SND" : "🔇 SND"}</button>
+  )
+}
+
+function CapitalBar({ trades, global: g, capital: capData }) {
+  const total = capData?.total || 200000
   const used = trades.filter(t => t.status === "OPEN").reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0), 0)
-  const available = Math.max(0, total - used)
+  const available = capData?.available ?? Math.max(0, total - used)
   const pct = Math.min(100, (used / total) * 100)
   const barC = pct > 80 ? C.red : pct > 50 ? C.orange : C.green
-
   return (
     <div style={{ background: C.card, borderRadius: 10, padding: "14px 18px", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -91,9 +652,9 @@ function CapitalBar({ trades, global: g }) {
       </div>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         {[
-          { label: "TOTAL",     val: fmtRs(total),     col: C.text },
-          { label: "AVAILABLE", val: fmtRs(available), col: C.green },
-          { label: "IN TRADES", val: fmtRs(used),      col: used > 0 ? C.orange : C.muted },
+          { label: "TOTAL",      val: fmtRs(total),     col: C.text },
+          { label: "AVAILABLE",  val: fmtRs(available), col: C.green },
+          { label: "IN TRADES",  val: fmtRs(used),      col: used > 0 ? C.orange : C.muted },
           { label: "FREE MARGIN", val: fmtRs(available), col: C.cyan },
         ].map(({ label, val, col }) => (
           <div key={label}>
@@ -128,9 +689,7 @@ function NiftyBox({ market }) {
         {price > 0 ? price.toFixed(2) : "—"}{flash === "up" ? " ▲" : flash === "down" ? " ▼" : ""}
       </div>
       {market?.option_price > 0 && (
-        <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>
-          OPT: <span style={{ color: C.text }}>₹{market.option_price.toFixed(2)}</span>
-        </div>
+        <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>OPT: <span style={{ color: C.text }}>₹{market.option_price.toFixed(2)}</span></div>
       )}
     </div>
   )
@@ -187,13 +746,10 @@ function StratCard({ name, data, onStop, onReset, trades }) {
 
   return (
     <div style={{ background: C.card, borderRadius: 12, padding: 18, border: `1px solid ${col}25`, display: "flex", flexDirection: "column", gap: 12 }}>
-      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontWeight: 800, fontSize: 14, color: C.text }}>{title}</span>
         <Pill label={data.state || "IDLE"} colour={col} />
       </div>
-
-      {/* PnL */}
       <div style={{ background: pnlBg(net), borderRadius: 8, padding: "10px 14px", border: `1px solid ${pnlC(net)}20`, display: "flex", gap: 16, alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>NET P&L</div>
@@ -209,18 +765,14 @@ function StratCard({ name, data, onStop, onReset, trades }) {
             <div style={{ fontSize: 13, fontWeight: 700, color: pnlC(unrealised), fontFamily: "monospace" }}>{fmtRs(unrealised)}</div>
           </div>
         </div>
-        <div style={{ marginLeft: "auto" }}>
-          <MiniSpark history={data.pnl_history} />
-        </div>
+        <div style={{ marginLeft: "auto" }}><MiniSpark history={data.pnl_history} /></div>
       </div>
-
-      {/* Stats grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
         {[
-          { label: "POSITION",   val: data.position || "FLAT" },
+          { label: "POSITION",    val: data.position || "FLAT" },
           { label: "OPEN TRADES", val: data.open_trades || 0 },
-          { label: "TOTAL",      val: data.total_trades || 0 },
-          { label: "WIN RATE",   val: winRate !== "—" ? `${winRate}%` : "—" },
+          { label: "TOTAL",       val: data.total_trades || 0 },
+          { label: "WIN RATE",    val: winRate !== "—" ? `${winRate}%` : "—" },
         ].map(({ label, val }) => (
           <div key={label} style={{ background: C.panel, borderRadius: 6, padding: "7px 9px", border: `1px solid ${C.border2}` }}>
             <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 0.8 }}>{label}</div>
@@ -228,8 +780,6 @@ function StratCard({ name, data, onStop, onReset, trades }) {
           </div>
         ))}
       </div>
-
-      {/* Capital allocation */}
       <div style={{ background: C.panel, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.border2}` }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
           <span style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>CAPITAL ALLOCATION</span>
@@ -244,27 +794,17 @@ function StratCard({ name, data, onStop, onReset, trades }) {
           <div style={{ height: "100%", width: `${capPct}%`, background: capCol, borderRadius: 2, transition: "width 0.5s" }} />
         </div>
       </div>
-
-      {/* Last signal */}
       <div style={{ background: C.panel, borderRadius: 6, padding: "7px 10px", fontSize: 10, color: "#4a8080", borderLeft: `2px solid ${C.dim}`, fontFamily: "monospace", minHeight: 26 }}>
         {data.last_signal || "— no signal yet —"}
       </div>
-
-      {/* Error */}
       {data.error_message && (
         <div style={{ color: C.red, fontSize: 10, background: "#ff3d5a10", borderRadius: 6, padding: "6px 10px" }}>⚠ {data.error_message}</div>
       )}
-
-      {/* Buttons */}
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={() => onStop(name)} disabled={data.state !== "RUNNING"}
-          style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: data.state === "RUNNING" ? `1px solid ${C.red}40` : `1px solid ${C.border}`, background: data.state === "RUNNING" ? "#ff3d5a18" : C.border, color: data.state === "RUNNING" ? C.red : C.muted, fontWeight: 700, cursor: data.state === "RUNNING" ? "pointer" : "not-allowed", fontSize: 11, fontFamily: "monospace" }}>
-          STOP
-        </button>
+          style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: data.state === "RUNNING" ? `1px solid ${C.red}40` : `1px solid ${C.border}`, background: data.state === "RUNNING" ? "#ff3d5a18" : C.border, color: data.state === "RUNNING" ? C.red : C.muted, fontWeight: 700, cursor: data.state === "RUNNING" ? "pointer" : "not-allowed", fontSize: 11, fontFamily: "monospace" }}>STOP</button>
         <button onClick={() => onReset(name)} disabled={data.state !== "ERROR"}
-          style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: data.state === "ERROR" ? `1px solid ${C.orange}40` : `1px solid ${C.border}`, background: data.state === "ERROR" ? "#f59e0b18" : C.border, color: data.state === "ERROR" ? C.orange : C.muted, fontWeight: 700, cursor: data.state === "ERROR" ? "pointer" : "not-allowed", fontSize: 11, fontFamily: "monospace" }}>
-          RESET
-        </button>
+          style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: data.state === "ERROR" ? `1px solid ${C.orange}40` : `1px solid ${C.border}`, background: data.state === "ERROR" ? "#f59e0b18" : C.border, color: data.state === "ERROR" ? C.orange : C.muted, fontWeight: 700, cursor: data.state === "ERROR" ? "pointer" : "not-allowed", fontSize: 11, fontFamily: "monospace" }}>RESET</button>
       </div>
     </div>
   )
@@ -273,16 +813,27 @@ function StratCard({ name, data, onStop, onReset, trades }) {
 function TradeLedger({ trades }) {
   const [selected, setSelected] = useState(null)
   const [filter, setFilter] = useState("ALL")
-
-  const filtered = trades.filter(t => {
-    if (filter === "ALL") return true
-    if (filter === "OPEN") return t.status === "OPEN"
-    if (filter === "CLOSED") return t.status === "CLOSED"
-    if (filter === "CANCELLED") return t.status === "CANCELLED"
-    return true
-  })
-
+  const filtered = trades.filter(t => filter === "ALL" ? true : t.status === filter)
   const cols = ["TRADE ID", "STRATEGY", "INSTRUMENT", "DIR", "QTY", "ENTRY TIME", "ENTRY ₹", "EXIT TIME", "EXIT ₹", "PREMIUM", "STATUS", "P&L"]
+
+  const exportCSV = () => {
+    const rows = [cols.join(",")]
+    trades.forEach(t => {
+      const premium = (t.entry_price || 0) * (t.quantity || 0)
+      rows.push([
+        t.id, t.strategy, t.symbol, t.order_type, t.quantity,
+        t.entry_time, t.entry_price, t.exit_time, t.exit_price,
+        premium.toFixed(2), t.status, t.realised_pnl
+      ].join(","))
+    })
+    const blob = new Blob([rows.join("\n")], { type: "text/csv" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `trades_${new Date().toISOString().slice(0,10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   if (selected) {
     const t = selected
@@ -292,61 +843,22 @@ function TradeLedger({ trades }) {
     const rr = maxRisk > 0 ? ((t.realised_pnl || 0) / maxRisk).toFixed(2) : "—"
     return (
       <div>
-        <button onClick={() => setSelected(null)} style={{ background: C.panel, border: `1px solid ${C.border}`, color: C.cyan, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 11, fontFamily: "monospace", marginBottom: 16 }}>
-          ← BACK TO LEDGER
-        </button>
+        <button onClick={() => setSelected(null)} style={{ background: C.panel, border: `1px solid ${C.border}`, color: C.cyan, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 11, fontFamily: "monospace", marginBottom: 16 }}>← BACK TO LEDGER</button>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          {/* Trade Info */}
-          <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
-            <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>TRADE DETAILS</div>
-            {[
-              ["Trade ID", t.id || "—"],
-              ["Strategy", t.strategy || "—"],
-              ["Instrument", t.symbol || "—"],
-              ["Direction", t.order_type || "—"],
-              ["Quantity", t.quantity || "—"],
-              ["Status", t.status || "—"],
-              ["Broker Order ID", t.broker_order_id || "—"],
-            ].map(([label, val]) => (
-              <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border2}` }}>
-                <span style={{ fontSize: 11, color: C.muted }}>{label}</span>
-                <span style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{val}</span>
-              </div>
-            ))}
-          </div>
-          {/* Capital Info */}
-          <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
-            <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>CAPITAL & RISK</div>
-            {[
-              ["Entry Price", fmtRs(t.entry_price)],
-              ["Exit Price", fmtRs(t.exit_price)],
-              ["Premium Paid/Recv", fmtRs(premium)],
-              ["Est. Margin Used", fmtRs(margin)],
-              ["Max Capital at Risk", fmtRs(maxRisk)],
-              ["Realised P&L", fmtRs(t.realised_pnl)],
-              ["Risk/Reward", rr],
-            ].map(([label, val]) => (
-              <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border2}` }}>
-                <span style={{ fontSize: 11, color: C.muted }}>{label}</span>
-                <span style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{val}</span>
-              </div>
-            ))}
-          </div>
-          {/* Timing */}
-          <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
-            <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>EXECUTION TIMING</div>
-            {[
-              ["Entry Time", t.entry_time ? t.entry_time.slice(0, 19).replace("T", " ") : "—"],
-              ["Exit Time", t.exit_time ? t.exit_time.slice(0, 19).replace("T", " ") : "—"],
-              ["Duration", t.entry_time && t.exit_time ? `${Math.round((new Date(t.exit_time) - new Date(t.entry_time)) / 60000)} min` : "—"],
-              ["Notes", t.notes || "—"],
-            ].map(([label, val]) => (
-              <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border2}` }}>
-                <span style={{ fontSize: 11, color: C.muted }}>{label}</span>
-                <span style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{val}</span>
-              </div>
-            ))}
-          </div>
+          {[
+            { title: "TRADE DETAILS", rows: [["Trade ID", t.id], ["Strategy", t.strategy], ["Instrument", t.symbol], ["Direction", t.order_type], ["Quantity", t.quantity], ["Status", t.status], ["Broker Order ID", t.broker_order_id]] },
+            { title: "CAPITAL & RISK", rows: [["Entry Price", fmtRs(t.entry_price)], ["Exit Price", fmtRs(t.exit_price)], ["Premium", fmtRs(premium)], ["Est. Margin", fmtRs(margin)], ["Max Risk", fmtRs(maxRisk)], ["Realised P&L", fmtRs(t.realised_pnl)], ["Risk/Reward", rr]] },
+          ].map(({ title, rows }) => (
+            <div key={title} style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>{title}</div>
+              {rows.map(([label, val]) => (
+                <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border2}` }}>
+                  <span style={{ fontSize: 11, color: C.muted }}>{label}</span>
+                  <span style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{val || "—"}</span>
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       </div>
     )
@@ -354,18 +866,18 @@ function TradeLedger({ trades }) {
 
   return (
     <div>
-      {/* Filter bar */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        {["ALL", "OPEN", "CLOSED", "CANCELLED"].map(f => (
-          <button key={f} onClick={() => setFilter(f)} style={{
-            padding: "5px 12px", borderRadius: 5, border: `1px solid ${filter === f ? C.cyan : C.border}`,
-            background: filter === f ? C.cyan + "20" : "transparent",
-            color: filter === f ? C.cyan : C.muted,
-            fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "monospace",
-          }}>{f} ({trades.filter(t => f === "ALL" ? true : t.status === f).length})</button>
-        ))}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, justifyContent: "space-between", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8 }}>
+          {["ALL", "OPEN", "CLOSED", "CANCELLED"].map(f => (
+            <button key={f} onClick={() => setFilter(f)} style={{ padding: "5px 12px", borderRadius: 5, border: `1px solid ${filter === f ? C.cyan : C.border}`, background: filter === f ? C.cyan + "20" : "transparent", color: filter === f ? C.cyan : C.muted, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "monospace" }}>
+              {f} ({trades.filter(t => f === "ALL" ? true : t.status === f).length})
+            </button>
+          ))}
+        </div>
+        <button onClick={exportCSV} style={{ padding: "5px 14px", borderRadius: 5, border: `1px solid ${C.green}40`, background: C.green + "15", color: C.green, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "monospace" }}>
+          ↓ EXPORT CSV
+        </button>
       </div>
-
       {filtered.length === 0 ? (
         <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No trades found</div>
       ) : (
@@ -373,9 +885,7 @@ function TradeLedger({ trades }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
             <thead>
               <tr style={{ background: C.panel }}>
-                {cols.map(h => (
-                  <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontWeight: 700, color: C.muted, fontSize: 9, letterSpacing: 1, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>{h}</th>
-                ))}
+                {cols.map(h => <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontWeight: 700, color: C.muted, fontSize: 9, letterSpacing: 1, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -383,9 +893,7 @@ function TradeLedger({ trades }) {
                 const premium = (t.entry_price || 0) * (t.quantity || 0)
                 const statusCol = t.status === "OPEN" ? C.blue : t.status === "CLOSED" ? C.green : C.muted
                 return (
-                  <tr key={t.id || i}
-                    onClick={() => setSelected(t)}
-                    style={{ borderBottom: `1px solid ${C.border2}`, cursor: "pointer" }}
+                  <tr key={t.id || i} onClick={() => setSelected(t)} style={{ borderBottom: `1px solid ${C.border2}`, cursor: "pointer" }}
                     onMouseEnter={e => e.currentTarget.style.background = C.panel}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                     <td style={{ padding: "8px 12px", color: C.cyan, fontFamily: "monospace", fontSize: 10 }}>{(t.id || "").slice(0, 8)}…</td>
@@ -414,29 +922,11 @@ function TradeLedger({ trades }) {
 function ExecutionLog({ trades }) {
   const logs = []
   trades.forEach(t => {
-    if (t.entry_time) logs.push({
-      time: t.entry_time,
-      type: "ENTRY",
-      msg: `${t.order_type} ${t.symbol} @ ₹${fmt(t.entry_price)} (Qty ${t.quantity})`,
-      strategy: t.strategy,
-      orderId: t.broker_order_id,
-      col: t.order_type === "SELL" ? C.red : C.green,
-    })
-    if (t.exit_time) logs.push({
-      time: t.exit_time,
-      type: "EXIT",
-      msg: `EXIT ${t.symbol} @ ₹${fmt(t.exit_price)} (P&L: ${fmtRs(t.realised_pnl)})`,
-      strategy: t.strategy,
-      orderId: t.broker_order_id,
-      col: pnlC(t.realised_pnl),
-    })
+    if (t.entry_time) logs.push({ time: t.entry_time, type: "ENTRY", msg: `${t.order_type} ${t.symbol} @ ₹${fmt(t.entry_price)} (Qty ${t.quantity})`, strategy: t.strategy, col: t.order_type === "SELL" ? C.red : C.green })
+    if (t.exit_time)  logs.push({ time: t.exit_time,  type: "EXIT",  msg: `EXIT ${t.symbol} @ ₹${fmt(t.exit_price)} (P&L: ${fmtRs(t.realised_pnl)})`, strategy: t.strategy, col: pnlC(t.realised_pnl) })
   })
   logs.sort((a, b) => new Date(b.time) - new Date(a.time))
-
-  if (logs.length === 0) return (
-    <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No execution history yet</div>
-  )
-
+  if (logs.length === 0) return <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No execution history yet</div>
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 400, overflowY: "auto" }}>
       {logs.map((log, i) => (
@@ -445,7 +935,6 @@ function ExecutionLog({ trades }) {
           <Pill label={log.type} colour={log.col} size={9} />
           <div style={{ fontSize: 11, color: C.text, fontFamily: "monospace", flex: 1 }}>{log.msg}</div>
           <div style={{ fontSize: 10, color: C.muted }}>{log.strategy}</div>
-          {log.orderId && <div style={{ fontSize: 9, color: C.dim, fontFamily: "monospace" }}>{log.orderId}</div>}
         </div>
       ))}
     </div>
@@ -454,35 +943,67 @@ function ExecutionLog({ trades }) {
 
 function PerformancePanel({ trades }) {
   const closed = trades.filter(t => t.status === "CLOSED")
-  const wins = closed.filter(t => (t.realised_pnl || 0) > 0)
+  const [perf, setPerf] = useState(null)
+  useEffect(() => {
+    axios.get(`${API}/api/trades/performance`).then(r => setPerf(r.data)).catch(() => {})
+    const id = setInterval(() => {
+      axios.get(`${API}/api/trades/performance`).then(r => setPerf(r.data)).catch(() => {})
+    }, 30000)
+    return () => clearInterval(id)
+  }, [])
+  const wins   = closed.filter(t => (t.realised_pnl || 0) > 0)
   const losses = closed.filter(t => (t.realised_pnl || 0) < 0)
   const totalPnl = closed.reduce((s, t) => s + (t.realised_pnl || 0), 0)
-  const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.realised_pnl, 0) / wins.length : 0
-  const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + t.realised_pnl, 0) / losses.length) : 0
-  const winRate = closed.length > 0 ? (wins.length / closed.length * 100).toFixed(1) : 0
+  const avgWin   = wins.length   > 0 ? wins.reduce((s, t) => s + t.realised_pnl, 0) / wins.length : 0
+  const avgLoss  = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + t.realised_pnl, 0) / losses.length) : 0
+  const winRate  = closed.length > 0 ? (wins.length / closed.length * 100).toFixed(1) : 0
   const profitFactor = avgLoss > 0 ? (avgWin * wins.length / (avgLoss * losses.length)).toFixed(2) : "—"
-
-  // Daily equity
   const byDate = {}
-  closed.forEach(t => {
-    if (!t.exit_time) return
-    const d = t.exit_time.slice(0, 10)
-    byDate[d] = (byDate[d] || 0) + (t.realised_pnl || 0)
-  })
+  closed.forEach(t => { if (!t.exit_time) return; const d = t.exit_time.slice(0, 10); byDate[d] = (byDate[d] || 0) + (t.realised_pnl || 0) })
   const days = Object.entries(byDate).sort((a, b) => a[0].localeCompare(b[0])).slice(-14)
   const maxAbs = Math.max(...days.map(d => Math.abs(d[1])), 1)
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Metrics */}
+
+      {/* ── Net P&L & Charges Panel ── */}
+      {perf && (
+        <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>NET P&L AFTER CHARGES (ALL TIME)</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px,1fr))", gap: 10, marginBottom: 14 }}>
+            {[
+              { label: "GROSS P&L",     val: `${fmtRs(perf.gross_pnl)} (${perf.total_margin > 0 ? ((perf.gross_pnl/perf.total_margin)*100).toFixed(2) : 0}%)`, col: pnlC(perf.gross_pnl) },
+              { label: "TOTAL CHARGES", val: `−₹${perf.total_charges} (${perf.gross_pnl > 0 ? ((perf.total_charges/perf.gross_pnl)*100).toFixed(1) : 0}%)`, col: C.red },
+              { label: "NET P&L",       val: `${fmtRs(perf.net_pnl)} (${perf.total_margin > 0 ? ((perf.net_pnl/perf.total_margin)*100).toFixed(2) : 0}%)`, col: pnlC(perf.net_pnl) },
+              { label: "MARGIN USED",   val: fmtRs(perf.total_margin),  col: C.cyan },
+              { label: "ROI ON MARGIN", val: `${perf.roi_on_margin}%`, col: perf.roi_on_margin >= 0 ? C.green : C.red },
+              { label: "TOTAL TRADES",  val: perf.trade_count,          col: C.text },
+            ].map(({ label, val, col }) => (
+              <div key={label} style={{ background: C.card, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>{label}</div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: col, fontFamily: "monospace" }}>{val}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>CHARGES BREAKDOWN</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {Object.entries(perf.charges_breakdown).map(([key, val]) => (
+              <div key={key} style={{ background: C.card, borderRadius: 6, padding: "6px 12px", border: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>{key.toUpperCase().replace("_", " ")}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.red, fontFamily: "monospace" }}>−₹{val}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
         {[
-          { label: "TOTAL TRADES", val: closed.length, col: C.text },
-          { label: "WIN RATE", val: `${winRate}%`, col: Number(winRate) >= 50 ? C.green : C.red },
-          { label: "AVG WIN", val: fmtRs(avgWin), col: C.green },
-          { label: "AVG LOSS", val: fmtRs(-avgLoss), col: C.red },
-          { label: "PROFIT FACTOR", val: profitFactor, col: Number(profitFactor) >= 1 ? C.green : C.red },
-          { label: "TOTAL P&L", val: fmtRs(totalPnl), col: pnlC(totalPnl) },
+          { label: "TOTAL TRADES",   val: closed.length,    col: C.text },
+          { label: "WIN RATE",       val: `${winRate}%`,    col: Number(winRate) >= 50 ? C.green : C.red },
+          { label: "AVG WIN",        val: fmtRs(avgWin),    col: C.green },
+          { label: "AVG LOSS",       val: fmtRs(-avgLoss),  col: C.red },
+          { label: "PROFIT FACTOR",  val: profitFactor,     col: Number(profitFactor) >= 1 ? C.green : C.red },
+          { label: "TOTAL P&L",      val: fmtRs(totalPnl),  col: pnlC(totalPnl) },
         ].map(({ label, val, col }) => (
           <div key={label} style={{ background: C.panel, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border}` }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>{label}</div>
@@ -490,13 +1011,14 @@ function PerformancePanel({ trades }) {
           </div>
         ))}
       </div>
+      <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>TODAY'S CUMULATIVE P&L</div>
+        <PnlLineChart trades={trades} height={180} />
+      </div>
 
-      {/* Daily equity curve */}
       <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
         <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>DAILY P&L (LAST 14 DAYS)</div>
-        {days.length === 0 ? (
-          <div style={{ color: C.muted, textAlign: "center", padding: "16px 0", fontSize: 12 }}>No data yet</div>
-        ) : (
+        {days.length === 0 ? <div style={{ color: C.muted, textAlign: "center", padding: "16px 0", fontSize: 12 }}>No data yet</div> : (
           <div style={{ display: "flex", gap: 6, alignItems: "flex-end", height: 80 }}>
             {days.map(([date, pnl]) => {
               const h = Math.max(4, (Math.abs(pnl) / maxAbs) * 68)
@@ -512,53 +1034,24 @@ function PerformancePanel({ trades }) {
           </div>
         )}
       </div>
-
-      {/* Per-strategy breakdown */}
-      <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
-        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>STRATEGY BREAKDOWN</div>
-        {["wave_extractor", "survivor", "saviour_combo"].map(name => {
-          const st = closed.filter(t => t.strategy === name)
-          const stPnl = st.reduce((s, t) => s + (t.realised_pnl || 0), 0)
-          const stWin = st.filter(t => (t.realised_pnl || 0) > 0).length
-          const stWR = st.length > 0 ? (stWin / st.length * 100).toFixed(0) : "—"
-          return (
-            <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border2}` }}>
-              <span style={{ fontSize: 11, color: C.text }}>{name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</span>
-              <div style={{ display: "flex", gap: 16 }}>
-                <span style={{ fontSize: 11, color: C.muted }}>{st.length} trades</span>
-                <span style={{ fontSize: 11, color: C.cyan }}>{stWR !== "—" ? `${stWR}% WR` : "—"}</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: pnlC(stPnl), fontFamily: "monospace" }}>{fmtRs(stPnl)}</span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
     </div>
   )
 }
 
 function OpenPositions({ trades }) {
   const open = trades.filter(t => t.status === "OPEN")
-  if (open.length === 0) return (
-    <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No open positions</div>
-  )
+  if (open.length === 0) return <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No open positions</div>
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {open.map((t, i) => {
         const unreal = t.unrealised_pnl || 0
         const premium = (t.entry_price || 0) * (t.quantity || 0)
-        const estMargin = premium * 5
         return (
           <div key={t.id || i} style={{ background: C.panel, borderRadius: 10, padding: "12px 16px", border: `1px solid ${pnlC(unreal)}20`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>STRATEGY</div><div style={{ fontSize: 12, color: C.text, fontWeight: 700 }}>{t.strategy}</div></div>
-              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>SYMBOL</div><div style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{t.symbol}</div></div>
-              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>DIR</div><div style={{ fontSize: 12, fontWeight: 700, color: t.order_type === "SELL" ? C.red : C.green }}>{t.order_type}</div></div>
-              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>QTY</div><div style={{ fontSize: 12, color: C.text }}>{t.quantity}</div></div>
-              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>ENTRY ₹</div><div style={{ fontSize: 12, color: C.text, fontFamily: "monospace" }}>{fmtRs(t.entry_price)}</div></div>
-              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>ENTRY TIME</div><div style={{ fontSize: 11, color: C.muted, fontFamily: "monospace" }}>{fmtTime(t.entry_time)}</div></div>
-              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>PREMIUM</div><div style={{ fontSize: 11, color: C.orange, fontFamily: "monospace" }}>{fmtRs(premium)}</div></div>
-              <div><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>EST MARGIN</div><div style={{ fontSize: 11, color: C.cyan, fontFamily: "monospace" }}>{fmtRs(estMargin)}</div></div>
+              {[["STRATEGY", t.strategy], ["SYMBOL", t.symbol], ["DIR", t.order_type], ["QTY", t.quantity], ["ENTRY ₹", fmtRs(t.entry_price)], ["TIME", fmtTime(t.entry_time)], ["PREMIUM", fmtRs(premium)]].map(([label, val]) => (
+                <div key={label}><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>{label}</div><div style={{ fontSize: 12, color: label === "DIR" ? (t.order_type === "SELL" ? C.red : C.green) : C.text, fontWeight: label === "DIR" ? 700 : 400 }}>{val}</div></div>
+              ))}
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>UNREALISED P&L</div>
@@ -573,23 +1066,20 @@ function OpenPositions({ trades }) {
 
 function RiskPanel({ trades, global: g }) {
   const open = trades.filter(t => t.status === "OPEN")
-  const totalCapitalAtRisk = open.reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0) * 0.35, 0)
-  const totalMarginUsed = open.reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0) * 5, 0)
   const maxDailyLoss = 5000
-  const todayPnl = trades.filter(t => t.status === "CLOSED" && t.exit_time?.slice(0, 10) === new Date().toISOString().slice(0, 10)).reduce((s, t) => s + (t.realised_pnl || 0), 0)
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayPnl = trades.filter(t => t.status === "CLOSED" && t.exit_time?.slice(0, 10) === todayStr).reduce((s, t) => s + (t.realised_pnl || 0), 0)
   const ddPct = Math.min(100, (Math.abs(Math.min(0, todayPnl)) / maxDailyLoss) * 100)
   const ddCol = ddPct > 80 ? C.red : ddPct > 50 ? C.orange : C.green
-
+  const totalMarginUsed = open.reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0) * 5, 0)
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
         {[
-          { label: "MAX CAPITAL AT RISK", val: fmtRs(totalCapitalAtRisk), col: totalCapitalAtRisk > 10000 ? C.red : C.orange },
+          { label: "TODAY P&L",       val: fmtRs(todayPnl),       col: pnlC(todayPnl) },
           { label: "EST MARGIN LOCKED", val: fmtRs(totalMarginUsed), col: C.cyan },
-          { label: "DAILY LOSS LIMIT", val: fmtRs(maxDailyLoss), col: C.muted },
-          { label: "TODAY P&L", val: fmtRs(todayPnl), col: pnlC(todayPnl) },
-          { label: "OPEN POSITIONS", val: open.length, col: open.length > 2 ? C.orange : C.green },
-          { label: "MAX CONCURRENT", val: "4", col: C.muted },
+          { label: "DAILY LOSS LIMIT", val: fmtRs(maxDailyLoss),   col: C.muted },
+          { label: "OPEN POSITIONS",  val: open.length,             col: open.length > 2 ? C.orange : C.green },
         ].map(({ label, val, col }) => (
           <div key={label} style={{ background: C.panel, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border}` }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>{label}</div>
@@ -597,8 +1087,6 @@ function RiskPanel({ trades, global: g }) {
           </div>
         ))}
       </div>
-
-      {/* Drawdown meter */}
       <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
           <span style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>DAILY LOSS METER</span>
@@ -613,92 +1101,46 @@ function RiskPanel({ trades, global: g }) {
           <span style={{ fontSize: 9, color: C.red }}>₹5,000 (100%)</span>
         </div>
       </div>
-
-      {/* Alerts */}
-      <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
-        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>ACTIVE ALERTS</div>
-        {[
-          { condition: open.length >= 3, msg: "⚠ High position count — approaching max concurrent trades", col: C.orange },
-          { condition: ddPct > 80, msg: "🔴 Daily loss near limit — consider stopping", col: C.red },
-          { condition: ddPct > 50, msg: "⚠ 50% of daily loss limit reached", col: C.orange },
-          { condition: totalCapitalAtRisk > 15000, msg: "⚠ High capital at risk across open positions", col: C.orange },
-        ].filter(a => a.condition).map((a, i) => (
-          <div key={i} style={{ fontSize: 11, color: a.col, padding: "6px 10px", background: a.col + "12", borderRadius: 6, marginBottom: 6, border: `1px solid ${a.col}25` }}>{a.msg}</div>
-        ))}
-        {open.length < 3 && ddPct <= 50 && (
-          <div style={{ fontSize: 11, color: C.green, padding: "6px 10px", background: C.green + "12", borderRadius: 6, border: `1px solid ${C.green}25` }}>✓ All systems normal — no active risk alerts</div>
-        )}
-      </div>
     </div>
   )
 }
 
-const DEFAULT = {
-  global: { total_pnl: 0, active_strategies: 0, total_strategies: 0, system_health: "OK", broker_status: {}, paper_trade: false },
-  strategies: {},
-  vix: null,
-  market: { nifty_price: 0, nifty_updated: "", option_price: 0, option_symbol: "" },
-}
-
-// ─── PASTE THIS COMPONENT INTO App.jsx ───────────────────────────────────────
-// Insert anywhere BEFORE the App() function (e.g. after VixBox component)
-// Then inside App() return, replace the {/* Kill Switch Bar */} section
-// with <ContextBar marketCtx={data.market_ctx} astro={data.astro} />
-
-// ─── Regime colours ───────────────────────────────────────────────────────────
 const REGIME_META = {
-  trending_bull:   { label: "▲ TREND BULL",    colour: "#00e87a" },
-  trending_bear:   { label: "▼ TREND BEAR",    colour: "#ff3d5a" },
-  range:           { label: "↔ RANGE",          colour: "#3b82f6" },
-  reversal_watch:  { label: "⚡ REVERSAL",      colour: "#f59e0b" },
-  opening:         { label: "⏳ OPENING RANGE", colour: "#8b5cf6" },
-  closed:          { label: "○ CLOSED",         colour: "#3a5070" },
+  trending_bull:  { label: "▲ TREND BULL",    colour: "#00e87a" },
+  trending_bear:  { label: "▼ TREND BEAR",    colour: "#ff3d5a" },
+  range:          { label: "↔ RANGE",          colour: "#3b82f6" },
+  reversal_watch: { label: "⚡ REVERSAL",      colour: "#f59e0b" },
+  opening:        { label: "⏳ OPENING RANGE", colour: "#8b5cf6" },
+  closed:         { label: "○ CLOSED",         colour: "#3a5070" },
 }
 
-const ASTRO_COLOUR = {
-  green: "#00e87a",
-  amber: "#f59e0b",
-  red:   "#ff3d5a",
-}
-
-// ─── PCR Gauge (inline SVG arc) ───────────────────────────────────────────────
 function PcrGauge({ pcr = 1.0 }) {
-  // Arc from 0.5 to 1.5 mapped to 0–180 degrees
-  const pct   = Math.min(Math.max((pcr - 0.5) / 1.0, 0), 1)
-  const angle = pct * 180 - 90   // -90 = left, 0 = top, 90 = right
-  const rad   = (angle * Math.PI) / 180
-  const r     = 28
-  const cx    = 36, cy = 36
-  const nx    = cx + r * Math.sin(rad)
-  const ny    = cy - r * Math.cos(rad)
-  const col   = pcr > 1.3 ? "#00e87a" : pcr < 0.7 ? "#ff3d5a" : "#3b82f6"
-
-  // Arc path (semicircle bottom half)
+  const pct = Math.min(Math.max((pcr - 0.5) / 1.0, 0), 1)
+  const angle = pct * 180 - 90
+  const rad = (angle * Math.PI) / 180
+  const r = 28, cx = 36, cy = 36
+  const nx = cx + r * Math.sin(rad), ny = cy - r * Math.cos(rad)
+  const col = pcr > 1.3 ? "#00e87a" : pcr < 0.7 ? "#ff3d5a" : "#3b82f6"
   const arcPath = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`
-
   return (
     <svg width={72} height={44} viewBox="0 0 72 44">
       <path d={arcPath} fill="none" stroke="#1a2840" strokeWidth={5} strokeLinecap="round" />
-      <path d={arcPath} fill="none" stroke={col} strokeWidth={5} strokeLinecap="round"
-        strokeDasharray={`${pct * 88} 88`} opacity={0.8} />
+      <path d={arcPath} fill="none" stroke={col} strokeWidth={5} strokeLinecap="round" strokeDasharray={`${pct * 88} 88`} opacity={0.8} />
       <line x1={cx} y1={cy} x2={nx} y2={ny} stroke={col} strokeWidth={2} strokeLinecap="round" />
       <circle cx={cx} cy={cy} r={3} fill={col} />
-      <text x={cx} y={cy + 14} textAnchor="middle" fill={col} fontSize={10} fontWeight="800" fontFamily="monospace">
-        {pcr?.toFixed(2)}
-      </text>
+      <text x={cx} y={cy + 14} textAnchor="middle" fill={col} fontSize={10} fontWeight="800" fontFamily="monospace">{pcr?.toFixed(2)}</text>
     </svg>
   )
 }
 
-// ─── OI Bar ───────────────────────────────────────────────────────────────────
 function OiBar({ ceOi = 0, peOi = 0 }) {
   const total = (ceOi + peOi) || 1
   const cePct = (ceOi / total) * 100
   const pePct = (peOi / total) * 100
-  const fmtL  = n => n > 1e6 ? `${(n / 1e6).toFixed(1)}M` : n > 1e3 ? `${(n / 1e3).toFixed(0)}K` : String(n)
+  const fmtL  = n => n > 1e6 ? `${(n/1e6).toFixed(1)}M` : n > 1e3 ? `${(n/1e3).toFixed(0)}K` : String(n)
   return (
     <div style={{ width: 140 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: "#3a5070", marginBottom: 3, letterSpacing: 0.5 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: "#3a5070", marginBottom: 3 }}>
         <span style={{ color: "#ff3d5a" }}>CE {fmtL(ceOi)}</span>
         <span style={{ color: "#00e87a" }}>PE {fmtL(peOi)}</span>
       </div>
@@ -710,178 +1152,487 @@ function OiBar({ ceOi = 0, peOi = 0 }) {
   )
 }
 
-// ─── Context Bar (the new panel) ──────────────────────────────────────────────
 function ContextBar({ marketCtx, astro }) {
   const ctx    = marketCtx || {}
-  const today  = astro?.today
   const regime = REGIME_META[ctx.regime] || { label: ctx.regime || "—", colour: "#3a5070" }
-  const aCol   = today ? ASTRO_COLOUR[today.alert_level] : "#3a5070"
-
-  const cell = (label, children, extra = {}) => (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, ...extra }}>
+  const cell = (label, children) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <span style={{ fontSize: 8, color: "#3a5070", letterSpacing: 1, fontWeight: 700 }}>{label}</span>
       {children}
     </div>
   )
-
   return (
-    <div style={{
-      marginBottom: 10,
-      background: "#0a1220",
-      borderRadius: 8,
-      padding: "10px 16px",
-      border: "1px solid #1a2840",
-      display: "flex",
-      gap: 24,
-      alignItems: "center",
-      flexWrap: "wrap",
-      overflowX: "auto",
-    }}>
-
-      {/* Regime */}
-      {cell("REGIME",
-        <span style={{
-          fontSize: 11, fontWeight: 800, color: regime.colour,
-          background: regime.colour + "18", borderRadius: 4,
-          padding: "2px 8px", border: `1px solid ${regime.colour}30`,
-          letterSpacing: 0.5, whiteSpace: "nowrap",
-        }}>{regime.label}</span>
-      )}
-
-      {/* PCR Gauge */}
+    <div style={{ marginBottom: 10, background: "#0a1220", borderRadius: 8, padding: "10px 16px", border: "1px solid #1a2840", display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap", overflowX: "auto" }}>
+      {cell("REGIME", <span style={{ fontSize: 11, fontWeight: 800, color: regime.colour, background: regime.colour + "18", borderRadius: 4, padding: "2px 8px", border: `1px solid ${regime.colour}30`, letterSpacing: 0.5, whiteSpace: "nowrap" }}>{regime.label}</span>)}
       {cell("PCR", <PcrGauge pcr={ctx.pcr} />)}
-
-      {/* OI Bars */}
       {cell("OPEN INTEREST", <OiBar ceOi={ctx.total_ce_oi} peOi={ctx.total_pe_oi} />)}
-
-      {/* OI Deltas */}
       {cell("OI DELTA",
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <span style={{ fontSize: 9, color: (ctx.ce_oi_delta || 0) > 0 ? "#ff3d5a" : "#00e87a", fontWeight: 700 }}>
-            CE {(ctx.ce_oi_delta || 0) > 0 ? "+" : ""}{ctx.ce_oi_delta?.toLocaleString() || "—"}
-          </span>
-          <span style={{ fontSize: 9, color: (ctx.pe_oi_delta || 0) > 0 ? "#00e87a" : "#ff3d5a", fontWeight: 700 }}>
-            PE {(ctx.pe_oi_delta || 0) > 0 ? "+" : ""}{ctx.pe_oi_delta?.toLocaleString() || "—"}
-          </span>
+          <span style={{ fontSize: 9, color: (ctx.ce_oi_delta || 0) > 0 ? "#ff3d5a" : "#00e87a", fontWeight: 700 }}>CE {(ctx.ce_oi_delta || 0) > 0 ? "+" : ""}{ctx.ce_oi_delta?.toLocaleString() || "—"}</span>
+          <span style={{ fontSize: 9, color: (ctx.pe_oi_delta || 0) > 0 ? "#00e87a" : "#ff3d5a", fontWeight: 700 }}>PE {(ctx.pe_oi_delta || 0) > 0 ? "+" : ""}{ctx.pe_oi_delta?.toLocaleString() || "—"}</span>
         </div>
       )}
-
-      {/* Divider */}
       <div style={{ width: 1, height: 40, background: "#1a2840", flexShrink: 0 }} />
-
-      {/* Opening Range */}
       {cell("OPENING RANGE",
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           {ctx.or_locked ? (
-            <>
-              <span style={{ fontSize: 9, color: "#00e87a", fontWeight: 700 }}>
-                H: {ctx.or_high?.toFixed(0) || "—"}
-              </span>
-              <span style={{ fontSize: 9, color: "#ff3d5a", fontWeight: 700 }}>
-                L: {ctx.or_low?.toFixed(0) || "—"}
-              </span>
-            </>
-          ) : (
-            <span style={{ fontSize: 9, color: "#f59e0b", fontWeight: 700 }}>
-              {ctx.regime === "opening" ? "⏳ COLLECTING..." : "NOT LOCKED"}
-            </span>
-          )}
+            <><span style={{ fontSize: 9, color: "#00e87a", fontWeight: 700 }}>H: {ctx.or_high?.toFixed(0) || "—"}</span><span style={{ fontSize: 9, color: "#ff3d5a", fontWeight: 700 }}>L: {ctx.or_low?.toFixed(0) || "—"}</span></>
+          ) : <span style={{ fontSize: 9, color: "#f59e0b", fontWeight: 700 }}>NOT LOCKED</span>}
         </div>
       )}
-
-      {/* ATM + Max Pain */}
       {cell("ATM / MAX PAIN",
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <span style={{ fontSize: 9, color: "#3b82f6", fontWeight: 700 }}>
-            ATM: {ctx.atm_strike || "—"}
-          </span>
-          <span style={{ fontSize: 9, color: "#8b5cf6", fontWeight: 700 }}>
-            MP: {ctx.max_pain || "—"}
-          </span>
+          <span style={{ fontSize: 9, color: "#3b82f6", fontWeight: 700 }}>ATM: {ctx.atm_strike || "—"}</span>
+          <span style={{ fontSize: 9, color: "#8b5cf6", fontWeight: 700 }}>MP: {ctx.max_pain || "—"}</span>
         </div>
       )}
+      <div style={{ marginLeft: "auto", fontSize: 8, color: "#3a5070", textAlign: "right", whiteSpace: "nowrap" }}>OI: {ctx.oi_updated_at || "—"}</div>
+    </div>
+  )
+}
 
-      {/* PCR Spike */}
-      {ctx.pcr_spike && (
+
+// ── Strategy Lab Component ────────────────────────────────────────────────────
+function StrategyLab({ nifty, vix }) {
+  const [recs, setRecs] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [deploying, setDeploying] = useState(null)
+  const [modal, setModal] = useState(null)
+  const [toast, setToast] = useState("")
+
+  useEffect(() => {
+    async function fetchRecs() {
+      setLoading(true)
+      try {
+        const r = await axios.get(`${API}/api/strategy-recommendations`)
+        setRecs(r.data)
+      } catch {
+        setRecs(null)
+      }
+      setLoading(false)
+    }
+    fetchRecs()
+    const id = setInterval(fetchRecs, 30000)
+    return () => clearInterval(id)
+  }, [])
+
+  function fmtRs(n) {
+    if (n === -1) return "Unlimited"
+    if (n >= 100000) return "₹" + (n/100000).toFixed(1) + "L"
+    return "₹" + Number(n).toLocaleString("en-IN")
+  }
+
+  async function deployStrategy(s) {
+    setModal(null)
+    setDeploying(s.id)
+    try {
+      const r = await axios.post(`${API}/api/strategy/deploy`, { id: s.id, legs: s.legs })
+      if (r.data.success) {
+        setToast(r.data.paper ? `PAPER: ${s.name} simulated` : `✅ ${s.name} deployed — ${s.legs.length} orders placed`)
+      } else {
+        setToast(`❌ Deploy failed: ${r.data.error}`)
+      }
+    } catch (e) {
+      setToast(`❌ Error: ${e.message}`)
+    }
+    setDeploying(null)
+    setTimeout(() => setToast(""), 5000)
+  }
+
+  function exportPDF(recs, strategies) {
+    const lines = []
+    lines.push("STRATEGY LAB REPORT")
+    lines.push("=".repeat(50))
+    lines.push(`Generated: ${new Date().toLocaleString("en-IN")}`)
+    lines.push(`Nifty: ${recs.nifty?.toFixed(2)} | VIX: ${recs.vix?.toFixed(2)} | PCR: ${recs.pcr?.toFixed(2)} | ATM: ${recs.atm} | Regime: ${(recs.regime||"").toUpperCase()}`)
+    lines.push("")
+    lines.push("TOP PICK: " + (strategies[0]?.name || "None"))
+    lines.push("Regime fit: " + (strategies[0]?.score || 0) + "/100")
+    lines.push("")
+    lines.push("ALL STRATEGIES")
+    lines.push("-".repeat(50))
+    strategies.forEach(s => {
+      lines.push(`${s.name} [${s.badge}] — Score: ${s.score}/100`)
+      lines.push(`  Type: ${s.type}`)
+      lines.push(`  When: ${s.when}`)
+      lines.push(`  Margin: ${s.margin} | Max Loss: ${s.max_risk === -1 ? "Unlimited" : s.max_risk} | Max Profit: ${s.max_profit === -1 ? "Unlimited" : s.max_profit}`)
+      lines.push(`  Legs: ${s.legs?.map(l => `${l.action} ${l.strike}${l.type}`).join(", ")}`)
+      lines.push(`  Conditions: ${s.conditions?.map(c => `${c.met ? "✓" : "✗"} ${c.label}`).join(" | ")}`)
+      lines.push("")
+    })
+    const blob = new Blob([lines.join("\n")], { type: "text/plain" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `strategy-report-${new Date().toISOString().slice(0,10)}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+    setToast("📄 Strategy report exported!")
+    setTimeout(() => setToast(""), 3000)
+  }
+  if (loading) return (
+    <div style={{ color: C.muted, textAlign: "center", padding: "40px 0", fontSize: 12 }}>
+      Loading strategy recommendations...
+    </div>
+  )
+
+  if (!recs) return (
+    <div style={{ color: C.muted, textAlign: "center", padding: "40px 0", fontSize: 12 }}>
+      Strategy API unavailable — add routes to dashboard/api.py
+    </div>
+  )
+
+const strategies = recs.strategies ||[]
+const topPick = strategies.length > 0 ? strategies[0] : null
+const recommended = strategies.filter(s => s.recommended)
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Market snapshot */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px,1fr))", gap: 8 }}>
+        {[
+          { label: "NIFTY SPOT", val: recs.nifty?.toFixed(2) || "—", col: C.text },
+          { label: "INDIA VIX",  val: recs.vix?.toFixed(2) || "—",   col: (recs.vix||0) > 18 ? C.red : C.green },
+          { label: "PCR (OI)",   val: recs.pcr?.toFixed(2) || "—",   col: C.text },
+          { label: "ATM STRIKE", val: recs.atm?.toFixed(0) || "—",   col: C.cyan },
+          { label: "REGIME",     val: (recs.regime||"—").toUpperCase(), col: C.blue },
+          { label: "OR WIDTH",   val: recs.or_width ? `${recs.or_width?.toFixed(0)} pts` : "—", col: C.muted },
+        ].map(({ label, val, col }) => (
+          <div key={label} style={{ background: C.panel, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>{label}</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: col, fontFamily: "monospace", marginTop: 3 }}>{val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Top Recommendation Banner ── */}
+      {topPick && (
         <div style={{
-          background: "#f59e0b18", border: "1px solid #f59e0b40",
-          borderRadius: 4, padding: "4px 10px",
-          fontSize: 9, fontWeight: 800, color: "#f59e0b", letterSpacing: 0.5,
-          animation: "pulse 1s infinite",
+          background: topPick.recommended ? C.green+"15" : C.orange+"15",
+          border: `1px solid ${topPick.recommended ? C.green : C.orange}40`,
+          borderRadius: 10, padding: "14px 18px",
+          display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10
         }}>
-          ⚡ PCR SPIKE — ENTRIES FROZEN
+          <div>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>
+              🎯 TODAY'S TOP PICK
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 900, color: topPick.recommended ? C.green : C.orange, fontFamily: "monospace" }}>
+              {topPick.name}
+            </div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
+              Regime fit score: <b style={{ color: C.text }}>{topPick.score}/100</b> &nbsp;·&nbsp;
+              {recommended.length > 0
+                ? `${recommended.length} strategy${recommended.length > 1 ? "ies" : ""} recommended today`
+                : "No strategy fully recommended — trade cautiously"}
+            </div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{topPick.when}</div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => topPick.recommended && setModal(topPick)}
+              style={{
+                padding: "8px 16px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+                fontFamily: "monospace", cursor: topPick.recommended ? "pointer" : "not-allowed",
+                border: `1px solid ${topPick.recommended ? C.green : C.border}40`,
+                background: topPick.recommended ? C.green+"25" : C.panel,
+                color: topPick.recommended ? C.green : C.muted,
+              }}
+            >
+              {topPick.recommended ? "⚡ DEPLOY TOP PICK" : "MONITOR ONLY"}
+            </button>
+            <button
+              onClick={() => exportPDF(recs, strategies)}
+              style={{
+                padding: "8px 16px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+                fontFamily: "monospace", cursor: "pointer",
+                border: `1px solid ${C.cyan}40`,
+                background: C.cyan+"15", color: C.cyan,
+              }}
+            >
+              📄 EXPORT PDF
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Divider */}
-      <div style={{ width: 1, height: 40, background: "#1a2840", flexShrink: 0 }} />
+      {/* Strategy cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(290px,1fr))", gap: 10 }}>
+        {strategies.map(s => {
+          const scoreCol = s.score >= 70 ? C.green : s.score >= 50 ? C.orange : C.red
+          const isBlocked = s.score < 35
+          return (
+            <div key={s.id} style={{
+              background: C.card, borderRadius: 12, padding: 16,
+              border: s.recommended ? `2px solid ${C.green}` : `1px solid ${C.border}`,
+              display: "flex", flexDirection: "column", gap: 10,
+              opacity: isBlocked ? 0.6 : 1,
+            }}>
+              {/* Header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: C.text }}>{s.name}</div>
+                  <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{s.type}</div>
+                </div>
+                <span style={{
+                  fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
+                  background: s.badge_cls === "badge-green" ? C.green+"18" : s.badge_cls === "badge-blue" ? C.blue+"18" : C.orange+"18",
+                  color: s.badge_cls === "badge-green" ? C.green : s.badge_cls === "badge-blue" ? C.blue : C.orange,
+                  border: `1px solid ${s.badge_cls === "badge-green" ? C.green : s.badge_cls === "badge-blue" ? C.blue : C.orange}40`,
+                }}>{s.badge}</span>
+              </div>
 
-      {/* Astro today */}
-      {today ? (
-        <>
-          {cell("ASTRO TODAY",
-            <span style={{
-              fontSize: 11, fontWeight: 800, color: aCol,
-              background: aCol + "18", borderRadius: 4,
-              padding: "2px 8px", border: `1px solid ${aCol}30`,
-              letterSpacing: 0.5, whiteSpace: "nowrap",
-            }}>{today.strength}</span>
-          )}
-          {cell("BEST WINDOW",
-            <span style={{ fontSize: 9, color: "#00e87a", fontWeight: 700 }}>
-              {today.best_window}
-            </span>
-          )}
-          {cell("AVOID",
-            <span style={{ fontSize: 9, color: "#ff3d5a", fontWeight: 700 }}>
-              {today.avoid}
-            </span>
-          )}
-          {!today.trading_allowed && (
-            <div style={{
-              background: "#ff3d5a18", border: "1px solid #ff3d5a40",
-              borderRadius: 4, padding: "4px 10px",
-              fontSize: 9, fontWeight: 800, color: "#ff3d5a", letterSpacing: 0.5,
-              animation: "pulse 1s infinite",
-            }}>
-              🚫 ASTRO: NO TRADING TODAY
+              {/* Score bar */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.muted, marginBottom: 4 }}>
+                  <span>Regime fit</span>
+                  <span style={{ color: scoreCol, fontWeight: 700 }}>{s.score}/100</span>
+                </div>
+                <div style={{ height: 4, background: C.border, borderRadius: 2 }}>
+                  <div style={{ height: "100%", width: `${s.score}%`, background: scoreCol, borderRadius: 2 }} />
+                </div>
+              </div>
+
+              {/* Conditions */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {s.conditions?.map((c, i) => (
+                  <span key={i} style={{
+                    fontSize: 10, padding: "2px 8px", borderRadius: 4,
+                    background: c.met ? C.green+"15" : C.red+"15",
+                    border: `0.5px solid ${c.met ? C.green : C.red}40`,
+                    color: c.met ? C.green : C.red,
+                  }}>{c.met ? "✓" : "✗"} {c.label}</span>
+                ))}
+              </div>
+
+              {/* Risk metrics */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                {[
+                  { label: "MARGIN", val: fmtRs(s.margin), col: C.text },
+                  { label: "MAX LOSS", val: fmtRs(s.max_risk), col: C.red },
+                  { label: "MAX PROFIT", val: fmtRs(s.max_profit), col: C.green },
+                ].map(({ label, val, col }) => (
+                  <div key={label} style={{ background: C.panel, borderRadius: 6, padding: "7px 8px", border: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: 8, color: C.muted, fontWeight: 700 }}>{label}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: col, marginTop: 2, fontFamily: "monospace" }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Legs preview */}
+              <div style={{ background: C.panel, borderRadius: 6, padding: "8px 10px", border: `1px solid ${C.border}` }}>
+                {s.legs?.map((leg, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "2px 0", color: C.muted }}>
+                    <span style={{ color: leg.action === "SELL" ? C.red : C.green, fontWeight: 700 }}>{leg.action}</span>
+                    <span>{leg.strike} {leg.type}</span>
+                    <span>Qty {leg.qty}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* When to use */}
+              <div style={{ fontSize: 11, color: C.muted, borderLeft: `2px solid ${C.dim}`, paddingLeft: 8, lineHeight: 1.5 }}>
+                {s.when}
+              </div>
+
+              {/* Deploy button */}
+              <button
+                onClick={() => !isBlocked && setModal(s)}
+                disabled={isBlocked || deploying === s.id}
+                style={{
+                  width: "100%", padding: "8px 0", borderRadius: 6, fontSize: 11,
+                  fontWeight: 700, cursor: isBlocked ? "not-allowed" : "pointer",
+                  fontFamily: "monospace", letterSpacing: ".05em",
+                  border: s.recommended ? `1px solid ${C.green}40` : `1px solid ${C.border}`,
+                  background: s.recommended ? C.green+"18" : C.panel,
+                  color: s.recommended ? C.green : isBlocked ? C.muted : C.orange,
+                }}
+              >
+                {deploying === s.id ? "DEPLOYING..." : isBlocked ? "NOT RECOMMENDED" : s.recommended ? "DEPLOY STRATEGY" : "DEPLOY WITH CAUTION"}
+              </button>
             </div>
-          )}
-          {today.trading_allowed && today.qty_multiplier < 1 && (
-            <div style={{
-              background: "#f59e0b18", border: "1px solid #f59e0b40",
-              borderRadius: 4, padding: "4px 10px",
-              fontSize: 9, fontWeight: 800, color: "#f59e0b", letterSpacing: 0.5,
-            }}>
-              ⚠ REDUCED QTY ({today.qty_multiplier * 100}%)
+          )
+        })}
+      </div>
+
+      {/* Confirmation modal */}
+      {modal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setModal(null)}>
+          <div style={{ background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, padding: 20, maxWidth: 400, width: "90%", maxHeight: "80vh", overflowY: "auto" }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: C.text, marginBottom: 14 }}>Deploy: {modal.name}</div>
+            {modal.legs?.map((l, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
+                <span style={{ color: C.muted }}>{l.action} {l.strike} {l.type}</span>
+                <span style={{ color: C.text, fontWeight: 700 }}>Qty {l.qty}</span>
+              </div>
+            ))}
+            {[
+              ["Margin required", fmtRs(modal.margin), C.text],
+              ["Max loss", fmtRs(modal.max_risk), C.red],
+              ["Max profit", fmtRs(modal.max_profit), C.green],
+              ["Risk/Reward", modal.rr, C.cyan],
+            ].map(([k, v, col]) => (
+              <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
+                <span style={{ color: C.muted }}>{k}</span>
+                <span style={{ color: col, fontWeight: 700 }}>{v}</span>
+              </div>
+            ))}
+            <div style={{ marginTop: 10, padding: "8px 10px", background: C.orange+"18", borderRadius: 6, fontSize: 11, color: C.orange }}>
+              ⚠ This places real orders via Upstox. Confirm only if conditions match.
             </div>
-          )}
-        </>
-      ) : (
-        cell("ASTRO TODAY",
-          <span style={{ fontSize: 9, color: "#3a5070" }}>No data</span>
-        )
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button onClick={() => deployStrategy(modal)} style={{ flex: 1, padding: 9, borderRadius: 6, border: `1px solid ${C.green}40`, background: C.green+"18", color: C.green, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "monospace" }}>
+                CONFIRM DEPLOY
+              </button>
+              <button onClick={() => setModal(null)} style={{ flex: 1, padding: 9, borderRadius: 6, border: `1px solid ${C.border}`, background: C.panel, color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "monospace" }}>
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
-      {/* Last update */}
-      <div style={{ marginLeft: "auto", fontSize: 8, color: "#3a5070", textAlign: "right", whiteSpace: "nowrap" }}>
-        OI: {ctx.oi_updated_at || "—"}
+      {/* Toast */}
+      {toast && (
+        <div style={{ position: "fixed", bottom: 20, right: 20, background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 16px", fontSize: 12, color: C.text, zIndex: 1000 }}>
+          {toast}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ── Bot Health Monitor ────────────────────────────────────────────────────────
+function BotHealthMonitor({ wsStatus, data, token }) {
+  const [lastTickAge, setLastTickAge] = useState(null)
+  const [tickRate, setTickRate] = useState(0)
+  const lastTickRef = useRef(null)
+  const tickCountRef = useRef(0)
+  const tickWindowRef = useRef([])
+
+  // Track tick rate from nifty_price changes
+  const niftyPrice = data?.market?.nifty_price || 0
+  useEffect(() => {
+    if (niftyPrice > 0) {
+      const now = Date.now()
+      lastTickRef.current = now
+      tickWindowRef.current.push(now)
+      // Keep only last 10 seconds of ticks
+      tickWindowRef.current = tickWindowRef.current.filter(t => now - t < 10000)
+      tickCountRef.current = tickWindowRef.current.length
+    }
+  }, [niftyPrice])
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (lastTickRef.current) {
+        setLastTickAge(Math.floor((Date.now() - lastTickRef.current) / 1000))
+      }
+      setTickRate(Math.round(tickWindowRef.current.filter(t => Date.now() - t < 10000).length / 10))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const tickOk    = lastTickAge !== null && lastTickAge < 10
+  const tickWarn  = lastTickAge !== null && lastTickAge >= 10 && lastTickAge < 30
+  const tickDead  = lastTickAge === null || lastTickAge >= 30
+  const wsOk      = wsStatus === "CONNECTED"
+  const brokerOn  = Object.values(data?.global?.broker_status || {}).some(v => v === "CONNECTED")
+  const allOk     = tickOk && wsOk && brokerOn
+
+  const dot = (ok, warn) => ({
+    width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+    background: ok ? C.green : warn ? C.orange : C.red,
+    boxShadow: ok ? `0 0 4px ${C.green}` : warn ? `0 0 4px ${C.orange}` : `0 0 4px ${C.red}`,
+  })
+
+  const checks = [
+    { label: "WEBSOCKET",   ok: wsOk,     warn: false,      val: wsStatus === "CONNECTED" ? "LIVE" : wsStatus },
+    { label: "BROKER",      ok: brokerOn, warn: false,      val: brokerOn ? "CONNECTED" : "OFFLINE" },
+    { label: "NIFTY TICKS", ok: tickOk,   warn: tickWarn,   val: tickDead ? "NO DATA" : tickWarn ? `${lastTickAge}s ago` : `${tickRate}/s` },
+    { label: "OPTION TICKS",ok: niftyPrice > 0, warn: false, val: data?.market?.option_price > 0 ? `₹${data.market.option_price?.toFixed(2)}` : "NO DATA" },
+  ]
+
+  return (
+    <div style={{
+      background: C.card, borderRadius: 10, padding: "12px 16px",
+      border: `1px solid ${allOk ? C.green+"40" : C.orange+"40"}`,
+      display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap",
+      flex: 1,
+    }}>
+      {/* Overall status */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 120 }}>
+        <div style={{
+          width: 10, height: 10, borderRadius: "50%",
+          background: allOk ? C.green : tickDead ? C.red : C.orange,
+          boxShadow: `0 0 6px ${allOk ? C.green : tickDead ? C.red : C.orange}`,
+          animation: allOk ? "none" : "pulse 1s infinite",
+        }} />
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: allOk ? C.green : tickDead ? C.red : C.orange }}>
+            {allOk ? "BOT HEALTHY" : tickDead ? "NO MARKET DATA" : "DEGRADED"}
+          </div>
+          <div style={{ fontSize: 9, color: C.muted }}>
+            {lastTickAge !== null ? `Last tick ${lastTickAge}s ago` : "Waiting for ticks..."}
+          </div>
+        </div>
+      </div>
+
+      {/* Individual checks */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {checks.map(c => (
+          <div key={c.label} style={{
+            background: C.panel, borderRadius: 6, padding: "5px 10px",
+            border: `0.5px solid ${c.ok ? C.green+"30" : c.warn ? C.orange+"30" : C.red+"30"}`,
+            display: "flex", flexDirection: "column", gap: 1,
+          }}>
+            <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>{c.label}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 5, height: 5, borderRadius: "50%", background: c.ok ? C.green : c.warn ? C.orange : C.red }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: c.ok ? C.green : c.warn ? C.orange : C.red, fontFamily: "monospace" }}>
+                {c.val}
+              </span>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
 }
 
+const DEFAULT = {
+  global: { total_pnl: 0, active_strategies: 0, total_strategies: 0, system_health: "OK", broker_status: {}, paper_trade: false },
+  strategies: {}, vix: null,
+  market: { nifty_price: 0, option_price: 0 },
+}
 
 export default function App() {
   const [data,     setData]     = useState(DEFAULT)
   const [trades,   setTrades]   = useState([])
   const [wsStatus, setWsStatus] = useState("CONNECTING")
   const [tab,      setTab]      = useState("positions")
-  const wsRef = useRef(null)
+  const [token,    setToken]    = useState(null)
+  const capital = useCapital()
+  const wsRef   = useRef(null)
+  const [soundEnabled, setSoundEnabled] = useState(false)
+  const prevTradeCount = useRef(0)
   const [now, setNow] = useState(new Date())
 
+  useEffect(() => { const id = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(id) }, [])
+
+  // Fetch token for expiry countdown
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000)
+    async function fetchToken() {
+      try {
+        const r = await axios.get(`${API}/api/token-info`)
+        if (r.data?.token) setToken(r.data.token)
+      } catch {}
+    }
+    fetchToken()
+    const id = setInterval(fetchToken, 60000)
     return () => clearInterval(id)
   }, [])
 
@@ -914,21 +1665,29 @@ export default function App() {
     try { await axios.post(`${API}/api/strategy/${name}/stop`) }
     catch (e) { alert(`Stop failed: ${e.response?.data?.error || e.message}`) }
   }
-
   async function handleReset(name) {
     try { await axios.post(`${API}/api/strategy/${name}/reset`) }
     catch (e) { alert(`Reset failed: ${e.response?.data?.error || e.message}`) }
   }
 
-  const g         = data.global
-  const s         = data.strategies
-  const vix       = data.vix
-  const market    = data.market || {}
+  const g = data.global, s = data.strategies, vix = data.vix, market = data.market || {}
   const openCount = trades.filter(t => t.status === "OPEN").length
   const todayStr  = now.toISOString().slice(0, 10)
   const todayPnl  = trades.filter(t => t.status === "CLOSED" && t.exit_time?.slice(0, 10) === todayStr).reduce((s, t) => s + (t.realised_pnl || 0), 0)
   const brokerOn  = Object.values(g.broker_status || {}).some(v => v === "CONNECTED")
-  const closedCount = trades.filter(t => t.status === "CLOSED").length
+
+  // Sound alerts
+  useEffect(() => {
+    if (!soundEnabled) return
+    const closedToday = trades.filter(t => t.status === "CLOSED" && t.exit_time?.slice(0,10) === todayStr)
+    const newCount = closedToday.length
+    if (newCount > prevTradeCount.current && prevTradeCount.current > 0) {
+      const last = closedToday[closedToday.length - 1]
+      if ((last?.realised_pnl || 0) >= 0) playTradeWin(); else playTradeLoss()
+    }
+    if (todayPnl < -4000 && prevTradeCount.current > 0) playLossAlarm()
+    prevTradeCount.current = newCount
+  }, [trades.length, soundEnabled])
 
   const TABS = [
     { key: "positions", label: `POSITIONS (${openCount})` },
@@ -936,6 +1695,7 @@ export default function App() {
     { key: "execlog",   label: "EXEC LOG" },
     { key: "perf",      label: "PERFORMANCE" },
     { key: "risk",      label: "RISK & CAPITAL" },
+    { key: "strategy",  label: "STRATEGY LAB" },
   ]
 
   return (
@@ -949,7 +1709,7 @@ export default function App() {
         button { font-family: inherit; }
       `}</style>
 
-      {/* Header */}
+      {/* ── Header ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 14, borderBottom: `1px solid ${C.border}` }}>
         <div>
           <div style={{ fontSize: 17, fontWeight: 800, color: "#fff", letterSpacing: -0.5 }}>◈ ALGO TRADING SYSTEM</div>
@@ -957,13 +1717,20 @@ export default function App() {
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ fontSize: 11, color: C.muted }}>{now.toLocaleTimeString("en-IN")}</span>
-          <Pill label={wsStatus === "CONNECTED" ? "● LIVE" : wsStatus === "RECONNECTING" ? "◌ RECONNECTING" : "○ OFFLINE"} colour={wsStatus === "CONNECTED" ? C.green : wsStatus === "RECONNECTING" ? C.orange : C.red} />
+          {/* WS Status — now more prominent */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, background: C.card, borderRadius: 6, padding: "4px 10px", border: `1px solid ${wsStatus === "CONNECTED" ? C.green : wsStatus === "RECONNECTING" ? C.orange : C.red}40` }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: wsStatus === "CONNECTED" ? C.green : wsStatus === "RECONNECTING" ? C.orange : C.red, boxShadow: `0 0 6px ${wsStatus === "CONNECTED" ? C.green : C.red}` }} />
+            <span style={{ fontSize: 10, fontWeight: 700, color: wsStatus === "CONNECTED" ? C.green : wsStatus === "RECONNECTING" ? C.orange : C.red }}>
+              {wsStatus === "CONNECTED" ? "WS LIVE" : wsStatus === "RECONNECTING" ? "RECONNECTING" : "WS OFFLINE"}
+            </span>
+          </div>
           <Pill label={brokerOn ? "BROKER ON" : "BROKER OFF"} colour={brokerOn ? C.green : C.red} />
           <Pill label={`PAPER: ${g.paper_trade ? "ON" : "OFF"}`} colour={g.paper_trade ? C.orange : C.blue} />
+          <SoundControl enabled={soundEnabled} onToggle={() => setSoundEnabled(p => !p)} />
         </div>
       </div>
 
-      {/* Top stats */}
+      {/* ── Top stats ── */}
       <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
         <NiftyBox market={market} />
         <StatTile label="CURRENT P&L"    value={fmtRs(g.total_pnl)}  colour={pnlC(g.total_pnl)}  bg={pnlBg(g.total_pnl)} />
@@ -972,32 +1739,45 @@ export default function App() {
         <StatTile label="ACTIVE STRATS"  value={`${g.active_strategies || 0}/${g.total_strategies || 0}`} colour={C.text} />
         <StatTile label="SYSTEM HEALTH"  value={g.system_health || "OK"} colour={g.system_health === "OK" ? C.green : C.red} />
         <VixBox vix={vix} />
+        {/* Token Expiry + Auto-stop */}
+        <TokenCountdown token={token} />
+        <AutoStopCountdown />
       </div>
 
-      <ContextBar marketCtx={data.market_ctx} astro={data.astro} />
-      {/* Capital bar */}
+      {/* ── Bot Health + Paper Toggle Row ── */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "stretch" }}>
+        <PaperLiveToggle isPaper={g.paper_trade} />
+        <BotHealthMonitor wsStatus={wsStatus} data={data} />
+      </div>
+
+      {/* ── Context Bar ── */}
+      <div style={{ marginBottom: 12 }}>
+        <ContextBar marketCtx={data.market_ctx} astro={data.astro} />
+      </div>
+
+      {/* ── Astro Calendar + Session Plan (PROMINENT) ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 12, marginBottom: 14 }}>
+        <AstroCalendarPanel />
+        <SessionPlanPanel />
+      </div>
+
+      {/* ── Capital bar ── */}
       <div style={{ marginBottom: 14 }}>
-        <CapitalBar trades={trades} global={g} />
+        <CapitalBar trades={trades} global={g} capital={capital} />
       </div>
 
-      {/* Strategy cards */}
+      {/* ── Strategy cards ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, marginBottom: 16 }}>
         {["saviour_combo", "survivor", "wave_extractor"].map(name => (
           <StratCard key={name} name={name} data={s[name]} onStop={handleStop} onReset={handleReset} trades={trades} />
         ))}
       </div>
 
-      {/* Bottom panel */}
+      {/* ── Bottom tabs ── */}
       <div style={{ background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, overflow: "hidden" }}>
         <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, background: C.panel, overflowX: "auto" }}>
           {TABS.map(({ key, label }) => (
-            <button key={key} onClick={() => setTab(key)} style={{
-              padding: "11px 18px", border: "none", background: "transparent",
-              color: tab === key ? C.green : C.muted,
-              fontWeight: 700, fontSize: 10, letterSpacing: 1, cursor: "pointer",
-              borderBottom: tab === key ? `2px solid ${C.green}` : "2px solid transparent",
-              whiteSpace: "nowrap",
-            }}>{label}</button>
+            <button key={key} onClick={() => setTab(key)} style={{ padding: "11px 18px", border: "none", background: "transparent", color: tab === key ? C.green : C.muted, fontWeight: 700, fontSize: 10, letterSpacing: 1, cursor: "pointer", borderBottom: tab === key ? `2px solid ${C.green}` : "2px solid transparent", whiteSpace: "nowrap" }}>{label}</button>
           ))}
         </div>
         <div style={{ padding: 18 }}>
@@ -1006,6 +1786,7 @@ export default function App() {
           {tab === "execlog"   && <ExecutionLog trades={trades} />}
           {tab === "perf"      && <PerformancePanel trades={trades} />}
           {tab === "risk"      && <RiskPanel trades={trades} global={g} />}
+          {tab === "strategy"  && <StrategyLab nifty={market?.nifty_price || 0} vix={vix?.value || 0} />}
         </div>
       </div>
 

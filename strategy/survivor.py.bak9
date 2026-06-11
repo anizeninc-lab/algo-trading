@@ -144,23 +144,12 @@ class SurvivorAlgo(BaseStrategy):
             nifty_price            = tick.last_price
             self._last_nifty_price = nifty_price
 
-            # Use session planner as single source of truth for gap params.
-            # VIX manager only used for halt_trading safety check.
-            vix_params = vix_manager.get_params()
-            if vix_params.get("halt_trading", False):
-                self._signal("VIX EXTREME — trading halted by vix_manager")
-                return
-
-            try:
-                from core.session_planner import session_planner as _sp
-                sp_params = dict(_sp.current_plan.params.__dict__)
-            except Exception:
-                sp_params = {}
-
-            current_pe_gap = sp_params.get("pe_gap", self.cfg.pe_gap)
-            current_ce_gap = sp_params.get("ce_gap", self.cfg.ce_gap)
-            pe_symbol_gap  = sp_params.get("pe_symbol_gap", self.cfg.pe_symbol_gap)
-            ce_symbol_gap  = sp_params.get("ce_symbol_gap", self.cfg.ce_symbol_gap)
+            # Fetch VIX-adjusted parameters
+            vix_params     = vix_manager.get_params()
+            current_pe_gap = vix_params.get("pe_gap", self.cfg.pe_gap)
+            current_ce_gap = vix_params.get("ce_gap", self.cfg.ce_gap)
+            pe_symbol_gap  = vix_params.get("pe_symbol_gap", self.cfg.pe_symbol_gap)
+            ce_symbol_gap  = vix_params.get("ce_symbol_gap", self.cfg.ce_symbol_gap)
 
             # Monitor open trades for SL and trailing profit
             await self._monitor_open_trades(nifty_price)
@@ -678,8 +667,8 @@ class SurvivorAlgo(BaseStrategy):
 
         # Only fire in 9:45 AM – 11:30 AM window
         from datetime import time as dtime
-        now_time = now.time()
-        if not (dtime(9, 45) <= now_time <= dtime(11, 30)):
+        t = now.time()
+        if not (dtime(9, 45) <= t <= dtime(11, 30)):
             return
 
         # Only in range regime
@@ -691,8 +680,8 @@ class SurvivorAlgo(BaseStrategy):
         pcr = getattr(market_context, "_pcr", 1.0)
 
         # Count open trades by direction
-        open_pe = sum(1 for tr in self._open_trades_data if tr.get("direction") == "PE")
-        open_ce = sum(1 for tr in self._open_trades_data if tr.get("direction") == "CE")
+        open_pe = sum(1 for t in self._open_trades_data if t.get("direction") == "PE")
+        open_ce = sum(1 for t in self._open_trades_data if t.get("direction") == "CE")
 
         # PE time trigger: PCR > 1.2 means more puts = market leaning bullish = safe to sell PE
         if (

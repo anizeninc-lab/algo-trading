@@ -73,6 +73,8 @@ class WaveExtractor(BaseStrategy):
         self.broker.on_order_update(self._on_order_update)
 
         self._sync_task = asyncio.create_task(self._position_sync_loop())
+        asyncio.create_task(self._auto_stop_watchdog())
+        logger.info("[wave_extractor] Auto-stop watchdog started")
 
         # Reload open trades from DB on startup (handles restarts)
         today = __import__('datetime').date.today().isoformat()
@@ -111,6 +113,22 @@ class WaveExtractor(BaseStrategy):
         self.broker.unsubscribe_ticks([self.cfg.option_symbol])
 
     # ── Background Position Sync ──────────────────────────────────────────────
+
+
+    async def _auto_stop_watchdog(self) -> None:
+        logger.info("[wave_extractor] Auto-stop watchdog started")
+        while not self._stop_flag:
+            await asyncio.sleep(30)
+            try:
+                from core.risk_manager import risk_manager
+                if risk_manager.check_auto_stop():
+                    logger.warning("[wave_extractor] WATCHDOG: Auto-stop triggered")
+                    self._signal("WATCHDOG: Auto-stop 3:10 PM — closing all positions")
+                    await self._close_all_positions()
+                    await self.stop(reason="AUTO_STOP_WATCHDOG")
+                    return
+            except Exception as e:
+                logger.error(f"[wave_extractor] Watchdog error: {e}")
 
     async def _position_sync_loop(self) -> None:
         await asyncio.sleep(15)

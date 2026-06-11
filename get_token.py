@@ -11,7 +11,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import requests
-from dotenv import load_dotenv, set_key
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -103,7 +103,15 @@ def main():
     token = get_access_token(auth_code)
 
     # Save token to .env
-    set_key(".env", "UPSTOX_ACCESS_TOKEN", token)
+   # Save token to .env (no quotes)
+    with open(".env", "r") as f:
+        lines = f.readlines()
+    with open(".env", "w") as f:
+        for line in lines:
+            if line.startswith("UPSTOX_ACCESS_TOKEN="):
+                f.write(f"UPSTOX_ACCESS_TOKEN={token}\n")
+            else:
+                f.write(line)
     print("")
     print("Access token saved to .env successfully.")
     print("You are ready to run the trading system.")
