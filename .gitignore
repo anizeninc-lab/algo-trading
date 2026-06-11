@@ -19,3 +19,7 @@ ws_patch*.py
 fix_upstox.py
 check_proto.py
 api_strategy_patch.py
+trade_log.db
+*.db
+dashboard/frontend/node_modules/
+dashboard/frontend/dist/
