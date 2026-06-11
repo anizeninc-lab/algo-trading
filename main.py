@@ -107,9 +107,32 @@ async def run_strategies(config: dict):
         min_price_to_sell=config.get("min_price_to_sell", 15.0),
     )
 
+    # ── BankNifty Survivor Config (PAPER MODE always) ──────────────────────
+    bn_symbol_initials = config.get("bn_symbol_initials", "BANKNIFTY16JUN26")
+    banknifty_cfg = SurvivorConfig(
+        symbol_initials      = bn_symbol_initials,
+        pe_gap               = 20.0,
+        ce_gap               = 20.0,
+        pe_symbol_gap        = 500.0,
+        ce_symbol_gap        = 500.0,
+        pe_reset_gap         = 150.0,
+        ce_reset_gap         = 150.0,
+        pe_quantity          = 15,
+        ce_quantity          = 15,
+        pe_start             = 0.0,
+        ce_start             = 0.0,
+        min_price_to_sell    = 50.0,
+        strike_interval      = 100.0,
+        instrument_name      = "BANKNIFTY",
+        index_instrument_key = "NSE_INDEX|Nifty Bank",
+        lot_size             = 15,
+        paper_trade_override = True,   # ALWAYS paper for BankNifty
+    )
+
     combo_cfg = SaviourComboConfig(
         wave=wave_cfg,
         survivor=survivor_cfg,
+        banknifty_survivor=banknifty_cfg,
         max_combined_loss=config.get("max_combined_loss", -5000.0),
         auto_start_survivor=config.get("auto_start_survivor", True),
         wave_net_threshold=config.get("wave_net_threshold", 2),

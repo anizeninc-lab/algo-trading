@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 class SaviourComboConfig:
     wave:                 WaveConfig     = field(default_factory=WaveConfig)
     survivor:             SurvivorConfig = field(default_factory=SurvivorConfig)
+    banknifty_survivor:   SurvivorConfig = None   # None = disabled
     max_combined_loss:    float          = -5000.0
     auto_start_survivor:  bool           = True
     wave_net_threshold:   int            = 2
@@ -33,6 +34,13 @@ class SaviourCombo:
         self.name    = "saviour_combo"
         self.wave     = WaveExtractor(broker, config.wave)
         self.survivor = SurvivorAlgo(broker, config.survivor)
+        # BankNifty survivor — paper mode only, None if not configured
+        self.bn_survivor = (
+            SurvivorAlgo(broker, config.banknifty_survivor)
+            if config.banknifty_survivor is not None
+            else None
+        )
+        self._bn_survivor_started = False
         self._running           = False
         self._survivor_started  = False
         self._monitor_task      = None
@@ -53,7 +61,6 @@ class SaviourCombo:
         if not self.cfg.auto_start_survivor or self.cfg.wave_net_threshold == 0:
             await self.survivor.start()
             self._survivor_started = True
-            # Share Wave's event loop with Survivor so tick callbacks work
             import asyncio as _aio
             try:
                 running_loop = _aio.get_running_loop()
@@ -68,11 +75,30 @@ class SaviourCombo:
         )
 
         # In paper trade mode, always auto-start Survivor immediately
-        # since wave fills are simulated and net position may not reach threshold
         if os.getenv("PAPER_TRADE", "false").lower() == "true" and not self._survivor_started:
             logger.info("[saviour_combo] PAPER MODE: Auto-starting Survivor immediately")
             await self.survivor.start()
             self._survivor_started = True
+
+        # ── BankNifty Survivor (always paper mode) ────────────────────────
+        if self.bn_survivor is not None:
+            try:
+                await self.bn_survivor.start()
+                self._bn_survivor_started = True
+                import asyncio as _aio
+                try:
+                    running_loop = _aio.get_running_loop()
+                    self.bn_survivor._loop = running_loop
+                except Exception:
+                    pass
+                # Subscribe BankNifty index ticks
+                self.broker.subscribe_ticks(
+                    symbols=["NSE_INDEX|Nifty Bank"],
+                    callback=self.bn_survivor._on_tick_sync,
+                )
+                logger.info("[saviour_combo] BankNifty Survivor started (PAPER MODE)")
+            except Exception as e:
+                logger.error(f"[saviour_combo] BankNifty Survivor failed to start: {e}")
 
         event_bus.subscribe(self._on_child_event)
         self._running      = True
@@ -99,6 +125,9 @@ class SaviourCombo:
 
         if self._survivor_started:
             await self.survivor.stop(reason)
+
+        if self._bn_survivor_started and self.bn_survivor is not None:
+            await self.bn_survivor.stop(reason)
 
         await self.wave.stop(reason)
 
