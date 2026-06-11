@@ -54,10 +54,6 @@ class SurvivorAlgo(BaseStrategy):
         self._ltp_cache        = {}  # symbol -> latest LTP
         self._instruments      = []  # cached instruments list
         self._ikey_cache       = {}  # text symbol -> instrument key
-        # Time-based trigger state (reset each day by risk_manager daily reset)
-        self._time_based_pe_fired = False  # True after time trigger sold PE today
-        self._time_based_ce_fired = False  # True after time trigger sold CE today
-        self._last_time_trigger_day = -1   # day-of-month when flags were last reset
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -108,7 +104,6 @@ class SurvivorAlgo(BaseStrategy):
             return
         if tick.last_price < 10000:
             self._ltp_cache[tick.symbol] = tick.last_price
-            self._calculate_pnl()
             return
         logger.info(f"[survivor] Nifty tick: {tick.last_price:.2f} | PE anchor: {self._pe_last_value:.2f} | diff: {tick.last_price - self._pe_last_value:.2f}")
         self._last_nifty_price = tick.last_price
@@ -144,23 +139,12 @@ class SurvivorAlgo(BaseStrategy):
             nifty_price            = tick.last_price
             self._last_nifty_price = nifty_price
 
-            # Use session planner as single source of truth for gap params.
-            # VIX manager only used for halt_trading safety check.
-            vix_params = vix_manager.get_params()
-            if vix_params.get("halt_trading", False):
-                self._signal("VIX EXTREME — trading halted by vix_manager")
-                return
-
-            try:
-                from core.session_planner import session_planner as _sp
-                sp_params = dict(_sp.current_plan.params.__dict__)
-            except Exception:
-                sp_params = {}
-
-            current_pe_gap = sp_params.get("pe_gap", self.cfg.pe_gap)
-            current_ce_gap = sp_params.get("ce_gap", self.cfg.ce_gap)
-            pe_symbol_gap  = sp_params.get("pe_symbol_gap", self.cfg.pe_symbol_gap)
-            ce_symbol_gap  = sp_params.get("ce_symbol_gap", self.cfg.ce_symbol_gap)
+            # Fetch VIX-adjusted parameters
+            vix_params     = vix_manager.get_params()
+            current_pe_gap = vix_params.get("pe_gap", self.cfg.pe_gap)
+            current_ce_gap = vix_params.get("ce_gap", self.cfg.ce_gap)
+            pe_symbol_gap  = vix_params.get("pe_symbol_gap", self.cfg.pe_symbol_gap)
+            ce_symbol_gap  = vix_params.get("ce_symbol_gap", self.cfg.ce_symbol_gap)
 
             # Monitor open trades for SL and trailing profit
             await self._monitor_open_trades(nifty_price)
@@ -177,8 +161,7 @@ class SurvivorAlgo(BaseStrategy):
                 can_trade = False
                 reason = "Max open trades reached (2)"
             if can_trade:
-                # ── TRIGGER 1: Movement-based ─────────────────────────────
-                # PE SELL — Nifty moved up enough from last PE anchor
+                # PE SELL TRIGGER — Nifty moved up enough from last PE anchor
                 if nifty_price - self._pe_last_value >= current_pe_gap:
                     await self._sell_option(
                         direction="PE",
@@ -188,10 +171,9 @@ class SurvivorAlgo(BaseStrategy):
                     )
                     self._pe_last_value = nifty_price
                     self._pe_sold_flag  = True
-                    self._time_based_pe_fired = True  # block time trigger same side
                     self._update_position(Direction.SHORT)
 
-                # CE SELL — Nifty moved down enough from last CE anchor
+                # CE SELL TRIGGER — Nifty moved down enough from last CE anchor
                 if self._ce_last_value - nifty_price >= current_ce_gap:
                     await self._sell_option(
                         direction="CE",
@@ -201,15 +183,7 @@ class SurvivorAlgo(BaseStrategy):
                     )
                     self._ce_last_value = nifty_price
                     self._ce_sold_flag  = True
-                    self._time_based_ce_fired = True  # block time trigger same side
                     self._update_position(Direction.SHORT)
-
-                # ── TRIGGER 2: Time-based (flat market catcher) ───────────
-                # Fires once per side per session in 9:45–11:30 AM window
-                # when market is flat but PCR confirms direction is safe
-                await self._check_time_based_trigger(
-                    nifty_price, pe_symbol_gap, ce_symbol_gap
-                )
 
             else:
                 self._signal(f"Trade blocked: {reason}")
@@ -256,7 +230,7 @@ class SurvivorAlgo(BaseStrategy):
                 premium = await self.broker.get_ltp(ikey)
 
             if premium >= self.cfg.min_price_to_sell:
-                symbol = ikey  # Use resolved ikey for order
+                symbol = candidate
                 break
             final_strike += interval if direction == "PE" else -interval
 
@@ -338,9 +312,11 @@ class SurvivorAlgo(BaseStrategy):
             if not self._instruments:
                 self._instruments = fetch_instruments()
             now = dt.now(pytz.timezone("Asia/Kolkata"))
+            # Extract expiry directly from symbol e.g. NIFTY19MAY2623400PE -> 2026-05-19
             # Dynamically calculate the next upcoming Tuesday expiry
             days_ahead = (1 - now.weekday()) % 7
             if days_ahead == 0:
+                # If today is Tuesday, check if we should look at today or next week
                 expiry = now.date()
             else:
                 expiry = (now + timedelta(days=days_ahead)).date()
@@ -384,7 +360,8 @@ class SurvivorAlgo(BaseStrategy):
                 self._open_trade_ids.append(t["id"])
                 # Subscribe to live ticks for reloaded trade
                 try:
-                    sym_name = t["symbol"].split("|")[-1]
+                    # Extract strike from symbol e.g. NSE_FO|NIFTY12MAY2624200PE -> 24200
+                    sym_name = t["symbol"].split("|")[-1]  # NIFTY12MAY2624200PE
                     strike = float(''.join(filter(str.isdigit, sym_name))[-5:])
                     ikey = await self._get_instrument_key(t["symbol"], direction, strike)
                     self.broker.subscribe_ticks(
@@ -439,25 +416,17 @@ class SurvivorAlgo(BaseStrategy):
                     # Use WebSocket cache only — no REST API calls
                     cached = self._ltp_cache.get(symbol, 0.0)
                     if cached == 0.0:
-                        # Fallback: use entry price (neutral) not simulated decay
-                        self._ltp_cache[symbol] = trade["entry"]
+                        # Fallback: simulate decay if no tick yet
+                        self._ltp_cache[symbol] = round(trade["entry"] * 0.95, 2)
             except Exception as e:
                 logger.debug(f"[survivor] _refresh_ltp_loop error: {e}")
             await asyncio.sleep(3)
 
-    # ── Trade Monitoring (SL + Breakeven Lock + Profit Target) ───────────────
+    # ── Trade Monitoring (SL + Trailing Profit) ───────────────────────────────
 
     async def _monitor_open_trades(self, nifty_price: float = 0.0) -> None:
         if not self._open_trades_data:
             return
-
-        import time
-        now = time.time()
-        if not hasattr(self, '_last_monitor_ts'):
-            self._last_monitor_ts = 0
-        if now - self._last_monitor_ts < 1.0:
-            return
-        self._last_monitor_ts = now
 
         for trade in list(self._open_trades_data):
             try:
@@ -465,71 +434,26 @@ class SurvivorAlgo(BaseStrategy):
                     # Simulate slight option decay for paper trades
                     curr_price = trade["entry"] * 0.95
                 else:
-                    # Use WebSocket tick cache instead of API call to avoid 429 errors
-                    ikey = self._ikey_cache.get(trade["symbol"], trade["symbol"])
-                    curr_price = self._ltp_cache.get(ikey, self._ltp_cache.get(trade["symbol"], 0.0))
-                    if curr_price == 0.0:
-                        # Fallback to API only if cache empty
-                        curr_price = await self.broker.get_ltp(trade["symbol"])
+                    curr_price = await self.broker.get_ltp(trade["symbol"])
 
                 if curr_price == 0:
                     continue
 
-                # ── Calculate current P&L ─────────────────────────────────
-                if trade["order_type"] == "SELL":
-                    curr_pnl = (trade["entry"] - curr_price) * trade["quantity"]
-                else:
-                    curr_pnl = (curr_price - trade["entry"]) * trade["quantity"]
-
-                # ── Breakeven Lock ────────────────────────────────────────
-                # Once profit reaches ₹400, lock SL at entry price (breakeven).
-                # This means the trade can never turn into a loss after this point.
-                if curr_pnl >= 400.0 and not trade.get("_be_locked"):
-                    trade["_be_locked"] = True
-                    trade["_sl_floor"] = trade["entry"]
-                    self._signal(
-                        f"🔒 BREAKEVEN LOCKED | {trade['symbol']} | "
-                        f"P&L: ₹{curr_pnl:.0f} — SL moved to entry ₹{trade['entry']:.2f}"
-                    )
-
-                # ── Check breakeven SL (if locked) ───────────────────────
-                if trade.get("_be_locked"):
-                    sl_floor = trade["_sl_floor"]
-                    # For SELL: option price rising above entry = loss territory
-                    breached = (
-                        curr_price >= sl_floor
-                        if trade["order_type"] == "SELL"
-                        else curr_price <= sl_floor
-                    )
-                    if breached:
-                        self._signal(
-                            f"🔒 BREAKEVEN SL HIT | {trade['symbol']} | "
-                            f"Entry: {trade['entry']:.2f} | "
-                            f"Current: {curr_price:.2f} | P&L: ₹{curr_pnl:.0f}"
-                        )
-                        await self._close_trade(trade, "SL_HIT", curr_price)
-                        continue  # trade closed, move to next
-
-                # ── Normal stop loss (no breakeven lock yet) ──────────────
-                elif risk_manager.check_trade_stop_loss(
+                if risk_manager.check_trade_stop_loss(
                     trade["entry"], curr_price, trade["quantity"], trade["order_type"]
                 ):
                     self._signal(
-                        f"🛑 STOP LOSS hit | {trade['symbol']} | "
-                        f"Entry: {trade['entry']:.2f} | "
-                        f"Current: {curr_price:.2f} | P&L: ₹{curr_pnl:.0f}"
+                        f"STOP LOSS hit | {trade['direction']} {trade['symbol']} | "
+                        f"Entry: {trade['entry']:.2f} | Current: {curr_price:.2f}"
                     )
                     await self._close_trade(trade, "SL_HIT", curr_price)
-                    continue  # trade closed, move to next
 
-                # ── Profit target ─────────────────────────────────────────
-                if risk_manager.check_trailing_profit(
-                    trade["entry"], curr_price, trade["order_type"], trade["quantity"]
+                elif risk_manager.check_trailing_profit(
+                    trade["entry"], curr_price, trade["order_type"]
                 ):
                     self._signal(
-                        f"✅ PROFIT TARGET hit | {trade['symbol']} | "
-                        f"Entry: {trade['entry']:.2f} | "
-                        f"Current: {curr_price:.2f} | P&L: ₹{curr_pnl:.0f}"
+                        f"TRAILING PROFIT hit | {trade['direction']} {trade['symbol']} | "
+                        f"Entry: {trade['entry']:.2f} | Current: {curr_price:.2f}"
                     )
                     await self._close_trade(trade, "TP_HIT", curr_price)
 
@@ -558,10 +482,6 @@ class SurvivorAlgo(BaseStrategy):
         else:
             if current_price == 0.0:
                 current_price = await self.broker.get_ltp(trade["symbol"])
-            if current_price == 0.0:
-                logger.error(f"[survivor] get_ltp returned 0 for {trade['symbol']} — aborting close to prevent wrong P&L")
-                self._signal(f"⚠ EXIT ABORTED: could not get LTP for {trade['symbol']}")
-                return
             if exit_order_type == "BUY":
                 exit_price = round(current_price * 1.02, 1)
             else:
@@ -601,7 +521,7 @@ class SurvivorAlgo(BaseStrategy):
         # Release capital back to risk manager
         risk_manager.release_trade(self.name, trade["order_type"])
 
-        trade_logger.close_trade(trade["id"], exit_price, reason)
+        trade_logger.close_trade(trade["id"], current_price, reason)
         self._update_pnl(self._realised_pnl, self._unrealised_pnl)
         self._signal(
             f"CLOSED {trade['symbol']} | Reason: {reason} | "
@@ -653,87 +573,5 @@ class SurvivorAlgo(BaseStrategy):
                 ltp_registry[trade["id"]] = curr
         except Exception:
             pass
-
-    async def _check_time_based_trigger(
-        self,
-        nifty_price: float,
-        pe_symbol_gap: float,
-        ce_symbol_gap: float,
-    ) -> None:
-        """
-        Time-based trigger: fires once per side per session in 9:45-11:30 AM window.
-        Designed to catch flat range days where movement trigger never fires.
-        Safety gates: regime=range, PCR confirms direction, no open trade same side,
-        not already fired today, within time window only.
-        """
-        import pytz
-        from datetime import datetime as dt
-        now = dt.now(pytz.timezone("Asia/Kolkata"))
-
-        # Reset flags at start of each new day
-        if now.day != self._last_time_trigger_day:
-            self._time_based_pe_fired = False
-            self._time_based_ce_fired = False
-            self._last_time_trigger_day = now.day
-
-        # Only fire in 9:45 AM – 11:30 AM window
-        from datetime import time as dtime
-        now_time = now.time()
-        if not (dtime(9, 45) <= now_time <= dtime(11, 30)):
-            return
-
-        # Only in range regime
-        from core.market_context import market_context
-        if market_context.regime not in ("range", "reversal_watch"):
-            return
-
-        # Get current PCR for direction filter
-        pcr = getattr(market_context, "_pcr", 1.0)
-
-        # Count open trades by direction
-        open_pe = sum(1 for tr in self._open_trades_data if tr.get("direction") == "PE")
-        open_ce = sum(1 for tr in self._open_trades_data if tr.get("direction") == "CE")
-
-        # PE time trigger: PCR > 1.2 means more puts = market leaning bullish = safe to sell PE
-        if (
-            not self._time_based_pe_fired
-            and open_pe == 0
-            and pcr >= 1.2
-            and len(self._open_trades_data) < 2
-        ):
-            self._signal(
-                f"⏰ TIME TRIGGER: PE sell | PCR={pcr:.2f} | "
-                f"Nifty={nifty_price:.2f} | window=9:45-11:30"
-            )
-            await self._sell_option(
-                direction="PE",
-                nifty_price=nifty_price,
-                gap=pe_symbol_gap,
-                quantity=self.cfg.pe_quantity,
-            )
-            self._time_based_pe_fired = True
-            self._update_position(Direction.SHORT)
-            return  # one trigger per tick max
-
-        # CE time trigger: PCR < 0.8 means more calls = market leaning bearish = safe to sell CE
-        if (
-            not self._time_based_ce_fired
-            and open_ce == 0
-            and pcr <= 0.8
-            and len(self._open_trades_data) < 2
-        ):
-            self._signal(
-                f"⏰ TIME TRIGGER: CE sell | PCR={pcr:.2f} | "
-                f"Nifty={nifty_price:.2f} | window=9:45-11:30"
-            )
-            await self._sell_option(
-                direction="CE",
-                nifty_price=nifty_price,
-                gap=ce_symbol_gap,
-                quantity=self.cfg.ce_quantity,
-            )
-            self._time_based_ce_fired = True
-            self._update_position(Direction.SHORT)
-
     def get_config(self) -> dict:
         return vars(self.cfg)

@@ -40,9 +40,9 @@ TOP_N_STRIKES        = 10                       # Strikes around ATM to consider
 POLL_INTERVAL_SEC    = 120                      # Refresh every 2 minutes
 
 # PCR thresholds
-PCR_BULLISH_REVERSAL  = 1.7   # PCR above this → market oversold → bullish reversal watch
-PCR_BEARISH_REVERSAL  = 0.6   # PCR below this → market overbought → bearish reversal watch
-PCR_SPIKE_DELTA       = 0.5   # A move of this size in <5 min = institutional activity → freeze
+PCR_BULLISH_REVERSAL  = 1.3   # PCR above this → market oversold → bullish reversal watch
+PCR_BEARISH_REVERSAL  = 0.7   # PCR below this → market overbought → bearish reversal watch
+PCR_SPIKE_DELTA       = 0.3   # A move of this size in <5 min = institutional activity → freeze
 
 # Opening range window
 OR_START = dtime(9, 15)
@@ -419,13 +419,13 @@ class MarketContextEngine:
     def _get_current_expiry() -> str:
         """
         Returns the nearest weekly Nifty expiry date as 'YYYY-MM-DD'.
-        Nifty weekly expiry is every Tuesday (changed from Thursday).
-        If today is past Tuesday, returns next Tuesday.
+        Nifty weekly expiry is every Thursday.
+        If today is past Thursday, returns next Thursday.
         """
         today = datetime.now(IST).date()
-        days_ahead = (1 - today.weekday()) % 7  # 1 = Tuesday
+        days_ahead = (3 - today.weekday()) % 7  # 3 = Thursday
         if days_ahead == 0 and datetime.now(IST).time() > dtime(15, 30):
-            days_ahead = 7  # Current Tuesday is expired, use next
+            days_ahead = 7  # Current Thursday is expired, use next
         expiry = today + timedelta(days=days_ahead)
         return expiry.strftime("%Y-%m-%d")
 

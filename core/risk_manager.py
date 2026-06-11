@@ -263,33 +263,35 @@ class RiskManager:
         entry_price:   float,
         current_price: float,
         order_type:    str = "SELL",
+        quantity:      int = 65,
     ) -> bool:
         """
-        Returns True if trailing profit target is hit.
-        For SELL trades: profit when price decays by trailing_profit_pct% from entry.
-        e.g. entry=100, trailing=25% → close when price <= 75
+        Close when profit >= profit_target (default Rs800 per trade).
         """
         if entry_price <= 0:
             return False
-
+        profit_target = getattr(self, "profit_target", 800.0)
         if order_type == "SELL":
-            target = entry_price * (1 - self.trailing_profit_pct / 100)
-            if current_price <= target:
-                logger.info(
-                    f"[RiskManager] Trailing profit hit | "
-                    f"Entry: {entry_price} | Target: {target:.2f} | "
-                    f"Current: {current_price}"
-                )
-                return True
+            pnl = (entry_price - current_price) * quantity
+        else:
+            pnl = (current_price - entry_price) * quantity
+        if pnl >= profit_target:
+            logger.info(
+                f"[RiskManager] Profit target hit | "
+                f"Entry: {entry_price} | Current: {current_price} | "
+                f"P&L: Rs{pnl:.2f} | Target: Rs{profit_target}"
+            )
+            return True
         return False
 
 
 # ─── Global singleton ─────────────────────────────────────────────────────────
 risk_manager = RiskManager(
     max_daily_loss      = -3000.0,
-    per_trade_loss      = -1500.0,
-    trailing_profit_pct = 25.0,
+    per_trade_loss      = -800.0,
+    trailing_profit_pct = 50.0,
     max_trades_per_day  = 3,
     auto_stop_hour      = 15,
     auto_stop_minute    = 10,
 )
+risk_manager.profit_target = 600.0  # Close trade when profit >= Rs800

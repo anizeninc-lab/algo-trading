@@ -64,32 +64,24 @@ class UpstoxAdapter(AbstractBrokerGateway):
             return False
 
     async def get_ltp(self, symbol: str) -> float:
-        import time
-        now = time.time()
-        if not hasattr(self, '_ltp_ts'):
-            self._ltp_ts = {}
         if symbol in self._ltp_cache and self._ltp_cache[symbol] > 0:
-            if now - self._ltp_ts.get(symbol, 0) < 5.0:
-                return float(self._ltp_cache[symbol])
+            return float(self._ltp_cache[symbol])
         try:
             resp = self._market_api.ltp(symbol, api_version="2.0")
             if not resp.data:
                 logger.warning(f"get_ltp: empty data for {symbol}")
-                return float(self._ltp_cache.get(symbol, 0.0))
+                return 0.0
             keys = list(resp.data.keys())
             if not keys:
                 logger.warning(f"get_ltp: no keys in response for {symbol}")
-                return float(self._ltp_cache.get(symbol, 0.0))
-            price = float(resp.data[keys[0]].last_price)
-            self._ltp_cache[symbol] = price
-            self._ltp_ts[symbol] = now
-            return price
+                return 0.0
+            return float(resp.data[keys[0]].last_price)
         except ApiException as e:
             logger.error(f"get_ltp failed for {symbol}: {e}")
-            return float(self._ltp_cache.get(symbol, 0.0))
+            return 0.0
         except Exception as e:
             logger.error(f"get_ltp unexpected error for {symbol}: {e}")
-            return float(self._ltp_cache.get(symbol, 0.0))
+            return 0.0
 
     async def get_option_chain(self, expiry: str, option_type: str) -> list:
         return []

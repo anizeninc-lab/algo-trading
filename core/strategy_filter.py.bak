@@ -121,7 +121,7 @@ class StrategyFilter:
             return False, "opening range not yet locked — waiting for 9:30 AM data"
 
         # ── 4. PCR spike freeze ───────────────────────────────────────────
-        if False:  # PCR spike disabled
+        if market_context.is_pcr_spike:
             pcr = market_context.pcr
             return False, f"PCR spike detected (PCR={pcr:.2f}) — 15-min freeze active"
 

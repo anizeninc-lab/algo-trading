@@ -54,10 +54,6 @@ class SurvivorAlgo(BaseStrategy):
         self._ltp_cache        = {}  # symbol -> latest LTP
         self._instruments      = []  # cached instruments list
         self._ikey_cache       = {}  # text symbol -> instrument key
-        # Time-based trigger state (reset each day by risk_manager daily reset)
-        self._time_based_pe_fired = False  # True after time trigger sold PE today
-        self._time_based_ce_fired = False  # True after time trigger sold CE today
-        self._last_time_trigger_day = -1   # day-of-month when flags were last reset
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -144,23 +140,12 @@ class SurvivorAlgo(BaseStrategy):
             nifty_price            = tick.last_price
             self._last_nifty_price = nifty_price
 
-            # Use session planner as single source of truth for gap params.
-            # VIX manager only used for halt_trading safety check.
-            vix_params = vix_manager.get_params()
-            if vix_params.get("halt_trading", False):
-                self._signal("VIX EXTREME — trading halted by vix_manager")
-                return
-
-            try:
-                from core.session_planner import session_planner as _sp
-                sp_params = dict(_sp.current_plan.params.__dict__)
-            except Exception:
-                sp_params = {}
-
-            current_pe_gap = sp_params.get("pe_gap", self.cfg.pe_gap)
-            current_ce_gap = sp_params.get("ce_gap", self.cfg.ce_gap)
-            pe_symbol_gap  = sp_params.get("pe_symbol_gap", self.cfg.pe_symbol_gap)
-            ce_symbol_gap  = sp_params.get("ce_symbol_gap", self.cfg.ce_symbol_gap)
+            # Fetch VIX-adjusted parameters
+            vix_params     = vix_manager.get_params()
+            current_pe_gap = vix_params.get("pe_gap", self.cfg.pe_gap)
+            current_ce_gap = vix_params.get("ce_gap", self.cfg.ce_gap)
+            pe_symbol_gap  = vix_params.get("pe_symbol_gap", self.cfg.pe_symbol_gap)
+            ce_symbol_gap  = vix_params.get("ce_symbol_gap", self.cfg.ce_symbol_gap)
 
             # Monitor open trades for SL and trailing profit
             await self._monitor_open_trades(nifty_price)
@@ -177,8 +162,7 @@ class SurvivorAlgo(BaseStrategy):
                 can_trade = False
                 reason = "Max open trades reached (2)"
             if can_trade:
-                # ── TRIGGER 1: Movement-based ─────────────────────────────
-                # PE SELL — Nifty moved up enough from last PE anchor
+                # PE SELL TRIGGER — Nifty moved up enough from last PE anchor
                 if nifty_price - self._pe_last_value >= current_pe_gap:
                     await self._sell_option(
                         direction="PE",
@@ -188,10 +172,9 @@ class SurvivorAlgo(BaseStrategy):
                     )
                     self._pe_last_value = nifty_price
                     self._pe_sold_flag  = True
-                    self._time_based_pe_fired = True  # block time trigger same side
                     self._update_position(Direction.SHORT)
 
-                # CE SELL — Nifty moved down enough from last CE anchor
+                # CE SELL TRIGGER — Nifty moved down enough from last CE anchor
                 if self._ce_last_value - nifty_price >= current_ce_gap:
                     await self._sell_option(
                         direction="CE",
@@ -201,15 +184,7 @@ class SurvivorAlgo(BaseStrategy):
                     )
                     self._ce_last_value = nifty_price
                     self._ce_sold_flag  = True
-                    self._time_based_ce_fired = True  # block time trigger same side
                     self._update_position(Direction.SHORT)
-
-                # ── TRIGGER 2: Time-based (flat market catcher) ───────────
-                # Fires once per side per session in 9:45–11:30 AM window
-                # when market is flat but PCR confirms direction is safe
-                await self._check_time_based_trigger(
-                    nifty_price, pe_symbol_gap, ce_symbol_gap
-                )
 
             else:
                 self._signal(f"Trade blocked: {reason}")
@@ -653,87 +628,6 @@ class SurvivorAlgo(BaseStrategy):
                 ltp_registry[trade["id"]] = curr
         except Exception:
             pass
-
-    async def _check_time_based_trigger(
-        self,
-        nifty_price: float,
-        pe_symbol_gap: float,
-        ce_symbol_gap: float,
-    ) -> None:
-        """
-        Time-based trigger: fires once per side per session in 9:45-11:30 AM window.
-        Designed to catch flat range days where movement trigger never fires.
-        Safety gates: regime=range, PCR confirms direction, no open trade same side,
-        not already fired today, within time window only.
-        """
-        import pytz
-        from datetime import datetime as dt
-        now = dt.now(pytz.timezone("Asia/Kolkata"))
-
-        # Reset flags at start of each new day
-        if now.day != self._last_time_trigger_day:
-            self._time_based_pe_fired = False
-            self._time_based_ce_fired = False
-            self._last_time_trigger_day = now.day
-
-        # Only fire in 9:45 AM – 11:30 AM window
-        from datetime import time as dtime
-        now_time = now.time()
-        if not (dtime(9, 45) <= now_time <= dtime(11, 30)):
-            return
-
-        # Only in range regime
-        from core.market_context import market_context
-        if market_context.regime not in ("range", "reversal_watch"):
-            return
-
-        # Get current PCR for direction filter
-        pcr = getattr(market_context, "_pcr", 1.0)
-
-        # Count open trades by direction
-        open_pe = sum(1 for tr in self._open_trades_data if tr.get("direction") == "PE")
-        open_ce = sum(1 for tr in self._open_trades_data if tr.get("direction") == "CE")
-
-        # PE time trigger: PCR > 1.2 means more puts = market leaning bullish = safe to sell PE
-        if (
-            not self._time_based_pe_fired
-            and open_pe == 0
-            and pcr >= 1.2
-            and len(self._open_trades_data) < 2
-        ):
-            self._signal(
-                f"⏰ TIME TRIGGER: PE sell | PCR={pcr:.2f} | "
-                f"Nifty={nifty_price:.2f} | window=9:45-11:30"
-            )
-            await self._sell_option(
-                direction="PE",
-                nifty_price=nifty_price,
-                gap=pe_symbol_gap,
-                quantity=self.cfg.pe_quantity,
-            )
-            self._time_based_pe_fired = True
-            self._update_position(Direction.SHORT)
-            return  # one trigger per tick max
-
-        # CE time trigger: PCR < 0.8 means more calls = market leaning bearish = safe to sell CE
-        if (
-            not self._time_based_ce_fired
-            and open_ce == 0
-            and pcr <= 0.8
-            and len(self._open_trades_data) < 2
-        ):
-            self._signal(
-                f"⏰ TIME TRIGGER: CE sell | PCR={pcr:.2f} | "
-                f"Nifty={nifty_price:.2f} | window=9:45-11:30"
-            )
-            await self._sell_option(
-                direction="CE",
-                nifty_price=nifty_price,
-                gap=ce_symbol_gap,
-                quantity=self.cfg.ce_quantity,
-            )
-            self._time_based_ce_fired = True
-            self._update_position(Direction.SHORT)
 
     def get_config(self) -> dict:
         return vars(self.cfg)

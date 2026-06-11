@@ -45,21 +45,27 @@ class SaviourCombo:
         logger.info("[saviour_combo] Starting...")
         state_store.update_state(self.name, StrategyState.RUNNING)
 
-        # Pre-register NIFTY index tick for Survivor BEFORE Wave starts,
-        # so both symbols are included in the single WebSocket connection
-        self.broker.subscribe_ticks(
-            symbols=["NSE_INDEX|Nifty 50"],
-            callback=self.survivor._on_tick_sync,
-        )
-        logger.info("[saviour_combo] NIFTY index pre-registered for Survivor")
 
         # Start Wave Extractor — opens WebSocket with all symbols
         await self.wave.start()
 
-        # If auto_start is disabled, start Survivor immediately
-        if not self.cfg.auto_start_survivor:
+        # Start Survivor immediately if threshold is 0 or auto_start disabled
+        if not self.cfg.auto_start_survivor or self.cfg.wave_net_threshold == 0:
             await self.survivor.start()
             self._survivor_started = True
+            # Share Wave's event loop with Survivor so tick callbacks work
+            import asyncio as _aio
+            try:
+                running_loop = _aio.get_running_loop()
+                self.survivor._loop = running_loop
+                logger.info(f"[saviour_combo] Shared running loop with Survivor: {running_loop}")
+            except Exception as e:
+                logger.error(f"[saviour_combo] Could not get running loop: {e}")
+        # Register NIFTY ticks AFTER survivor.start() so loop is ready
+        self.broker.subscribe_ticks(
+            symbols=["NSE_INDEX|Nifty 50"],
+            callback=self.survivor._on_tick_sync,
+        )
 
         # In paper trade mode, always auto-start Survivor immediately
         # since wave fills are simulated and net position may not reach threshold
