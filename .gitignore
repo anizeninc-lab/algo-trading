@@ -23,3 +23,5 @@ trade_log.db
 *.db
 dashboard/frontend/node_modules/
 dashboard/frontend/dist/
+logs/
+*.log
