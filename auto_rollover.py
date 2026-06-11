@@ -2,7 +2,7 @@ import json
 import logging
 from pathlib import Path
 
-from core.auto_config import auto_select_symbols
+from core.auto_config import auto_select_symbols, auto_select_banknifty_symbols, fetch_instruments, auto_select_banknifty_symbols, fetch_instruments
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,22 @@ def perform_rollover():
     except Exception as e:
         logger.error(f"Auto config execution failed: {e}")
         return
+
+    # Also fetch BankNifty symbols (reuse instruments already downloaded)
+    try:
+        bn_result = auto_select_banknifty_symbols()
+        if bn_result:
+            result.update(bn_result)
+    except Exception as e:
+        logger.warning(f"BankNifty auto config failed (non-fatal): {e}")
+
+    # Also fetch BankNifty symbols (reuse instruments already downloaded)
+    try:
+        bn_result = auto_select_banknifty_symbols()
+        if bn_result:
+            result.update(bn_result)
+    except Exception as e:
+        logger.warning(f"BankNifty auto config failed (non-fatal): {e}")
         
     if not result:
         logger.warning("Auto config returned empty. Perhaps Upstox token is missing. Skipping rollover.")

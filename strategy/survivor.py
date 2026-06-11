@@ -19,20 +19,25 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SurvivorConfig:
-    symbol_initials:   str   = "NIFTY13APR26"
-    pe_gap:            float = 15.0
-    ce_gap:            float = 15.0
-    pe_symbol_gap:     float = 300.0
-    ce_symbol_gap:     float = 300.0
-    pe_reset_gap:      float = 90.0
-    ce_reset_gap:      float = 90.0
-    pe_quantity:       int   = 65
-    ce_quantity:       int   = 65
-    pe_start:          float = 0.0
-    ce_start:          float = 0.0
-    min_price_to_sell: float = 30.0
-    nifty_instrument_key: str = "NSE_INDEX|Nifty 50"
-    strike_interval:   float = 50.0
+    symbol_initials:      str   = "NIFTY13APR26"
+    pe_gap:               float = 15.0
+    ce_gap:               float = 15.0
+    pe_symbol_gap:        float = 300.0
+    ce_symbol_gap:        float = 300.0
+    pe_reset_gap:         float = 90.0
+    ce_reset_gap:         float = 90.0
+    pe_quantity:          int   = 65
+    ce_quantity:          int   = 65
+    pe_start:             float = 0.0
+    ce_start:             float = 0.0
+    min_price_to_sell:    float = 30.0
+    nifty_instrument_key: str   = "NSE_INDEX|Nifty 50"
+    strike_interval:      float = 50.0
+    # Instrument identity fields — set these for BankNifty
+    instrument_name:      str   = "NIFTY"               # "NIFTY" or "BANKNIFTY"
+    index_instrument_key: str   = "NSE_INDEX|Nifty 50"  # "NSE_INDEX|Nifty Bank" for BankNifty
+    lot_size:             int   = 65                     # 15 for BankNifty
+    paper_trade_override: bool  = False                  # force paper mode for this instance
 
 
 class SurvivorAlgo(BaseStrategy):
@@ -64,9 +69,11 @@ class SurvivorAlgo(BaseStrategy):
     async def on_start(self) -> None:
         self._loop = asyncio.get_running_loop()
 
-        nifty_price = await self.broker.get_ltp(self.cfg.nifty_instrument_key)
+        # Use index_instrument_key (supports both NIFTY and BANKNIFTY)
+        _index_key = self.cfg.index_instrument_key or self.cfg.nifty_instrument_key
+        nifty_price = await self.broker.get_ltp(_index_key)
         if nifty_price == 0.0:
-            raise RuntimeError("[survivor] Could not fetch NIFTY price on startup.")
+            raise RuntimeError(f"[survivor] Could not fetch {self.cfg.instrument_name} price on startup.")
 
         if self.cfg.pe_start == 0.0:
             self.cfg.pe_start = nifty_price
@@ -76,8 +83,9 @@ class SurvivorAlgo(BaseStrategy):
         self._pe_last_value = self.cfg.pe_start
         self._ce_last_value = self.cfg.ce_start
 
+        _index_key = self.cfg.index_instrument_key or self.cfg.nifty_instrument_key
         self.broker.subscribe_ticks(
-            symbols=[self.cfg.nifty_instrument_key],
+            symbols=[_index_key],
             callback=self._on_tick_sync
         )
         asyncio.create_task(self._refresh_ltp_loop())
@@ -99,14 +107,17 @@ class SurvivorAlgo(BaseStrategy):
 
     async def on_stop(self) -> None:
         await self._close_all_positions()
-        self.broker.unsubscribe_ticks([self.cfg.nifty_instrument_key])
+        _index_key = self.cfg.index_instrument_key or self.cfg.nifty_instrument_key
+        self.broker.unsubscribe_ticks([_index_key])
 
     # ── Tick Handling ─────────────────────────────────────────────────────────
 
     def _on_tick_sync(self, tick: Tick) -> None:
         if self._stop_flag:
             return
-        if tick.last_price < 10000:
+        # Option ticks have low prices; index ticks have high prices
+        # Use 5000 as threshold to separate options from index for both NIFTY and BANKNIFTY
+        if tick.last_price < 5000:
             self._ltp_cache[tick.symbol] = tick.last_price
             self._calculate_pnl()
             return
@@ -247,7 +258,11 @@ class SurvivorAlgo(BaseStrategy):
         # Search up to 5 strikes for one that meets min premium
         for _ in range(5):
             candidate = self._build_symbol(direction, final_strike)
-            if os.getenv("PAPER_TRADE", "false").lower() == "true":
+            _is_paper = (
+                os.getenv("PAPER_TRADE", "false").lower() == "true"
+                or self.cfg.paper_trade_override
+            )
+            if _is_paper:
                 # Simulate premium in paper mode
                 premium = max(5.0, 50.0 - abs(nifty_price - final_strike) * 0.1)
             else:
@@ -268,7 +283,7 @@ class SurvivorAlgo(BaseStrategy):
             return
 
         try:
-            if os.getenv("PAPER_TRADE", "false").lower() == "true":
+            if _is_paper:
                 sell_price  = round(premium * 0.98, 1)
                 entry_price = sell_price
                 self._signal(f"[PAPER] SELL {quantity} {symbol} @ {sell_price} (simulated)")
@@ -461,7 +476,11 @@ class SurvivorAlgo(BaseStrategy):
 
         for trade in list(self._open_trades_data):
             try:
-                if os.getenv("PAPER_TRADE", "false").lower() == "true":
+                is_paper = (
+                    os.getenv("PAPER_TRADE", "false").lower() == "true"
+                    or self.cfg.paper_trade_override
+                )
+                if is_paper:
                     # Simulate slight option decay for paper trades
                     curr_price = trade["entry"] * 0.95
                 else:
@@ -546,7 +565,11 @@ class SurvivorAlgo(BaseStrategy):
 
         exit_order_type = "BUY" if trade["order_type"] == "SELL" else "SELL"
 
-        if os.getenv("PAPER_TRADE", "false").lower() == "true":
+        _close_paper = (
+            os.getenv("PAPER_TRADE", "false").lower() == "true"
+            or self.cfg.paper_trade_override
+        )
+        if _close_paper:
             if current_price == 0.0:
                 current_price = trade["entry"] * 0.95
             exit_price = round(current_price * 1.02, 1)
