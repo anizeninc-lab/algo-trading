@@ -275,3 +275,11 @@ MAX_COMBINED_LOSS=-5000
 
 *Last updated: June 12, 2026*
 *Maintainer: DEV (Prince)*
+
+---
+
+## Additional P1 Fixes (Added June 12)
+
+7. Dashboard P&L not updating during live trade — WebSocket option ticks not flowing to LTP cache, causing unrealised P&L to show stale/zero values. Fix: ensure option symbol subscribed correctly after trade open, verify ikey cache populated before first P&L calculation.
+
+8. Dashboard P&L vs Upstox P&L mismatch — bot records two separate trades (65+65) while Upstox shows one netted position (-130). Fix: add broker position reconciliation that maps bot trade IDs to Upstox net positions for accurate P&L display. Dashboard should show combined unrealised P&L matching Upstox exactly.
