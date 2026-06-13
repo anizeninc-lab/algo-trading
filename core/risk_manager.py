@@ -45,7 +45,7 @@ class RiskManager:
     def __init__(
         self,
         max_daily_loss:      float = -3000.0,
-        per_trade_loss:      float = -1500.0,
+        per_trade_loss:      float = -800.0,
         trailing_profit_pct: float = 25.0,
         max_trades_per_day:  int   = 3,
         auto_stop_hour:      int   = 15,
@@ -344,4 +344,4 @@ risk_manager = RiskManager(
     auto_stop_hour      = 15,
     auto_stop_minute    = 10,
 )
-risk_manager.profit_target = 600.0  # Close trade when profit >= Rs800
+risk_manager.profit_target = 600.0  # Close trade when profit >= Rs600

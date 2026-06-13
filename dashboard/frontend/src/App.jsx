@@ -1044,18 +1044,42 @@ function OpenPositions({ trades }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {open.map((t, i) => {
-        const unreal = t.unrealised_pnl || 0
+        const unreal  = t.unrealised_pnl || 0
+        const ltp     = t.current_ltp || 0
+        const fresh   = t.ltp_fresh === true
         const premium = (t.entry_price || 0) * (t.quantity || 0)
+        const beHit   = unreal >= 400
         return (
-          <div key={t.id || i} style={{ background: C.panel, borderRadius: 10, padding: "12px 16px", border: `1px solid ${pnlC(unreal)}20`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div key={t.id || i} style={{ background: C.panel, borderRadius: 10, padding: "12px 16px", border: `1px solid ${pnlC(unreal)}30`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-              {[["STRATEGY", t.strategy], ["SYMBOL", t.symbol], ["DIR", t.order_type], ["QTY", t.quantity], ["ENTRY ₹", fmtRs(t.entry_price)], ["TIME", fmtTime(t.entry_time)], ["PREMIUM", fmtRs(premium)]].map(([label, val]) => (
-                <div key={label}><div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>{label}</div><div style={{ fontSize: 12, color: label === "DIR" ? (t.order_type === "SELL" ? C.red : C.green) : C.text, fontWeight: label === "DIR" ? 700 : 400 }}>{val}</div></div>
+              {[
+                ["STRATEGY", t.strategy],
+                ["SYMBOL",   t.symbol],
+                ["DIR",      t.order_type],
+                ["QTY",      t.quantity],
+                ["ENTRY ₹",  fmtRs(t.entry_price)],
+                ["LTP ₹",    ltp > 0 ? fmtRs(ltp) : "–"],
+                ["TIME",     fmtTime(t.entry_time)],
+                ["PREMIUM",  fmtRs(premium)],
+              ].map(([label, val]) => (
+                <div key={label}>
+                  <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>{label}</div>
+                  <div style={{ fontSize: 12, fontFamily: label === "LTP ₹" ? "monospace" : "inherit",
+                    color: label === "DIR" ? (t.order_type === "SELL" ? C.red : C.green)
+                         : label === "LTP ₹" ? (ltp > (t.entry_price||0) ? C.red : C.green)
+                         : C.text,
+                    fontWeight: label === "DIR" ? 700 : 400 }}>{val}</div>
+                </div>
               ))}
+              {beHit && <div style={{ background: "#00e87a20", border: "1px solid #00e87a40", borderRadius: 6, padding: "2px 8px", fontSize: 10, color: C.green, fontWeight: 700 }}>🔒 BE LOCKED</div>}
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>UNREALISED P&L</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end", marginBottom: 2 }}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: fresh ? C.green : "#888", flexShrink: 0 }} title={fresh ? "LTP live" : "LTP stale — REST fallback active"} />
+                <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>UNREALISED P&L</div>
+              </div>
               <div style={{ fontSize: 20, fontWeight: 800, color: pnlC(unreal), fontFamily: "monospace" }}>{fmtRs(unreal)}</div>
+              {!fresh && <div style={{ fontSize: 9, color: "#888", marginTop: 2 }}>⏳ updating...</div>}
             </div>
           </div>
         )
