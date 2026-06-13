@@ -105,16 +105,30 @@ class StrategyFilter:
 
             # Check if this specific strategy is activated by session plan
             if strategy_name == "survivor" and not plan.survivor_active:
-                return False, (
-                    f"session plan: Survivor BLOCKED "
-                    f"(regime={plan.regime}, confidence={plan.confidence})"
-                )
+                # Override if live regime has shifted to range intraday
+                if regime in (REGIME_RANGE, REGIME_REVERSAL_WATCH):
+                    logger.info(
+                        f"[strategy_filter] survivor: session plan says BLOCKED "
+                        f"but live regime={regime} — OVERRIDING to ALLOW"
+                    )
+                else:
+                    return False, (
+                        f"[context] regime={regime} not suitable for survivor (needs: range)"
+                    )
 
             if strategy_name == "wave_extractor" and not plan.wave_active:
-                return False, (
-                    f"session plan: Wave Extractor BLOCKED "
-                    f"(regime={plan.regime}, confidence={plan.confidence})"
-                )
+                # Override session plan if live regime is now trending
+                # Session plan is produced at 9:30 AM — market can shift intraday
+                if regime in (REGIME_TRENDING_BULL, REGIME_TRENDING_BEAR):
+                    logger.info(
+                        f"[strategy_filter] wave_extractor: session plan says BLOCKED "
+                        f"but live regime={regime} — OVERRIDING to ALLOW"
+                    )
+                else:
+                    return False, (
+                        f"session plan: Wave Extractor BLOCKED "
+                        f"(regime={plan.regime}, confidence={plan.confidence})"
+                    )
 
         # ── 3. Opening range must be locked ───────────────────────────────
         if REQUIRE_OR_LOCKED and not market_context.opening_range.is_ready:

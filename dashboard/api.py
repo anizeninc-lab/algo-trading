@@ -181,8 +181,11 @@ async def get_trades(
     )
     for t in trades:
         if t.get("status") == "OPEN":
-            t["unrealised_pnl"] = pnl_registry.get(t["id"], 0.0)
-            t["current_ltp"] = ltp_registry.get(t["id"], 0.0)
+            cached_pnl = pnl_registry.get(t["id"], None)
+            cached_ltp = ltp_registry.get(t["id"], None)
+            t["unrealised_pnl"] = cached_pnl if cached_pnl is not None else 0.0
+            t["current_ltp"]    = cached_ltp if cached_ltp is not None else 0.0
+            t["ltp_fresh"]      = cached_ltp is not None and cached_ltp > 0
     return {"trades": trades, "count": len(trades)}
 @app.get("/api/trades/summary")
 async def get_trades_summary(strategy: str = None):

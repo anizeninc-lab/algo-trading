@@ -4,13 +4,18 @@
 # trailing profit, max trades per day, auto-stop at 3:10 PM
 # HARDCODED: Max capital deployed at any time = ₹1,50,000
 
+import json
 import logging
+import os
 from datetime import datetime
+from pathlib import Path
 
 import pytz
 
 from core.state_store import StrategyState, state_store
 from core.trade_log import trade_logger
+
+RISK_STATE_FILE = Path("configs/risk_state.json")
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +157,7 @@ class RiskManager:
             self._system_halted = True
             self._halt_reason   = f"Max daily loss hit: ₹{total_pnl:.2f}"
             logger.warning(f"[RiskManager] SYSTEM HALTED — {self._halt_reason}")
+            self._save_state()  # persist halted state immediately
             return True
 
         return False
@@ -215,6 +221,7 @@ class RiskManager:
             f"[RiskManager] {strategy_name} trade count: "
             f"{self._trade_counts[strategy_name]}/{self.max_trades_per_day}"
         )
+        self._save_state()  # persist after every trade
 
     def release_trade(self, strategy_name: str, order_type: str = "SELL") -> None:
         """Call this when a trade is closed to free up capital."""
@@ -229,6 +236,49 @@ class RiskManager:
         self._halt_reason       = ""
         self._last_blocked      = {}
         logger.info("[RiskManager] Daily counters reset")
+        self._save_state()
+
+    def _save_state(self) -> None:
+        """Persist daily state to disk so restarts don't lose counters."""
+        try:
+            import pytz
+            now = datetime.now(pytz.timezone("Asia/Kolkata"))
+            state = {
+                "date":            now.strftime("%Y-%m-%d"),
+                "trade_counts":    self._trade_counts,
+                "system_halted":   self._system_halted,
+                "halt_reason":     self._halt_reason,
+                "deployed_capital": self._deployed_capital,
+            }
+            RISK_STATE_FILE.parent.mkdir(exist_ok=True)
+            with open(RISK_STATE_FILE, "w") as f:
+                json.dump(state, f, indent=2)
+        except Exception as e:
+            logger.warning(f"[RiskManager] Failed to save state: {e}")
+
+    def _load_state(self) -> None:
+        """Reload persisted state on startup — prevents counter reset after crash."""
+        try:
+            if not RISK_STATE_FILE.exists():
+                return
+            with open(RISK_STATE_FILE) as f:
+                state = json.load(f)
+            import pytz
+            now = datetime.now(pytz.timezone("Asia/Kolkata"))
+            today = now.strftime("%Y-%m-%d")
+            if state.get("date") != today:
+                logger.info("[RiskManager] State file is from previous day — ignoring")
+                return
+            self._trade_counts     = state.get("trade_counts", {})
+            self._system_halted    = state.get("system_halted", False)
+            self._halt_reason      = state.get("halt_reason", "")
+            self._deployed_capital = state.get("deployed_capital", {})
+            logger.info(
+                f"[RiskManager] State restored from disk | "
+                f"trades={self._trade_counts} | halted={self._system_halted}"
+            )
+        except Exception as e:
+            logger.warning(f"[RiskManager] Failed to load state: {e}")
 
     # ─── Trade-level checks ───────────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 {
-  "regime": "range",
+  "regime": "trending",
   "confidence": "MEDIUM",
   "trending_direction": "",
   "survivor_active": true,
@@ -7,8 +7,8 @@
   "daily_loss_limit": -3500.0,
   "max_capital": 80000.0,
   "params": {
-    "pe_gap": 6.0,
-    "ce_gap": 6.0,
+    "pe_gap": 10.0,
+    "ce_gap": 10.0,
     "pe_symbol_gap": 350.0,
     "ce_symbol_gap": 350.0,
     "min_premium": 15.0,
@@ -18,22 +18,22 @@
     "position_size": 0.75
   },
   "scores": {
-    "range_score": 5.0,
-    "trending_score": 5.0,
+    "range_score": 4.0,
+    "trending_score": 6.0,
     "or_width": null,
     "or_width_signal": "OR data not collected",
-    "vix_level": 15.59,
-    "vix_signal": "VIX=15.6 NORMAL \u2192 slight range bias",
-    "gap_pct": 0.325,
-    "gap_signal": "small gap \u2192 neutral",
+    "vix_level": 14.77,
+    "vix_signal": "VIX=14.8 NORMAL \u2192 slight range bias",
+    "gap_pct": 0.948,
+    "gap_signal": "moderate gap \u2192 trending possible",
     "midpoint_crosses": 0,
     "crosses_signal": "0 crosses \u2192 strong directional move",
     "pcr_at_open": 1.0,
     "pcr_signal": "PCR=1.00 NEUTRAL \u2192 range bias",
-    "prev_close": 23179.7,
-    "today_open": 23104.4
+    "prev_close": 23636.65,
+    "today_open": 23412.55
   },
-  "produced_at": "2026-06-11T15:28:58.535548+05:30",
+  "produced_at": "2026-06-12T15:03:31.535489+05:30",
   "plan_version": 1,
   "notes": [
     "OR data unavailable \u2014 defaulting to RANGE MEDIUM, Survivor ACTIVE",

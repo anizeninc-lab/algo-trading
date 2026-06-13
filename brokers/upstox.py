@@ -345,3 +345,61 @@ class UpstoxAdapter(AbstractBrokerGateway):
     @property
     def is_connected(self) -> bool:
         return self._connected
+
+
+    async def place_gtt_trailing_sl(
+        self,
+        instrument_key: str,
+        quantity: int,
+        entry_price: float,
+        order_type: str = "SELL",  # "SELL" means we sold, so exit is BUY
+        trailing_gap: float = 0.25,
+        sl_pct: float = 0.15,      # SL at 15% above entry (for SELL trade)
+    ) -> str:
+        """
+        Place a GTT Trailing Stop Loss order immediately after a trade opens.
+        For a SELL trade: exit is BUY, SL triggers when price RISES above entry.
+        trailing_gap: for every trailing_gap fall in LTP, SL moves down by same amount.
+        Returns GTT order ID or empty string on failure.
+        """
+        try:
+            import upstox_client
+            cfg = upstox_client.Configuration()
+            cfg.access_token = self._access_token
+            client = upstox_client.ApiClient(cfg)
+
+            # For SELL trade: we bought back (BUY to exit)
+            # SL triggers when LTP RISES above trigger_price
+            exit_transaction = "BUY" if order_type == "SELL" else "SELL"
+            trigger_price = round(entry_price * (1 + sl_pct), 1)
+
+            rule = upstox_client.GttRule(
+                strategy="TRAILING_STOP_LOSS",
+                trigger_type="RISING",      # triggers when LTP rises (bad for SELL)
+                trigger_price=trigger_price,
+                trailing_gap=trailing_gap,
+                market_protection=0.25,     # 0.25% slippage protection
+            )
+
+            req = upstox_client.GttPlaceOrderRequest(
+                type="SINGLE",
+                quantity=quantity,
+                product="I",               # Intraday
+                rules=[rule],
+                instrument_token=instrument_key,
+                transaction_type=exit_transaction,
+            )
+
+            gtt_api = upstox_client.GttApi(client)
+            resp = gtt_api.place_gtt_order(req, api_version="2.0")
+            gtt_id = resp.data.id if resp and resp.data else ""
+            import logging
+            logging.getLogger(__name__).info(
+                f"[GTT] Trailing SL placed | {instrument_key} | "
+                f"trigger={trigger_price} | trailing_gap={trailing_gap} | id={gtt_id}"
+            )
+            return str(gtt_id)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"[GTT] Failed to place GTT: {e}")
+            return ""

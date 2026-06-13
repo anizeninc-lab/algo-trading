@@ -12,6 +12,11 @@ from core.auto_config import fetch_instruments, find_symbol_from_instruments
 from core.state_store import Direction, state_store
 from core.trade_log import trade_logger
 from core.vix_manager import vix_manager
+from core.alerting import (
+    alert_trade_opened, alert_trade_closed, alert_order_rejected,
+    alert_gtt_failed, alert_daily_loss_hit, alert_reconcile_mismatch,
+    alert_system_start, alert_eod_close, alert_breakeven_locked
+)
 from strategy.base_strategy import BaseStrategy
 
 logger = logging.getLogger(__name__)
@@ -63,6 +68,12 @@ class SurvivorAlgo(BaseStrategy):
         self._time_based_pe_fired = False  # True after time trigger sold PE today
         self._time_based_ce_fired = False  # True after time trigger sold CE today
         self._last_time_trigger_day = -1   # day-of-month when flags were last reset
+        # Idempotent order gate — prevents duplicate orders on same signal
+        self._pending_orders: set = set()  # keys of in-flight orders
+        # Exit precedence gate — only one exit path can close a trade at a time
+        self._closing_trades: set = set()  # trade IDs currently being closed
+        # Exit precedence gate — only one exit path can close a trade at a time
+        self._closing_trades: set = set()  # trade IDs currently being closed
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -106,7 +117,18 @@ class SurvivorAlgo(BaseStrategy):
         )
 
     async def on_stop(self) -> None:
-        await self._close_all_positions()
+        import pytz
+        from datetime import datetime as _dt
+        now = _dt.now(pytz.timezone("Asia/Kolkata"))
+        is_eod = (now.hour > 15) or (now.hour == 15 and now.minute >= 5)
+        if is_eod:
+            logger.info("[survivor] on_stop: EOD — closing all positions")
+            await self._close_all_positions()
+        else:
+            logger.info(
+                f"[survivor] on_stop: {now.strftime('%H:%M')} IST — "
+                f"NOT EOD, skipping close. Positions reload on next start."
+            )
         _index_key = self.cfg.index_instrument_key or self.cfg.nifty_instrument_key
         self.broker.unsubscribe_ticks([_index_key])
 
@@ -282,6 +304,25 @@ class SurvivorAlgo(BaseStrategy):
             )
             return
 
+        # ── Idempotent gate ───────────────────────────────────────────────
+        # Unique key = direction + strike + date + minute
+        # Prevents duplicate orders if same signal fires twice in same minute
+        import pytz as _pytz
+        from datetime import datetime as _dt
+        _now = _dt.now(_pytz.timezone("Asia/Kolkata"))
+        _order_key = f"{direction}_{int(final_strike)}_{_now.strftime('%Y%m%d_%H%M')}"
+        if _order_key in self._pending_orders:
+            logger.warning(
+                f"[survivor] DUPLICATE ORDER BLOCKED | key={_order_key} | "
+                f"already in flight this minute"
+            )
+            self._signal(f"⚠ Duplicate {direction} order blocked — same signal already placed this minute")
+            return
+        self._pending_orders.add(_order_key)
+        # Auto-clear old keys (keep only today's)
+        today_prefix = _now.strftime('%Y%m%d')
+        self._pending_orders = {k for k in self._pending_orders if today_prefix in k}
+
         try:
             if _is_paper:
                 sell_price  = round(premium * 0.98, 1)
@@ -301,6 +342,8 @@ class SurvivorAlgo(BaseStrategy):
                 ))
                 if resp.status == "REJECTED":
                     self._signal(f"{direction} order REJECTED: {resp.message}")
+                    self._pending_orders.discard(_order_key)  # allow retry on rejection
+                    alert_order_rejected(symbol, resp.message)
                     return
                 entry_price = await self.broker.get_ltp(symbol)
                 order_id    = resp.order_id
@@ -339,6 +382,30 @@ class SurvivorAlgo(BaseStrategy):
                 f"SOLD {direction} {int(final_strike)} @ ₹{entry_price:.2f} | "
                 f"Order: {order_id}"
             )
+            alert_trade_opened(symbol, direction, entry_price, quantity, int(final_strike))
+
+            # Place GTT Trailing SL immediately after live trade opens
+            _is_paper = (
+                os.getenv("PAPER_TRADE", "false").lower() == "true"
+                or self.cfg.paper_trade_override
+            )
+            if not _is_paper and hasattr(self.broker, 'place_gtt_trailing_sl'):
+                try:
+                    gtt_id = await self.broker.place_gtt_trailing_sl(
+                        instrument_key=ikey,
+                        quantity=quantity,
+                        entry_price=entry_price,
+                        order_type="SELL",
+                        trailing_gap=0.25,
+                        sl_pct=0.15,
+                    )
+                    if gtt_id:
+                        self._signal(f"🛡 GTT Trailing SL placed | id={gtt_id} | trigger={round(entry_price*1.15,1)}")
+                    else:
+                        alert_gtt_failed(symbol, "GTT returned empty ID")
+                except Exception as ge:
+                    logger.warning(f"[survivor] GTT placement failed: {ge}")
+                    alert_gtt_failed(symbol, str(ge))
 
         except Exception as e:
             logger.error(f"[survivor] _sell_option failed for {direction}: {e}")
@@ -377,16 +444,56 @@ class SurvivorAlgo(BaseStrategy):
         return f"NSE_FO|{self.cfg.symbol_initials}{int(strike):05d}{option_type}"
 
     async def _reload_open_trades(self) -> None:
-        """On startup, reload any OPEN trades from the database into memory."""
+        """
+        On startup, reload OPEN trades from DB and reconcile against
+        broker positions. Closes DB trades that no longer exist on broker.
+        """
         try:
             open_trades = trade_logger.get_trades(strategy=self.name, status="OPEN")
             if not open_trades:
                 logger.info("[survivor] No open trades found in database to reload.")
                 return
+
+            # Fetch live broker positions for reconciliation
+            broker_symbols = set()
+            _is_paper = (
+                os.getenv("PAPER_TRADE", "false").lower() == "true"
+                or self.cfg.paper_trade_override
+            )
+            if not _is_paper:
+                try:
+                    import upstox_client
+                    cfg = upstox_client.Configuration()
+                    cfg.access_token = os.getenv("UPSTOX_ACCESS_TOKEN", "")
+                    client = upstox_client.ApiClient(cfg)
+                    api = upstox_client.PortfolioApi(client)
+                    resp = api.get_short_term_positions(api_version="2.0")
+                    if resp and resp.data:
+                        for pos in resp.data:
+                            if pos.quantity != 0:
+                                broker_symbols.add(pos.instrument_token)
+                    logger.info(f"[survivor] Broker positions on startup: {len(broker_symbols)} open")
+                except Exception as be:
+                    logger.warning(f"[survivor] Could not fetch broker positions: {be} — using DB only")
+
+            reloaded = 0
             for t in open_trades:
-                # Avoid duplicates
                 if any(x["id"] == t["id"] for x in self._open_trades_data):
                     continue
+
+                # If broker data available and symbol not in broker — close in DB
+                if broker_symbols and t["symbol"] not in broker_symbols:
+                    logger.warning(
+                        f"[survivor] RECONCILE: DB trade {t['id'][:8]} ({t['symbol']}) "
+                        f"not found in broker — marking CLOSED"
+                    )
+                    trade_logger.close_trade(
+                        t["id"], t["entry_price"],
+                        "RECONCILE_CLOSE — not in broker positions on startup"
+                    )
+                    alert_reconcile_mismatch(t["id"], t["symbol"])
+                    continue
+
                 direction = "CE" if t["symbol"].endswith("CE") else "PE"
                 self._open_trades_data.append({
                     "id":         t["id"],
@@ -397,7 +504,6 @@ class SurvivorAlgo(BaseStrategy):
                     "direction":  direction,
                 })
                 self._open_trade_ids.append(t["id"])
-                # Subscribe to live ticks for reloaded trade
                 try:
                     sym_name = t["symbol"].split("|")[-1]
                     strike = float(''.join(filter(str.isdigit, sym_name))[-5:])
@@ -410,8 +516,13 @@ class SurvivorAlgo(BaseStrategy):
                     logger.info(f"[survivor] Subscribed to ticks for reloaded trade: {ikey}")
                 except Exception as sub_e:
                     logger.error(f"[survivor] Could not subscribe for reloaded trade: {sub_e}")
-            logger.info(f"[survivor] Reloaded {len(open_trades)} open trade(s) from database.")
-            self._signal(f"Reloaded {len(open_trades)} open trade(s) from previous session.")
+                reloaded += 1
+
+            if reloaded > 0:
+                logger.info(f"[survivor] Reloaded {reloaded} open trade(s) after reconciliation.")
+                self._signal(f"Reloaded {reloaded} open trade(s) from previous session.")
+            else:
+                logger.info("[survivor] No open trades to reload after reconciliation.")
         except Exception as e:
             logger.error(f"[survivor] Failed to reload open trades: {e}")
 
@@ -423,8 +534,8 @@ class SurvivorAlgo(BaseStrategy):
             try:
                 from core.risk_manager import risk_manager
                 if risk_manager.check_auto_stop():
-                    logger.warning("[survivor] WATCHDOG: Auto-stop triggered")
-                    self._signal("WATCHDOG: Auto-stop 3:10 PM — closing all positions")
+                    logger.warning("[survivor] WATCHDOG: EOD auto-stop triggered")
+                    self._signal("WATCHDOG: EOD 3:05 PM — closing all positions")
                     await self._close_all_positions()
                     await self.stop(reason="AUTO_STOP_WATCHDOG")
                     return
@@ -438,8 +549,8 @@ class SurvivorAlgo(BaseStrategy):
         while not self._stop_flag:
             try:
                 if risk_manager.check_auto_stop():
-                    logger.warning("[survivor] WATCHDOG: Auto-stop 3:10 PM")
-                    self._signal("Auto-stop 3:10 PM [WATCHDOG]")
+                    logger.warning("[survivor] WATCHDOG: EOD auto-stop 3:05 PM")
+                    self._signal("EOD auto-stop 3:05 PM [WATCHDOG]")
                     await self._close_all_positions()
                     await self.stop(reason="AUTO_STOP")
                     return
@@ -451,11 +562,27 @@ class SurvivorAlgo(BaseStrategy):
                     return
                 for trade in list(self._open_trades_data):
                     symbol = trade["symbol"]
-                    # Use WebSocket cache only — no REST API calls
-                    cached = self._ltp_cache.get(symbol, 0.0)
+                    ikey = self._ikey_cache.get(symbol, symbol)
+                    # Check both symbol and ikey in cache
+                    cached = self._ltp_cache.get(ikey, self._ltp_cache.get(symbol, 0.0))
                     if cached == 0.0:
-                        # Fallback: use entry price (neutral) not simulated decay
-                        self._ltp_cache[symbol] = trade["entry"]
+                        # Fallback: fetch via REST API (throttled — max once per 30s per symbol)
+                        now_ts = __import__('time').time()
+                        last_fetch_key = f"_last_rest_fetch_{symbol}"
+                        last_fetch = getattr(self, last_fetch_key, 0)
+                        if now_ts - last_fetch > 30:
+                            try:
+                                ltp = await self.broker.get_ltp(ikey)
+                                if ltp > 0:
+                                    self._ltp_cache[ikey] = ltp
+                                    self._ltp_cache[symbol] = ltp
+                                    logger.info(f"[survivor] REST fallback LTP: {ikey} = {ltp}")
+                                setattr(self, last_fetch_key, now_ts)
+                            except Exception as fe:
+                                logger.debug(f"[survivor] REST fallback failed: {fe}")
+                                self._ltp_cache[symbol] = trade["entry"]
+                        else:
+                            self._ltp_cache[symbol] = trade["entry"]
             except Exception as e:
                 logger.debug(f"[survivor] _refresh_ltp_loop error: {e}")
             await asyncio.sleep(3)
@@ -510,6 +637,7 @@ class SurvivorAlgo(BaseStrategy):
                         f"🔒 BREAKEVEN LOCKED | {trade['symbol']} | "
                         f"P&L: ₹{curr_pnl:.0f} — SL moved to entry ₹{trade['entry']:.2f}"
                     )
+                    alert_breakeven_locked(trade['symbol'], curr_pnl)
 
                 # ── Check breakeven SL (if locked) ───────────────────────
                 if trade.get("_be_locked"):
@@ -562,6 +690,24 @@ class SurvivorAlgo(BaseStrategy):
     ) -> None:
         if trade not in self._open_trades_data:
             return
+        # Exit precedence gate — prevent double-close from SL + GTT + EOD firing simultaneously
+        trade_id = trade.get("id", "")
+        if trade_id in self._closing_trades:
+            logger.warning(
+                f"[survivor] DOUBLE-CLOSE BLOCKED | {trade.get('symbol')} | "
+                f"reason={reason} | already being closed"
+            )
+            return
+        self._closing_trades.add(trade_id)
+        # Exit precedence gate — prevent double-close from SL + GTT + EOD firing simultaneously
+        trade_id = trade.get("id", "")
+        if trade_id in self._closing_trades:
+            logger.warning(
+                f"[survivor] DOUBLE-CLOSE BLOCKED | {trade.get('symbol')} | "
+                f"reason={reason} | already being closed"
+            )
+            return
+        self._closing_trades.add(trade_id)
 
         exit_order_type = "BUY" if trade["order_type"] == "SELL" else "SELL"
 
@@ -618,6 +764,10 @@ class SurvivorAlgo(BaseStrategy):
         ]
         if trade["id"] in self._open_trade_ids:
             self._open_trade_ids.remove(trade["id"])
+        # Clear closing flag
+        self._closing_trades.discard(trade["id"])
+        # Clear closing flag
+        self._closing_trades.discard(trade["id"])
 
         self._closed_trades += 1
 
@@ -630,6 +780,7 @@ class SurvivorAlgo(BaseStrategy):
             f"CLOSED {trade['symbol']} | Reason: {reason} | "
             f"P&L: ₹{pnl:.2f} | Order: {order_id}"
         )
+        alert_trade_closed(trade['symbol'], trade['entry'], exit_price, trade['quantity'], pnl, reason)
 
     async def _close_all_positions(self) -> None:
         if not self._open_trades_data:
@@ -639,6 +790,18 @@ class SurvivorAlgo(BaseStrategy):
             await self._close_trade(trade, "EOD")
         self._unrealised_pnl = 0.0
         self._update_pnl(self._realised_pnl, 0.0)
+        # EOD summary alert
+        try:
+            from core.alerting import alert_eod_close
+            import pytz
+            from datetime import datetime
+            today = datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d")
+            trades = trade_logger.get_trades(status="CLOSED", limit=100)
+            today_trades = [t for t in trades if t.get("exit_time","").startswith(today)]
+            total_pnl = sum(t.get("realised_pnl", 0) for t in today_trades)
+            alert_eod_close(total_pnl, len(today_trades))
+        except Exception:
+            pass
 
     # ── P&L Calculation ───────────────────────────────────────────────────────
 
@@ -650,17 +813,18 @@ class SurvivorAlgo(BaseStrategy):
             symbol = trade["symbol"]
             try:
                 ikey = self._ikey_cache.get(symbol, symbol)
+                # Check both ikey and symbol in cache
                 curr = self._ltp_cache.get(ikey, self._ltp_cache.get(symbol, 0.0))
-                if curr == 0.0:
-                    curr = entry * 0.95  # simulate decay if LTP not yet cached
+                # If still 0, do NOT use entry as fallback — use 0 so dashboard shows stale
+                # The REST fallback in _refresh_ltp_loop will populate cache every 30s
             except Exception:
-                curr = entry
+                curr = 0.0
             if curr == 0.0:
-                curr = entry
+                curr = 0.0  # leave as 0 — REST fallback will fix within 30s
             if trade["order_type"] == "SELL":
-                unrealised += (entry - curr) * qty
+                unrealised += (entry - curr) * qty if curr > 0 else 0.0
             else:
-                unrealised += (curr - entry) * qty
+                unrealised += (curr - entry) * qty if curr > 0 else 0.0
         self._unrealised_pnl = round(unrealised, 2)
         self._update_pnl(self._realised_pnl, self._unrealised_pnl)
         # Update live P&L registry for dashboard
@@ -670,10 +834,12 @@ class SurvivorAlgo(BaseStrategy):
                 entry = trade["entry"]
                 qty   = trade["quantity"]
                 ikey  = self._ikey_cache.get(trade["symbol"], trade["symbol"])
-                curr  = self._ltp_cache.get(ikey, self._ltp_cache.get(trade["symbol"], entry))
-                pnl   = (entry - curr) * qty if trade["order_type"] == "SELL" else (curr - entry) * qty
-                pnl_registry[trade["id"]] = round(pnl, 2)
-                ltp_registry[trade["id"]] = curr
+                curr  = self._ltp_cache.get(ikey, self._ltp_cache.get(trade["symbol"], 0.0))
+                if curr > 0:
+                    pnl = (entry - curr) * qty if trade["order_type"] == "SELL" else (curr - entry) * qty
+                    pnl_registry[trade["id"]] = round(pnl, 2)
+                    ltp_registry[trade["id"]] = curr
+                # If curr == 0, keep existing registry value (don't overwrite with wrong 0)
         except Exception:
             pass
 
