@@ -530,6 +530,7 @@ class SurvivorAlgo(BaseStrategy):
 
     async def _auto_stop_watchdog(self) -> None:
         logger.info("[survivor] Auto-stop watchdog started")
+        _last_reconcile = 0
         while not self._stop_flag:
             await asyncio.sleep(30)
             try:
@@ -540,6 +541,68 @@ class SurvivorAlgo(BaseStrategy):
                     await self._close_all_positions()
                     await self.stop(reason="AUTO_STOP_WATCHDOG")
                     return
+
+                # Mid-session reconciliation every 5 minutes
+                import time as _t
+                import pytz
+                from datetime import datetime as _dt, time as _dtime
+                now = _dt.now(pytz.timezone("Asia/Kolkata"))
+                market_open = _dtime(9, 30) <= now.time() <= _dtime(15, 5)
+                _is_paper = (
+                    os.getenv("PAPER_TRADE", "false").lower() == "true"
+                    or self.cfg.paper_trade_override
+                )
+                if (
+                    market_open
+                    and not _is_paper
+                    and self._open_trades_data
+                    and _t.time() - _last_reconcile > 300  # every 5 minutes
+                ):
+                    _last_reconcile = _t.time()
+                    try:
+                        import upstox_client
+                        cfg = upstox_client.Configuration()
+                        cfg.access_token = os.getenv("UPSTOX_ACCESS_TOKEN", "")
+                        client = upstox_client.ApiClient(cfg)
+                        api = upstox_client.PortfolioApi(client)
+                        resp = api.get_short_term_positions(api_version="2.0")
+                        broker_symbols = set()
+                        if resp and resp.data:
+                            for pos in resp.data:
+                                if pos.quantity != 0:
+                                    broker_symbols.add(pos.instrument_token)
+                        # Check each open trade against broker
+                        for trade in list(self._open_trades_data):
+                            if trade["symbol"] not in broker_symbols:
+                                logger.warning(
+                                    f"[survivor] MID-SESSION RECONCILE: "
+                                    f"{trade['symbol']} not in broker — closing in DB"
+                                )
+                                trade_logger.close_trade(
+                                    trade["id"], trade["entry"],
+                                    "MID_SESSION_RECONCILE — not in broker positions"
+                                )
+                                self._open_trades_data = [
+                                    t for t in self._open_trades_data
+                                    if t["id"] != trade["id"]
+                                ]
+                                self._open_trade_ids = [
+                                    i for i in self._open_trade_ids
+                                    if i != trade["id"]
+                                ]
+                                risk_manager.release_trade(self.name, trade["order_type"])
+                                try:
+                                    from core.alerting import alert_reconcile_mismatch
+                                    alert_reconcile_mismatch(trade["id"], trade["symbol"])
+                                except Exception:
+                                    pass
+                        logger.info(
+                            f"[survivor] Mid-session reconcile: "
+                            f"{len(self._open_trades_data)} open trades confirmed"
+                        )
+                    except Exception as re:
+                        logger.debug(f"[survivor] Mid-session reconcile error: {re}")
+
             except Exception as e:
                 logger.error(f"[survivor] Watchdog error: {e}")
 
