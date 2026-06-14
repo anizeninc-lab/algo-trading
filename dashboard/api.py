@@ -190,6 +190,65 @@ async def get_trades(
 @app.get("/api/trades/summary")
 async def get_trades_summary(strategy: str = None):
     return trade_logger.get_pnl_summary(strategy=strategy)
+
+@app.get("/api/banknifty/trades")
+async def get_banknifty_trades(status: str = None, limit: int = 200):
+    """Returns BankNifty paper trades separately from Nifty trades."""
+    trades = trade_logger.get_trades(strategy="bn_survivor", status=status, limit=limit)
+    for t in trades:
+        if t.get("status") == "OPEN":
+            t["unrealised_pnl"] = pnl_registry.get(t["id"], 0.0)
+            t["current_ltp"]    = ltp_registry.get(t["id"], 0.0)
+            t["ltp_fresh"]      = ltp_registry.get(t["id"], 0.0) > 0
+    return {"trades": trades, "count": len(trades)}
+
+@app.get("/api/banknifty/summary")
+async def get_banknifty_summary():
+    """Returns BankNifty paper P&L summary."""
+    summary = trade_logger.get_pnl_summary(strategy="bn_survivor")
+    return summary
+
+@app.get("/api/alerts")
+async def get_alerts():
+    """Returns last 50 critical alerts for dashboard display."""
+    return {"alerts": list(reversed(alert_store))}
+
+@app.post("/api/alerts/clear")
+async def clear_alerts():
+    alert_store.clear()
+    return {"ok": True}
+
+@app.get("/api/broker-positions")
+async def get_broker_positions():
+    """
+    Returns live positions from Upstox broker.
+    Used to reconcile dashboard P&L with Upstox app.
+    """
+    try:
+        if broker_ref is None:
+            return {"positions": [], "error": "broker not connected"}
+        positions = await broker_ref.get_positions()
+        result = []
+        for p in positions:
+            if p.quantity == 0:
+                continue  # skip flat positions
+            result.append({
+                "symbol":        p.symbol,
+                "quantity":      p.quantity,
+                "average_price": p.average_price,
+                "ltp":           p.last_price,
+                "pnl":           p.pnl,
+                "pnl_pct":       round((p.pnl / (p.average_price * abs(p.quantity)) * 100), 2)
+                                 if p.average_price and p.quantity else 0,
+            })
+        total_pnl = sum(p["pnl"] for p in result)
+        return {
+            "positions":  result,
+            "count":      len(result),
+            "total_pnl":  round(total_pnl, 2),
+        }
+    except Exception as e:
+        return {"positions": [], "error": str(e)}
 @app.get("/api/trades/performance")
 async def get_trades_performance():
     """Returns gross P&L, charges, net P&L, margin used, and ROI."""
@@ -330,6 +389,10 @@ async def startup():
 # ── Unrealised PnL Registry ───────────────────────────────────────────────────
 pnl_registry: dict = {}
 ltp_registry: dict = {}
+
+# In-memory alert store — last 50 critical alerts
+from collections import deque
+alert_store: deque = deque(maxlen=50)
 
 
 @app.post("/api/toggle-paper")

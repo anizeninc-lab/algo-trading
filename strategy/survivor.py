@@ -43,12 +43,13 @@ class SurvivorConfig:
     index_instrument_key: str   = "NSE_INDEX|Nifty 50"  # "NSE_INDEX|Nifty Bank" for BankNifty
     lot_size:             int   = 65                     # 15 for BankNifty
     paper_trade_override: bool  = False                  # force paper mode for this instance
+    strategy_name:        str   = "survivor"             # override for BankNifty: "bn_survivor" 
 
 
 class SurvivorAlgo(BaseStrategy):
 
     def __init__(self, broker: AbstractBrokerGateway, config: SurvivorConfig):
-        super().__init__(name="survivor", broker=broker, config=vars(config))
+        super().__init__(name=config.strategy_name, broker=broker, config=vars(config))
         self.cfg               = config
         self._loop = None
         self._pe_last_value    = config.pe_start

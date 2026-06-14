@@ -127,6 +127,7 @@ async def run_strategies(config: dict):
         index_instrument_key = "NSE_INDEX|Nifty Bank",
         lot_size             = 15,
         paper_trade_override = True,   # ALWAYS paper for BankNifty
+        strategy_name        = "bn_survivor",  # separate name — own DB records, own risk counters
     )
 
     combo_cfg = SaviourComboConfig(

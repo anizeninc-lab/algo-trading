@@ -919,6 +919,136 @@ function TradeLedger({ trades }) {
   )
 }
 
+function BankNiftyPanel() {
+  const [trades,  setTrades]  = React.useState([])
+  const [summary, setSummary] = React.useState(null)
+
+  React.useEffect(() => {
+    function fetch() {
+      axios.get(`${API}/api/banknifty/trades?limit=100`).then(r => setTrades(r.data.trades || [])).catch(() => {})
+      axios.get(`${API}/api/banknifty/summary`).then(r => setSummary(r.data)).catch(() => {})
+    }
+    fetch()
+    const id = setInterval(fetch, 5000)
+    return () => clearInterval(id)
+  }, [])
+
+  const open   = trades.filter(t => t.status === "OPEN")
+  const closed = trades.filter(t => t.status === "CLOSED")
+  const totalPnl = closed.reduce((s, t) => s + (t.realised_pnl || 0), 0)
+  const wins   = closed.filter(t => (t.realised_pnl || 0) > 0).length
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* Header */}
+      <div style={{ background: "#1a1a2e", border: "1px solid #4a4a8a40", borderRadius: 10, padding: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "#a78bfa" }}>📄 BANKNIFTY PAPER TRADING</div>
+            <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>Paper mode — zero real capital risk</div>
+          </div>
+          <div style={{ background: "#f59e0b20", border: "1px solid #f59e0b40", borderRadius: 6, padding: "4px 12px", fontSize: 11, fontWeight: 700, color: "#f59e0b" }}>PAPER ONLY</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px,1fr))", gap: 10 }}>
+          {[
+            { label: "TOTAL TRADES",  val: closed.length,          col: C.text },
+            { label: "OPEN NOW",      val: open.length,            col: open.length > 0 ? C.blue : C.muted },
+            { label: "WIN RATE",      val: closed.length > 0 ? `${((wins/closed.length)*100).toFixed(0)}%` : "–", col: wins/closed.length >= 0.5 ? C.green : C.red },
+            { label: "PAPER P&L",     val: fmtRs(totalPnl),       col: pnlC(totalPnl) },
+          ].map(({label, val, col}) => (
+            <div key={label} style={{ background: C.card, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: col, fontFamily: "monospace" }}>{val}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Open Positions */}
+      {open.length > 0 && (
+        <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>OPEN PAPER POSITIONS</div>
+          {open.map((t, i) => {
+            const unreal = t.unrealised_pnl || 0
+            return (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: C.card, borderRadius: 6, border: `1px solid ${pnlC(unreal)}20`, marginBottom: 6 }}>
+                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                  <div style={{ fontSize: 10, color: C.muted }}>PAPER</div>
+                  <div style={{ fontSize: 12, color: C.text }}>{t.symbol}</div>
+                  <div style={{ fontSize: 11, color: t.order_type === "SELL" ? C.red : C.green, fontWeight: 700 }}>{t.order_type}</div>
+                  <div style={{ fontSize: 11, color: C.muted }}>entry ₹{t.entry_price}</div>
+                  {t.current_ltp > 0 && <div style={{ fontSize: 11, color: C.cyan }}>ltp ₹{t.current_ltp?.toFixed(2)}</div>}
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: pnlC(unreal), fontFamily: "monospace" }}>{fmtRs(unreal)}</div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Trade History */}
+      <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>PAPER TRADE HISTORY</div>
+        {closed.length === 0
+          ? <div style={{ color: C.muted, textAlign: "center", padding: "16px 0", fontSize: 12 }}>No paper trades yet</div>
+          : <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 300, overflowY: "auto" }}>
+              {[...closed].reverse().map((t, i) => (
+                <div key={i} style={{ display: "flex", gap: 10, padding: "7px 10px", background: C.card, borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 11, alignItems: "center" }}>
+                  <div style={{ color: C.muted, fontSize: 10, whiteSpace: "nowrap" }}>{fmtTime(t.exit_time)}</div>
+                  <div style={{ color: C.text, flex: 1 }}>{t.symbol}</div>
+                  <div style={{ color: t.order_type === "SELL" ? C.red : C.green, fontWeight: 700 }}>{t.order_type}</div>
+                  <div style={{ color: C.muted }}>₹{t.entry_price} → ₹{t.exit_price}</div>
+                  <div style={{ color: pnlC(t.realised_pnl), fontFamily: "monospace", fontWeight: 700 }}>{fmtRs(t.realised_pnl)}</div>
+                  <div style={{ fontSize: 9, color: C.muted }}>{t.notes}</div>
+                </div>
+              ))}
+            </div>
+        }
+      </div>
+    </div>
+  )
+}
+
+function AlertsPanel() {
+  const [alerts, setAlerts] = React.useState([])
+  React.useEffect(() => {
+    function fetch() {
+      axios.get(`${API}/api/alerts`).then(r => setAlerts(r.data.alerts || [])).catch(() => {})
+    }
+    fetch()
+    const id = setInterval(fetch, 3000)
+    return () => clearInterval(id)
+  }, [])
+
+  const levelColor = l => l === "🚨" ? C.red : l === "⚠️" ? C.orange : l === "✅" ? C.green : l === "🔴" ? C.red : C.blue
+  const levelBg   = l => l === "🚨" ? "#ff3d5a15" : l === "⚠️" ? "#f59e0b15" : l === "✅" ? "#00e87a10" : "#1a2840"
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>SYSTEM ALERTS ({alerts.length})</div>
+        {alerts.length > 0 && (
+          <button onClick={() => axios.post(`${API}/api/alerts/clear`).then(() => setAlerts([]))}
+            style={{ fontSize: 9, color: C.muted, background: "none", border: `1px solid ${C.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>
+            CLEAR
+          </button>
+        )}
+      </div>
+      {alerts.length === 0
+        ? <div style={{ color: C.muted, textAlign: "center", padding: "16px 0", fontSize: 12 }}>✅ No alerts — system healthy</div>
+        : alerts.map((a, i) => (
+          <div key={i} style={{ display: "flex", gap: 10, padding: "8px 12px", background: levelBg(a.level), borderRadius: 6, border: `1px solid ${levelColor(a.level)}30`, alignItems: "flex-start" }}>
+            <div style={{ fontSize: 14 }}>{a.level}</div>
+            <div style={{ fontSize: 10, color: C.muted, whiteSpace: "nowrap", marginTop: 2, fontFamily: "monospace" }}>{a.time}</div>
+            <div style={{ fontSize: 11, color: C.text, fontFamily: "monospace", flex: 1 }}>{a.message}</div>
+          </div>
+        ))
+      }
+    </div>
+  )
+}
+
 function ExecutionLog({ trades }) {
   const logs = []
   trades.forEach(t => {
@@ -926,17 +1056,26 @@ function ExecutionLog({ trades }) {
     if (t.exit_time)  logs.push({ time: t.exit_time,  type: "EXIT",  msg: `EXIT ${t.symbol} @ ₹${fmt(t.exit_price)} (P&L: ${fmtRs(t.realised_pnl)})`, strategy: t.strategy, col: pnlC(t.realised_pnl) })
   })
   logs.sort((a, b) => new Date(b.time) - new Date(a.time))
-  if (logs.length === 0) return <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No execution history yet</div>
+  if (logs.length === 0) return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <AlertsPanel />
+      <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No execution history yet</div>
+    </div>
+  )
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 400, overflowY: "auto" }}>
-      {logs.map((log, i) => (
-        <div key={i} style={{ display: "flex", gap: 12, padding: "8px 12px", background: C.panel, borderRadius: 6, border: `1px solid ${C.border2}`, alignItems: "flex-start" }}>
-          <div style={{ fontSize: 10, color: C.muted, fontFamily: "monospace", whiteSpace: "nowrap", marginTop: 1 }}>{fmtTime(log.time)}</div>
-          <Pill label={log.type} colour={log.col} size={9} />
-          <div style={{ fontSize: 11, color: C.text, fontFamily: "monospace", flex: 1 }}>{log.msg}</div>
-          <div style={{ fontSize: 10, color: C.muted }}>{log.strategy}</div>
-        </div>
-      ))}
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <AlertsPanel />
+      <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>EXECUTION HISTORY</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 400, overflowY: "auto" }}>
+        {logs.map((log, i) => (
+          <div key={i} style={{ display: "flex", gap: 12, padding: "8px 12px", background: C.panel, borderRadius: 6, border: `1px solid ${C.border2}`, alignItems: "flex-start" }}>
+            <div style={{ fontSize: 10, color: C.muted, fontFamily: "monospace", whiteSpace: "nowrap", marginTop: 1 }}>{fmtTime(log.time)}</div>
+            <Pill label={log.type} colour={log.col} size={9} />
+            <div style={{ fontSize: 11, color: C.text, fontFamily: "monospace", flex: 1 }}>{log.msg}</div>
+            <div style={{ fontSize: 10, color: C.muted }}>{log.strategy}</div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -1040,9 +1179,53 @@ function PerformancePanel({ trades }) {
 
 function OpenPositions({ trades }) {
   const open = trades.filter(t => t.status === "OPEN")
-  if (open.length === 0) return <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No open positions</div>
+  const [brokerPos, setBrokerPos] = React.useState([])
+  const [brokerPnl, setBrokerPnl] = React.useState(null)
+  const [mismatch, setMismatch]   = React.useState(false)
+
+  React.useEffect(() => {
+    function fetchBroker() {
+      axios.get(`${API}/api/broker-positions`).then(r => {
+        const pos = r.data.positions || []
+        setBrokerPos(pos)
+        setBrokerPnl(r.data.total_pnl ?? null)
+        // Check mismatch — bot open count vs broker position count
+        const botOpen = trades.filter(t => t.status === "OPEN").length
+        setMismatch(pos.length > 0 && botOpen !== pos.length)
+      }).catch(() => {})
+    }
+    fetchBroker()
+    const id = setInterval(fetchBroker, 5000)
+    return () => clearInterval(id)
+  }, [trades])
+  if (open.length === 0 && brokerPos.length === 0) return <div style={{ color: C.muted, textAlign: "center", padding: "28px 0", fontSize: 12 }}>No open positions</div>
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+
+      {/* ── Broker Sync Panel ── */}
+      {brokerPos.length > 0 && (
+        <div style={{ background: mismatch ? "#ff3d5a15" : "#00e87a10", border: `1px solid ${mismatch ? C.red : C.green}30`, borderRadius: 10, padding: "10px 16px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: mismatch ? C.red : C.green, letterSpacing: 1 }}>
+              {mismatch ? "⚠ POSITION MISMATCH — BOT vs UPSTOX" : "✅ UPSTOX BROKER POSITIONS"}
+            </div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: brokerPnl >= 0 ? C.green : C.red, fontFamily: "monospace" }}>
+              {brokerPnl !== null ? fmtRs(brokerPnl) : "–"}
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {brokerPos.map((p, i) => (
+              <div key={i} style={{ display: "flex", gap: 16, alignItems: "center", fontSize: 12 }}>
+                <span style={{ color: C.muted, fontSize: 10 }}>{p.symbol}</span>
+                <span style={{ color: p.quantity < 0 ? C.red : C.green }}>{p.quantity > 0 ? "+" : ""}{p.quantity}</span>
+                <span style={{ color: C.text }}>avg ₹{p.average_price?.toFixed(2)}</span>
+                <span style={{ color: C.muted }}>ltp ₹{p.ltp?.toFixed(2)}</span>
+                <span style={{ color: p.pnl >= 0 ? C.green : C.red, fontFamily: "monospace", fontWeight: 700 }}>{fmtRs(p.pnl)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {open.map((t, i) => {
         const unreal  = t.unrealised_pnl || 0
         const ltp     = t.current_ltp || 0
@@ -1720,6 +1903,7 @@ export default function App() {
     { key: "perf",      label: "PERFORMANCE" },
     { key: "risk",      label: "RISK & CAPITAL" },
     { key: "strategy",  label: "STRATEGY LAB" },
+    { key: "banknifty", label: "📄 BANKNIFTY PAPER" },
   ]
 
   return (
@@ -1808,6 +1992,7 @@ export default function App() {
           {tab === "positions" && <OpenPositions trades={trades} />}
           {tab === "ledger"    && <TradeLedger trades={trades} />}
           {tab === "execlog"   && <ExecutionLog trades={trades} />}
+          {tab === "banknifty"  && <BankNiftyPanel />}
           {tab === "perf"      && <PerformancePanel trades={trades} />}
           {tab === "risk"      && <RiskPanel trades={trades} global={g} />}
           {tab === "strategy"  && <StrategyLab nifty={market?.nifty_price || 0} vix={vix?.value || 0} />}
