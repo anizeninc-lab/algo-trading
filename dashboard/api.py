@@ -144,6 +144,59 @@ async def get_strategy_status(name: str):
     }
 
 
+@app.post("/api/killswitch")
+async def kill_switch(flatten: bool = True):
+    """
+    Emergency kill switch — halts all trading immediately.
+    If flatten=True, closes all open positions at market price.
+    """
+    try:
+        from core.risk_manager import risk_manager
+        from core.alerting import send_telegram, LEVEL_CRITICAL
+
+        # 1. Halt risk manager — blocks all new trades
+        risk_manager._system_halted = True
+        risk_manager._halt_reason   = "KILL SWITCH ACTIVATED"
+        risk_manager._save_state()
+
+        # 2. Close all positions if flatten=True
+        closed = 0
+        if flatten and combo_ref is not None:
+            try:
+                await combo_ref.survivor._close_all_positions()
+                closed += len(combo_ref.survivor._open_trades_data)
+            except Exception as e:
+                logger.error(f"Kill switch: survivor close failed: {e}")
+            try:
+                if combo_ref.bn_survivor:
+                    await combo_ref.bn_survivor._close_all_positions()
+            except Exception as e:
+                logger.error(f"Kill switch: bn_survivor close failed: {e}")
+
+        # 3. Alert
+        send_telegram(
+            f"KILL SWITCH ACTIVATED\nFlatten: {flatten}\nAll new trading HALTED\nRestart bot to resume",
+            LEVEL_CRITICAL
+        )
+
+        return {"status": "ok", "halted": True, "flatten": flatten, "positions_closed": closed}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.post("/api/killswitch/reset")
+async def kill_switch_reset():
+    """Reset kill switch — re-enables trading. Use carefully."""
+    try:
+        from core.risk_manager import risk_manager
+        from core.alerting import send_telegram, LEVEL_WARNING
+        risk_manager._system_halted = False
+        risk_manager._halt_reason   = ""
+        risk_manager._save_state()
+        send_telegram("⚠️ Kill switch RESET — trading re-enabled", LEVEL_WARNING)
+        return {"status": "ok", "halted": False}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
 @app.post("/api/strategy/{name}/stop")
 async def stop_strategy(name: str):
     status = state_store.get_strategy(name)
@@ -322,6 +375,7 @@ async def get_trades_performance():
 
 # Global broker reference — set by main.py on startup
 broker_ref = None
+combo_ref  = None   # reference to SaviourCombo instance for kill switch
 
 @app.get("/api/funds")
 async def get_funds():

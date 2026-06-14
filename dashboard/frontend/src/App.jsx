@@ -1876,6 +1876,19 @@ export default function App() {
     try { await axios.post(`${API}/api/strategy/${name}/reset`) }
     catch (e) { alert(`Reset failed: ${e.response?.data?.error || e.message}`) }
   }
+  const [killActive, setKillActive] = React.useState(false)
+  async function handleKillSwitch() {
+    if (!window.confirm('🚨 KILL SWITCH\n\nThis will:\n1. HALT all new trading\n2. CLOSE all open positions\n3. Send Telegram alert\n\nAre you sure?')) return
+    try {
+      setKillActive(true)
+      await axios.post(`${API}/api/killswitch?flatten=true`)
+      alert('✅ Kill switch activated — all positions closed, trading halted')
+    } catch(e) {
+      alert(`Kill switch failed: ${e.response?.data?.error || e.message}`)
+    } finally {
+      setKillActive(false)
+    }
+  }
 
   const g = data.global, s = data.strategies, vix = data.vix, market = data.market || {}
   const openCount = trades.filter(t => t.status === "OPEN").length
@@ -1935,6 +1948,10 @@ export default function App() {
           <Pill label={brokerOn ? "BROKER ON" : "BROKER OFF"} colour={brokerOn ? C.green : C.red} />
           <Pill label={`PAPER: ${g.paper_trade ? "ON" : "OFF"}`} colour={g.paper_trade ? C.orange : C.blue} />
           <SoundControl enabled={soundEnabled} onToggle={() => setSoundEnabled(p => !p)} />
+          <button onClick={handleKillSwitch} disabled={killActive}
+            style={{ background: killActive ? "#888" : "#ff3d5a", color: "#fff", border: "none", borderRadius: 6, padding: "5px 14px", fontSize: 11, fontWeight: 800, cursor: killActive ? "not-allowed" : "pointer", letterSpacing: 0.5 }}>
+            {killActive ? "STOPPING..." : "🚨 KILL"}
+          </button>
         </div>
       </div>
 
