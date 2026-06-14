@@ -34,7 +34,11 @@ class UpstoxAdapter(AbstractBrokerGateway):
         self._order_api_v2 = None
         self._portfolio_api = None
         self._market_api = None
-        self._ws_thread = None
+        self._ws_thread      = None
+        self._last_tick_time = 0.0   # epoch time of last received tick
+        self._ws_healthy     = False # True when ticks flowing normally
+        self._last_tick_time = 0.0   # epoch time of last received tick
+        self._ws_healthy     = False # True when ticks flowing normally
         self._streamer = None
         self._ltp_cache = {}
         self._tick_callbacks = {}  # sym -> list of callbacks
@@ -231,7 +235,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
             except Exception:
                 pass
             self._ws_thread = None
-            self._streamer = None
+            self._streamer  = None
             import time; time.sleep(1)
         all_symbols = list(self._tick_callbacks.keys())
 
@@ -253,6 +257,9 @@ class UpstoxAdapter(AbstractBrokerGateway):
 
             def on_message(message):
                 try:
+                    import time as _t
+                    self._last_tick_time = _t.time()
+                    self._ws_healthy     = True
                     feeds = message.get("feeds", {})
                     for sym, feed_data in feeds.items():
                         ltp = 0.0
@@ -289,6 +296,12 @@ class UpstoxAdapter(AbstractBrokerGateway):
 
             def on_close(*args):
                 logger.warning("WebSocket closed")
+                self._ws_healthy = False
+                try:
+                    from core.alerting import alert_websocket_down
+                    alert_websocket_down("WebSocket closed — auto-reconnect in progress")
+                except Exception:
+                    pass
 
             self._streamer = streamer  # Set before connect so subscribe_ticks can find it
             streamer.on("open", on_open)
@@ -301,11 +314,51 @@ class UpstoxAdapter(AbstractBrokerGateway):
         self._ws_thread.start()
         logger.info(f"WebSocket started with symbols: {all_symbols}")
 
-        # Start order polling thread to detect live order fills
+        # Start heartbeat monitor — alerts if no ticks for 60s during market hours
+        def _heartbeat_monitor():
+            import time
+            import pytz
+            from datetime import datetime, time as dtime
+            while True:
+                time.sleep(30)
+                try:
+                    now = datetime.now(pytz.timezone("Asia/Kolkata"))
+                    market_open = dtime(9, 15) <= now.time() <= dtime(15, 15)
+                    if not market_open:
+                        continue
+                    if self._last_tick_time == 0:
+                        continue
+                    elapsed = time.time() - self._last_tick_time
+                    if elapsed > 60:
+                        logger.warning(f"[heartbeat] No ticks for {elapsed:.0f}s — WebSocket may be stale")
+                        self._ws_healthy = False
+                        try:
+                            from core.alerting import alert_websocket_down
+                            alert_websocket_down(f"No ticks for {elapsed:.0f}s — possible silent disconnect")
+                        except Exception:
+                            pass
+                        # Force reconnect if silent for >120s
+                        if elapsed > 120:
+                            logger.warning("[heartbeat] Forcing WebSocket reconnect")
+                            try:
+                                if self._streamer:
+                                    self._streamer.close()
+                            except Exception:
+                                pass
+                except Exception as e:
+                    logger.debug(f"[heartbeat] error: {e}")
+
+        hb_thread = threading.Thread(target=_heartbeat_monitor, daemon=True)
+        hb_thread.start()
+        logger.info("WebSocket heartbeat monitor started")
+
+        # Start order polling thread to detect live order fills + timeout stale orders
         self._known_order_states = {}
+        self._order_open_times   = {}  # order_id -> epoch time when first seen as open
         def _poll_orders():
             import time
             import asyncio
+            ORDER_TIMEOUT_SECONDS = 60  # cancel orders open longer than this
             while True:
                 time.sleep(3)
                 try:
@@ -314,19 +367,54 @@ class UpstoxAdapter(AbstractBrokerGateway):
                     loop = asyncio.new_event_loop()
                     orders = loop.run_until_complete(self.get_orders())
                     loop.close()
+                    now = time.time()
                     for o in orders:
-                        oid = o.order_id
-                        prev = self._known_order_states.get(oid)
-                        if prev != "complete" and getattr(o, "status", "") == "complete":
+                        oid    = o.order_id
+                        status = getattr(o, "status", "")
+                        prev   = self._known_order_states.get(oid)
+
+                        # Detect fill
+                        if prev != "complete" and status == "complete":
                             logger.info(f"[ORDER POLL] Order filled: {oid}")
                             self._order_callback({
-                                "order_id": oid,
-                                "status": "COMPLETE",
+                                "order_id":     oid,
+                                "status":       "COMPLETE",
                                 "average_price": getattr(o, "average_price", 0) or getattr(o, "price", 0),
-                                "symbol": getattr(o, "symbol", ""),
-                                "order_type": getattr(o, "order_type", ""),
+                                "symbol":       getattr(o, "symbol", ""),
+                                "order_type":   getattr(o, "order_type", ""),
                             })
-                        self._known_order_states[oid] = getattr(o, "status", "")
+                            self._order_open_times.pop(oid, None)
+
+                        # Track when order first seen as open
+                        elif status in ("open", "pending", "trigger pending"):
+                            if oid not in self._order_open_times:
+                                self._order_open_times[oid] = now
+                            else:
+                                age = now - self._order_open_times[oid]
+                                if age > ORDER_TIMEOUT_SECONDS:
+                                    logger.warning(
+                                        f"[ORDER POLL] Order {oid} stale for {age:.0f}s — cancelling"
+                                    )
+                                    try:
+                                        cancel_loop = asyncio.new_event_loop()
+                                        cancel_loop.run_until_complete(self.cancel_order(oid))
+                                        cancel_loop.close()
+                                        self._order_open_times.pop(oid, None)
+                                        try:
+                                            from core.alerting import send_telegram, LEVEL_WARNING
+                                            send_telegram(
+                                                f"ORDER TIMEOUT\nOrder {oid[:8]} cancelled after {age:.0f}s unfilled",
+                                                LEVEL_WARNING
+                                            )
+                                        except Exception:
+                                            pass
+                                    except Exception as ce:
+                                        logger.error(f"[ORDER POLL] Cancel failed: {ce}")
+                        else:
+                            # Rejected or cancelled — clean up tracking
+                            self._order_open_times.pop(oid, None)
+
+                        self._known_order_states[oid] = status
                 except Exception as e:
                     logger.warning(f"[ORDER POLL] Error: {e}")
 

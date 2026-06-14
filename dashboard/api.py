@@ -261,6 +261,25 @@ async def get_banknifty_summary():
     summary = trade_logger.get_pnl_summary(strategy="bn_survivor")
     return summary
 
+@app.get("/api/ws-health")
+async def get_ws_health():
+    """Returns WebSocket health status and last tick time."""
+    try:
+        import time
+        broker = broker_ref
+        if broker is None:
+            return {"healthy": False, "last_tick_age_seconds": None, "error": "broker not connected"}
+        last_tick = getattr(broker, "_last_tick_time", 0)
+        healthy   = getattr(broker, "_ws_healthy", False)
+        age       = round(time.time() - last_tick, 1) if last_tick > 0 else None
+        return {
+            "healthy":              healthy,
+            "last_tick_age_seconds": age,
+            "last_tick_time":       last_tick,
+        }
+    except Exception as e:
+        return {"healthy": False, "error": str(e)}
+
 @app.get("/api/alerts")
 async def get_alerts():
     """Returns last 50 critical alerts for dashboard display."""
