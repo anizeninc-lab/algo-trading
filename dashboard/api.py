@@ -261,6 +261,97 @@ async def get_banknifty_summary():
     summary = trade_logger.get_pnl_summary(strategy="bn_survivor")
     return summary
 
+@app.get("/api/trade-journal")
+async def get_trade_journal(days: int = 7):
+    """
+    Post-trade analysis report.
+    Shows why each trade was taken, how it exited, P&L, and control audit.
+    """
+    from datetime import datetime, timedelta
+    import pytz
+    IST = pytz.timezone("Asia/Kolkata")
+    since = (datetime.now(IST) - timedelta(days=days)).strftime("%Y-%m-%d")
+
+    trades = trade_logger.get_trades(status="CLOSED", limit=500)
+    trades = [t for t in trades if t.get("entry_time", "") >= since]
+
+    journal = []
+    for t in trades:
+        entry  = t.get("entry_price", 0)
+        exit_p = t.get("exit_price", 0)
+        qty    = t.get("quantity", 0)
+        pnl    = t.get("realised_pnl", 0)
+        reason = t.get("notes", "")
+
+        # Classify exit reason
+        if "TP_HIT" in reason:
+            exit_type = "PROFIT TARGET"
+            exit_ok   = True
+        elif "SL_HIT" in reason:
+            exit_type = "STOP LOSS"
+            exit_ok   = pnl >= -800  # within expected SL
+        elif "EOD" in reason:
+            exit_type = "EOD AUTO-EXIT"
+            exit_ok   = True
+        elif "RECONCILE" in reason:
+            exit_type = "RECONCILE CLOSE"
+            exit_ok   = False  # unexpected
+        elif "MANUAL" in reason:
+            exit_type = "MANUAL EXIT"
+            exit_ok   = True
+        else:
+            exit_type = "OTHER"
+            exit_ok   = True
+
+        # Classify entry signal
+        notes = t.get("notes", "")
+        if "TIME TRIGGER" in notes.upper():
+            entry_signal = "TIME-BASED (flat market)"
+        elif "VIX Regime" in notes:
+            entry_signal = "MOVEMENT TRIGGER"
+        else:
+            entry_signal = "UNKNOWN"
+
+        journal.append({
+            "id":           t.get("id", "")[:8],
+            "date":         t.get("entry_time", "")[:10],
+            "symbol":       t.get("symbol", ""),
+            "strategy":     t.get("strategy", ""),
+            "direction":    t.get("order_type", ""),
+            "entry_price":  entry,
+            "exit_price":   exit_p,
+            "quantity":     qty,
+            "pnl":          round(pnl, 2),
+            "entry_signal": entry_signal,
+            "exit_type":    exit_type,
+            "exit_ok":      exit_ok,
+            "notes":        notes,
+            "risk_reward":  round(pnl / 800, 2) if pnl < 0 else round(pnl / 600, 2),
+        })
+
+    # Summary stats
+    wins   = [j for j in journal if j["pnl"] > 0]
+    losses = [j for j in journal if j["pnl"] < 0]
+    unexpected_exits = [j for j in journal if not j["exit_ok"]]
+
+    summary = {
+        "period_days":        days,
+        "total_trades":       len(journal),
+        "wins":               len(wins),
+        "losses":             len(losses),
+        "win_rate":           round(len(wins)/len(journal)*100, 1) if journal else 0,
+        "total_pnl":          round(sum(j["pnl"] for j in journal), 2),
+        "avg_win":            round(sum(j["pnl"] for j in wins)/len(wins), 2) if wins else 0,
+        "avg_loss":           round(sum(j["pnl"] for j in losses)/len(losses), 2) if losses else 0,
+        "unexpected_exits":   len(unexpected_exits),
+        "profit_target_hits": len([j for j in journal if j["exit_type"] == "PROFIT TARGET"]),
+        "sl_hits":            len([j for j in journal if j["exit_type"] == "STOP LOSS"]),
+        "eod_exits":          len([j for j in journal if j["exit_type"] == "EOD AUTO-EXIT"]),
+        "manual_exits":       len([j for j in journal if j["exit_type"] == "MANUAL EXIT"]),
+    }
+
+    return {"summary": summary, "trades": journal}
+
 @app.get("/api/ws-health")
 async def get_ws_health():
     """Returns WebSocket health status and last tick time."""
