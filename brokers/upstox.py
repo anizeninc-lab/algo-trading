@@ -44,6 +44,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
         self._tick_callbacks = {}  # sym -> list of callbacks
         self._order_callback = None
         self._connected = False
+        self._placed_order_tags: set = set()  # idempotent order gate
 
     async def login(self) -> bool:
         try:
@@ -113,6 +114,14 @@ class UpstoxAdapter(AbstractBrokerGateway):
                                  message=f"Quantity {order.quantity} exceeds hardcap of {MAX_QTY_PER_ORDER}")
         # ─────────────────────────────────────────────────────────────────────
         try:
+            # Idempotent check — block if same tag already placed today
+            if order.tag:
+                if order.tag in self._placed_order_tags:
+                    logger.warning(f"[upstox] DUPLICATE ORDER BLOCKED by tag: {order.tag}")
+                    return OrderResponse(order_id="DUPLICATE_BLOCKED", status="REJECTED",
+                                        message=f"Duplicate order tag: {order.tag}")
+                self._placed_order_tags.add(order.tag)
+
             body = upstox_client.PlaceOrderV3Request(
                 quantity=order.quantity,
                 product=order.product,
@@ -124,6 +133,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
                 disclosed_quantity=0,
                 trigger_price=0,
                 is_amo=False,
+                tag=order.tag or "",
             )
             resp = self._order_api.place_order(body)
             order_id = resp.data.order_ids[0] if hasattr(resp.data, 'order_ids') else getattr(resp.data, 'order_id', '')

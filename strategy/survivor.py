@@ -380,6 +380,7 @@ class SurvivorAlgo(BaseStrategy):
                     quantity=quantity,
                     product="I",
                     price=sell_price,
+                    tag=_order_key,
                 ))
                 if resp.status == "REJECTED":
                     self._signal(f"{direction} order REJECTED: {resp.message}")
@@ -902,6 +903,7 @@ class SurvivorAlgo(BaseStrategy):
                     quantity=trade["quantity"],
                     product="I",
                     price=exit_price,
+                    tag=f"EXIT_{trade['id'][:8]}",
                 ))
                 if resp.status == "REJECTED":
                     self._signal(

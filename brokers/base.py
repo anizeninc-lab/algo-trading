@@ -18,6 +18,7 @@ class Order:
     product: str  # I = Intraday, D = Delivery
     price: float = 0.0  # 0 for MARKET orders
     order_id: Optional[str] = None
+    tag: Optional[str] = None  # Idempotent order key — blocks duplicate orders
 
 
 @dataclass
