@@ -70,6 +70,8 @@ class RiskManager:
 
         # Per-strategy spam prevention
         self._last_blocked: dict[str, str] = {}
+        # Restore persisted state from previous session if same day
+        self._load_state()
 
     # ─── Daily Reset ──────────────────────────────────────────────────────────
 
@@ -246,6 +248,7 @@ class RiskManager:
             state = {
                 "date":            now.strftime("%Y-%m-%d"),
                 "trade_counts":    self._trade_counts,
+                "daily_pnl":       self._daily_pnl,
                 "system_halted":   self._system_halted,
                 "halt_reason":     self._halt_reason,
                 "deployed_capital": self._deployed_capital,
@@ -270,6 +273,7 @@ class RiskManager:
                 logger.info("[RiskManager] State file is from previous day — ignoring")
                 return
             self._trade_counts     = state.get("trade_counts", {})
+            self._daily_pnl        = state.get("daily_pnl", {})
             self._system_halted    = state.get("system_halted", False)
             self._halt_reason      = state.get("halt_reason", "")
             self._deployed_capital = state.get("deployed_capital", {})
