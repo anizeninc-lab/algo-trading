@@ -308,8 +308,13 @@ class UpstoxAdapter(AbstractBrokerGateway):
                 logger.warning("WebSocket closed")
                 self._ws_healthy = False
                 try:
-                    from core.alerting import alert_websocket_down
-                    alert_websocket_down("WebSocket closed — auto-reconnect in progress")
+                    import pytz
+                    from datetime import datetime, time as dtime
+                    now = datetime.now(pytz.timezone("Asia/Kolkata"))
+                    market_open = dtime(9, 15) <= now.time() <= dtime(15, 15)
+                    if market_open:
+                        from core.alerting import alert_websocket_down
+                        alert_websocket_down("WebSocket closed — auto-reconnect in progress")
                 except Exception:
                     pass
 
