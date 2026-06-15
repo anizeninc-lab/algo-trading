@@ -1,7 +1,11 @@
 {
   "date": "2026-06-15",
-  "trade_counts": {},
+  "trade_counts": {
+    "survivor": 1
+  },
   "system_halted": false,
   "halt_reason": "",
-  "deployed_capital": {}
+  "deployed_capital": {
+    "survivor": 40000.0
+  }
 }

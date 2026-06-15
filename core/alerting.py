@@ -31,8 +31,6 @@ def _ist_now() -> str:
 
 
 def send_telegram(message: str, level: str = LEVEL_INFO) -> bool:
-    # Telegram temporarily disabled
-    return True
     """Send a Telegram message. Returns True if successful."""
     try:
         text = f"{level} *Rahul Trading Bot*\n`{_ist_now()} IST`\n\n{message}"

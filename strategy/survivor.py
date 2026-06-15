@@ -674,7 +674,7 @@ class SurvivorAlgo(BaseStrategy):
                         now_ts = __import__('time').time()
                         last_fetch_key = f"_last_rest_fetch_{symbol}"
                         last_fetch = getattr(self, last_fetch_key, 0)
-                        if now_ts - last_fetch > 30:
+                        if now_ts - last_fetch > 10:
                             try:
                                 ltp = await self.broker.get_ltp(ikey)
                                 if ltp > 0:
