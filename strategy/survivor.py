@@ -432,22 +432,30 @@ class SurvivorAlgo(BaseStrategy):
                 or self.cfg.paper_trade_override
             )
             if not _is_paper and hasattr(self.broker, 'place_gtt_trailing_sl'):
-                try:
-                    gtt_id = await self.broker.place_gtt_trailing_sl(
-                        instrument_key=ikey,
-                        quantity=quantity,
-                        entry_price=entry_price,
-                        order_type="SELL",
-                        trailing_gap=0.25,
-                        sl_pct=0.15,
-                    )
-                    if gtt_id:
-                        self._signal(f"🛡 GTT Trailing SL placed | id={gtt_id} | trigger={round(entry_price*1.15,1)}")
-                    else:
-                        alert_gtt_failed(symbol, "GTT returned empty ID")
-                except Exception as ge:
-                    logger.warning(f"[survivor] GTT placement failed: {ge}")
-                    alert_gtt_failed(symbol, str(ge))
+                gtt_placed = False
+                for _gtt_attempt in range(2):  # 1 retry
+                    try:
+                        gtt_id = await self.broker.place_gtt_trailing_sl(
+                            instrument_key=ikey,
+                            quantity=quantity,
+                            entry_price=entry_price,
+                            order_type="SELL",
+                            trailing_gap=0.25,
+                            sl_pct=0.15,
+                        )
+                        if gtt_id:
+                            self._signal(f"🛡 GTT Trailing SL placed | id={gtt_id} | trigger={round(entry_price*1.15,1)}")
+                            gtt_placed = True
+                            break
+                        else:
+                            logger.warning(f"[survivor] GTT attempt {_gtt_attempt+1} returned empty ID")
+                            await asyncio.sleep(2)
+                    except Exception as ge:
+                        logger.warning(f"[survivor] GTT attempt {_gtt_attempt+1} failed: {ge}")
+                        await asyncio.sleep(2)
+                if not gtt_placed:
+                    alert_gtt_failed(symbol, "GTT failed after 2 attempts — trade has NO broker-side stop")
+                    self._signal(f"🚨 GTT FAILED — {symbol} has no broker stop protection")
 
         except Exception as e:
             logger.error(f"[survivor] _sell_option failed for {direction}: {e}")
