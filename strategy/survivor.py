@@ -564,6 +564,41 @@ class SurvivorAlgo(BaseStrategy):
                 self._signal(f"Reloaded {reloaded} open trade(s) from previous session.")
             else:
                 logger.info("[survivor] No open trades to reload after reconciliation.")
+
+            # ── Reverse check: broker positions not in DB ─────────────────
+            # This catches the dangerous case: broker has open position but
+            # bot DB has no record — would allow new trades over existing ones
+            if broker_symbols and not _is_paper:
+                db_symbols = {t["symbol"] for t in self._open_trades_data}
+                orphan_broker = broker_symbols - db_symbols
+                if orphan_broker:
+                    logger.warning(
+                        f"[survivor] RECONCILE WARNING: {len(orphan_broker)} broker "
+                        f"position(s) not in DB: {orphan_broker}"
+                    )
+                    self._signal(
+                        f"⚠ RECONCILE: {len(orphan_broker)} broker position(s) not in DB — "
+                        f"max_open_trades reduced to account for unknown positions"
+                    )
+                    # Count orphan positions against open trades limit
+                    for orphan in orphan_broker:
+                        self._open_trades_data.append({
+                            "id":         f"ORPHAN_{orphan}",
+                            "order_type": "SELL",
+                            "entry":      0.0,
+                            "symbol":     orphan,
+                            "quantity":   65,
+                            "direction":  "CE" if "CE" in orphan else "PE",
+                        })
+                        logger.warning(f"[survivor] Orphan position added to open trades: {orphan}")
+                    from core.alerting import send_telegram
+                    send_telegram(
+                        f"🚨 RECONCILE MISMATCH\n"
+                        f"{len(orphan_broker)} broker position(s) not tracked in DB:\n"
+                        f"{', '.join(str(s) for s in orphan_broker)}\n"
+                        f"Bot has reduced available trade slots accordingly.",
+                        level="🚨"
+                    )
         except Exception as e:
             logger.error(f"[survivor] Failed to reload open trades: {e}")
 
@@ -636,6 +671,26 @@ class SurvivorAlgo(BaseStrategy):
                                     alert_reconcile_mismatch(trade["id"], trade["symbol"])
                                 except Exception:
                                     pass
+                        # Reverse check: broker positions not in DB
+                        db_symbols = {t["symbol"] for t in self._open_trades_data}
+                        orphan_broker = broker_symbols - db_symbols
+                        if orphan_broker:
+                            logger.warning(
+                                f"[survivor] MID-SESSION: {len(orphan_broker)} broker "
+                                f"position(s) not in DB: {orphan_broker}"
+                            )
+                            for orphan in orphan_broker:
+                                if not any(t["symbol"] == orphan for t in self._open_trades_data):
+                                    self._open_trades_data.append({
+                                        "id":         f"ORPHAN_{orphan}",
+                                        "order_type": "SELL",
+                                        "entry":      0.0,
+                                        "symbol":     orphan,
+                                        "quantity":   65,
+                                        "direction":  "CE" if "CE" in orphan else "PE",
+                                    })
+                                    logger.warning(f"[survivor] Orphan position tracked: {orphan}")
+                            alert_reconcile_mismatch("MID_SESSION", str(orphan_broker))
                         logger.info(
                             f"[survivor] Mid-session reconcile: "
                             f"{len(self._open_trades_data)} open trades confirmed"
