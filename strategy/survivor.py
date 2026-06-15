@@ -111,6 +111,31 @@ class SurvivorAlgo(BaseStrategy):
             f"[survivor] PE Anchor: {self._pe_last_value} | "
             f"CE Anchor: {self._ce_last_value}"
         )
+        # Register regime change callback — close positions if regime flips to trending
+        try:
+            from core.market_context import market_context
+            def _on_regime_change(old_regime: str, new_regime: str) -> None:
+                if new_regime in ("trending_bull", "trending_bear") and self._open_trades_data:
+                    logger.warning(
+                        f"[survivor] Regime flipped {old_regime} → {new_regime} "
+                        f"with {len(self._open_trades_data)} open trades — closing all"
+                    )
+                    self._signal(f"⚠ REGIME CHANGE: {old_regime} → {new_regime} — closing all positions")
+                    loop = self._loop
+                    if loop and loop.is_running():
+                        import asyncio as _asyncio
+                        _asyncio.run_coroutine_threadsafe(
+                            self._close_all_positions(), loop
+                        )
+                    self._pe_sold_flag      = False
+                    self._ce_sold_flag      = False
+                    self._open_trades_data  = []
+                    self._open_trade_ids    = []
+            market_context.register_regime_callback(_on_regime_change)
+            logger.info("[survivor] Regime change callback registered")
+        except Exception as e:
+            logger.error(f"[survivor] Could not register regime callback: {e}")
+
         self._signal(
             f"Started | Spot: {nifty_price:.2f} | "
             f"PE Anchor: {self._pe_last_value:.2f} | "
@@ -143,6 +168,18 @@ class SurvivorAlgo(BaseStrategy):
         if tick.last_price < 5000:
             self._ltp_cache[tick.symbol] = tick.last_price
             self._calculate_pnl()
+            # Also run SL/TP monitoring on option ticks
+            loop = self._loop
+            if loop is None or not loop.is_running():
+                import asyncio as _asyncio
+                try:
+                    loop = _asyncio.get_running_loop()
+                except Exception:
+                    pass
+            if loop and loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    self._monitor_open_trades(self._last_nifty_price), loop
+                )
             return
         logger.info(f"[survivor] Nifty tick: {tick.last_price:.2f} | PE anchor: {self._pe_last_value:.2f} | diff: {tick.last_price - self._pe_last_value:.2f}")
         self._last_nifty_price = tick.last_price
@@ -210,10 +247,13 @@ class SurvivorAlgo(BaseStrategy):
             if can_trade and len(self._open_trades_data) >= 2:
                 can_trade = False
                 reason = "Max open trades reached (2)"
+            # Block if already have an open trade in same direction
+            _open_ce = sum(1 for t in self._open_trades_data if t["direction"] == "CE")
+            _open_pe = sum(1 for t in self._open_trades_data if t["direction"] == "PE")
             if can_trade:
                 # ── TRIGGER 1: Movement-based ─────────────────────────────
                 # PE SELL — Nifty moved up enough from last PE anchor
-                if nifty_price - self._pe_last_value >= current_pe_gap:
+                if nifty_price - self._pe_last_value >= current_pe_gap and not self._pe_sold_flag and _open_pe == 0:
                     await self._sell_option(
                         direction="PE",
                         nifty_price=nifty_price,
@@ -226,7 +266,7 @@ class SurvivorAlgo(BaseStrategy):
                     self._update_position(Direction.SHORT)
 
                 # CE SELL — Nifty moved down enough from last CE anchor
-                if self._ce_last_value - nifty_price >= current_ce_gap:
+                elif self._ce_last_value - nifty_price >= current_ce_gap and not self._ce_sold_flag and _open_ce == 0:
                     await self._sell_option(
                         direction="CE",
                         nifty_price=nifty_price,
