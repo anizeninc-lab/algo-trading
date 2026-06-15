@@ -1,3 +1,4 @@
+
 """
 market_context.py — Layer 1: Market Context Engine
 ====================================================
@@ -37,7 +38,7 @@ IST = pytz.timezone("Asia/Kolkata")
 NIFTY_INSTRUMENT_KEY = "NSE_INDEX|Nifty 50"   # Upstox instrument key for spot
 NIFTY_OPTION_PREFIX  = "NIFTY"                 # Used to filter option chain
 TOP_N_STRIKES        = 10                       # Strikes around ATM to consider
-POLL_INTERVAL_SEC    = 120                      # Refresh every 2 minutes
+POLL_INTERVAL_SEC    = 30                       # Refresh every 2 minutes
 
 # PCR thresholds
 PCR_BULLISH_REVERSAL  = 1.7   # PCR above this → market oversold → bullish reversal watch
@@ -115,8 +116,13 @@ class MarketContextEngine:
         # Spot price tracking for OR
         self._or_ticks_high: float = 0.0
         self._or_ticks_low:  float = float("inf")
+        self._regime_change_callbacks = []  # list of fn(old, new)
 
     # ── Public read-only properties (Layer 2 reads these) ──────────────────
+
+    def register_regime_callback(self, fn) -> None:
+        """Register a callback fn(old_regime, new_regime) on regime change."""
+        self._regime_change_callbacks.append(fn)
 
     @property
     def regime(self) -> str:
@@ -344,53 +350,41 @@ class MarketContextEngine:
     # ── Regime Classification ──────────────────────────────────────────────
 
     def _classify_regime(self):
-        """
-        Determines market regime from PCR + OI deltas + opening range.
-
-        Rules:
-          - PCR spike in last 15 min              → reversal_watch
-          - PCR > 1.3                              → reversal_watch (bullish reversal likely)
-          - PCR < 0.7                              → reversal_watch (bearish reversal likely)
-          - Spot above OR high + CE OI falling     → trending_bull
-          - Spot below OR low  + PE OI falling     → trending_bear
-          - Everything else                        → range
-        """
+        """Delegates to regime_engine for institutional-grade classification."""
+        import os as _os
+        from core.regime_engine import regime_engine, fetch_intraday_candles
+        token = _os.getenv("UPSTOX_ACCESS_TOKEN", "")
+        candles = fetch_intraday_candles(token, 60)
         with self._lock:
-            pcr  = self._oi_snapshot.pcr
-            snap = self._oi_snapshot
-            or_  = self._opening_range
-            spike = self._pcr_spike_time is not None and (
+            pcr      = self._oi_snapshot.pcr
+            snap     = self._oi_snapshot
+            or_      = self._opening_range
+            spike    = self._pcr_spike_time is not None and (
                 datetime.now(IST) - self._pcr_spike_time
             ).total_seconds() < 900
-
-        spot = self._fetch_nifty_spot()
-
-        # PCR extremes and spikes → always reversal_watch
-        if spike or pcr > PCR_BULLISH_REVERSAL or pcr < PCR_BEARISH_REVERSAL:
-            new_regime = REGIME_REVERSAL_WATCH
-
-        elif or_.is_ready and spot is not None:
-            above_or = spot > or_.high
-            below_or = spot < or_.low
-            ce_shrinking = snap.ce_oi_delta < 0   # Short covering on CE side
-            pe_shrinking = snap.pe_oi_delta < 0   # Short covering on PE side
-
-            if above_or and ce_shrinking:
-                new_regime = REGIME_TRENDING_BULL
-            elif below_or and pe_shrinking:
-                new_regime = REGIME_TRENDING_BEAR
-            else:
-                new_regime = REGIME_RANGE
-        else:
-            new_regime = REGIME_RANGE
-
+        spot = self._fetch_nifty_spot() or 0.0
+        new_regime, signals = regime_engine.classify(
+            candles     = candles,
+            or_high     = or_.high if or_.is_ready else spot,
+            or_low      = or_.low  if or_.is_ready else spot,
+            spot        = spot,
+            pcr         = pcr,
+            ce_oi_delta = snap.ce_oi_delta,
+            pe_oi_delta = snap.pe_oi_delta,
+            pcr_spike   = spike,
+        )
         with self._lock:
             if new_regime != self._regime:
-                logger.info(f"Regime change: {self._regime} → {new_regime}")
-            self._regime = new_regime
-
-    # ── Helpers ────────────────────────────────────────────────────────────
-
+                logger.info(f"Regime change: {self._regime} → {new_regime} | score={signals.market_score:+.0f}")
+                old_regime = self._regime
+                self._regime = new_regime
+                for cb in list(self._regime_change_callbacks):
+                    try:
+                        cb(old_regime, new_regime)
+                    except Exception as cb_e:
+                        logger.error(f"Regime change callback error: {cb_e}")
+            else:
+                self._regime = new_regime
     def _fetch_nifty_spot(self) -> Optional[float]:
         token = os.getenv("UPSTOX_ACCESS_TOKEN", "")
         if not token:

@@ -114,7 +114,6 @@ class SaviourCombo:
         # Send startup alert
         try:
             from core.alerting import alert_system_start
-            import os
             is_paper = os.getenv("PAPER_TRADE", "false").lower() == "true"
             from core.market_context import market_context
             alert_system_start(0.0, market_context.regime, is_paper)
