@@ -45,9 +45,12 @@ IST = pytz.timezone("Asia/Kolkata")
 
 # ─── Per-strategy regime rules ────────────────────────────────────────────────
 STRATEGY_ALLOWED_REGIMES = {
-    "survivor":       {REGIME_RANGE},
+    # Survivor trades range AND weak states (mild trend = still safe to sell premium)
+    "survivor":       {REGIME_RANGE, "weak_bull", "weak_bear"},
+    # Wave extractor trades strong trends only
     "wave_extractor": {REGIME_TRENDING_BULL, REGIME_TRENDING_BEAR},
-    "saviour_combo":  {REGIME_TRENDING_BULL, REGIME_TRENDING_BEAR, REGIME_RANGE},
+    # Saviour combo allows all except closed/opening
+    "saviour_combo":  {REGIME_TRENDING_BULL, REGIME_TRENDING_BEAR, REGIME_RANGE, "weak_bull", "weak_bear"},
 }
 
 # ─── PCR hard limits ──────────────────────────────────────────────────────────
@@ -155,8 +158,8 @@ class StrategyFilter:
             return False, f"PCR={pcr:.2f} < {PCR_MIN} — bearish reversal watch, no new entries"
 
         # ── 6. Regime check ───────────────────────────────────────────────
-        if regime == REGIME_REVERSAL_WATCH:
-            return False, "regime=reversal_watch — all entries paused"
+        # reversal_watch is now a FLAG only (not a blocking regime)
+        # Strategies can still trade in reversal_watch — risk is managed via flags
 
         allowed_regimes = STRATEGY_ALLOWED_REGIMES.get(strategy_name)
         if allowed_regimes is None:
