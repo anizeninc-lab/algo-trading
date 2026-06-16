@@ -18,22 +18,22 @@
     "position_size": 0.75
   },
   "scores": {
-    "range_score": 5.0,
-    "trending_score": 5.0,
+    "range_score": 6.0,
+    "trending_score": 4.0,
     "or_width": null,
     "or_width_signal": "OR data not collected",
-    "vix_level": 14.31,
-    "vix_signal": "VIX=14.3 NORMAL \u2192 slight range bias",
-    "gap_pct": 0.537,
-    "gap_signal": "small gap \u2192 neutral",
+    "vix_level": 13.72,
+    "vix_signal": "VIX=13.7 NORMAL \u2192 slight range bias",
+    "gap_pct": 0.049,
+    "gap_signal": "flat open \u2192 range likely",
     "midpoint_crosses": 0,
     "crosses_signal": "0 crosses \u2192 strong directional move",
     "pcr_at_open": 1.0,
     "pcr_signal": "PCR=1.00 NEUTRAL \u2192 range bias",
-    "prev_close": 23856.8,
-    "today_open": 23984.85
+    "prev_close": 23935.6,
+    "today_open": 23923.9
   },
-  "produced_at": "2026-06-15T15:06:32.965393+05:30",
+  "produced_at": "2026-06-16T09:36:36.786450+05:30",
   "plan_version": 1,
   "notes": [
     "OR data unavailable \u2014 defaulting to RANGE MEDIUM, Survivor ACTIVE",
