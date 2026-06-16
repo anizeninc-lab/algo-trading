@@ -6,23 +6,6 @@
 #
 # Each strategy calls can_trade() before placing any entry order.
 # Returns (allowed: bool, reason: str) so the caller can log why it was blocked.
-#
-# Priority order of checks:
-#   1. Clock check (trading hours)
-#   2. Session plan check (LOW confidence = blocked until 10 AM)
-#   3. Market regime (CLOSED, OPENING)
-#   4. Opening range locked
-#   5. PCR spike freeze
-#   6. PCR extreme values
-#   7. Regime vs strategy allowed regimes
-#   8. Session planner strategy activation check
-#
-# Usage in any strategy (e.g. survivor.py):
-#   from core.strategy_filter import strategy_filter
-#   allowed, reason = strategy_filter.can_trade("survivor")
-#   if not allowed:
-#       logger.info(f"[survivor] Entry blocked: {reason}")
-#       return
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import logging
@@ -44,6 +27,7 @@ IST = pytz.timezone("Asia/Kolkata")
 
 
 # ─── Per-strategy regime rules ────────────────────────────────────────────────
+# Hardcoded string fallbacks are kept lowercased for strict string checking alignment
 STRATEGY_ALLOWED_REGIMES = {
     # Survivor trades range AND weak states (mild trend = still safe to sell premium)
     "survivor":       {REGIME_RANGE, "weak_bull", "weak_bear"},
@@ -64,20 +48,16 @@ REQUIRE_OR_LOCKED = True
 class StrategyFilter:
     """
     Gate that every strategy must pass before placing an entry.
-    Now integrates with session_planner for dynamic regime-based decisions.
-    Thread-safe — all reads are from singletons that handle their own locks.
+    Dynamic regime processing with strict capital ceiling synchronization.
     """
+
+    def __init__(self):
+        # Prevent identical log spam across tick streams
+        self._last_state_logged = {}
 
     def can_trade(self, strategy_name: str) -> tuple[bool, str]:
         """
         Main gate check. Call this at the top of any entry signal handler.
-
-        Args:
-            strategy_name: one of 'survivor', 'wave_extractor', 'saviour_combo'
-
-        Returns:
-            (True, "ok") if entry is allowed
-            (False, reason_string) if blocked
         """
 
         # ── 1. Clock check ────────────────────────────────────────────────
@@ -85,12 +65,15 @@ class StrategyFilter:
             return False, "outside trading hours (before 9:30 AM or after 3:10 PM)"
 
         regime = market_context.regime
+        if isinstance(regime, str):
+            regime = regime.lower()  # Force lowercase to match strategy strings safely
 
         if regime == REGIME_OPENING:
             return False, "opening range collection in progress (9:15–9:30 AM)"
 
         if regime == REGIME_CLOSED:
             return False, "market closed"
+
         # Event filter check
         try:
             from core.event_filter import can_trade_event_filter
@@ -105,7 +88,7 @@ class StrategyFilter:
 
         if plan is not None and plan.is_ready:
             # LOW confidence — block all trading until 10 AM re-eval
-            if plan.confidence == "LOW":
+            if getattr(plan, "confidence", "HIGH") == "LOW":
                 now_t = datetime.now(IST).time()
                 from datetime import time as dtime
                 if now_t < dtime(10, 0):
@@ -115,7 +98,7 @@ class StrategyFilter:
                     )
 
             # Check if this specific strategy is activated by session plan
-            if strategy_name == "survivor" and not plan.survivor_active:
+            if strategy_name == "survivor" and not getattr(plan, "survivor_active", True):
                 # Override if live regime has shifted to range intraday
                 if regime in (REGIME_RANGE, REGIME_REVERSAL_WATCH):
                     logger.info(
@@ -127,9 +110,8 @@ class StrategyFilter:
                         f"[context] regime={regime} not suitable for survivor (needs: range)"
                     )
 
-            if strategy_name == "wave_extractor" and not plan.wave_active:
+            if strategy_name == "wave_extractor" and not getattr(plan, "wave_active", True):
                 # Override session plan if live regime is now trending
-                # Session plan is produced at 9:30 AM — market can shift intraday
                 if regime in (REGIME_TRENDING_BULL, REGIME_TRENDING_BEAR):
                     logger.info(
                         f"[strategy_filter] wave_extractor: session plan says BLOCKED "
@@ -138,29 +120,21 @@ class StrategyFilter:
                 else:
                     return False, (
                         f"session plan: Wave Extractor BLOCKED "
-                        f"(regime={plan.regime}, confidence={plan.confidence})"
+                        f"(regime={getattr(plan, 'regime', 'unknown')}, confidence={getattr(plan, 'confidence', 'unknown')})"
                     )
 
         # ── 3. Opening range must be locked ───────────────────────────────
         if REQUIRE_OR_LOCKED and not market_context.opening_range.is_ready:
             return False, "opening range not yet locked — waiting for 9:30 AM data"
 
-        # ── 4. PCR spike freeze ───────────────────────────────────────────
-        if False:  # PCR spike disabled
-            pcr = market_context.pcr
-            return False, f"PCR spike detected (PCR={pcr:.2f}) — 15-min freeze active"
-
-        # ── 5. PCR extreme values ─────────────────────────────────────────
+        # ── 4. PCR extreme values ─────────────────────────────────────────
         pcr = market_context.pcr
         if pcr > PCR_MAX:
             return False, f"PCR={pcr:.2f} > {PCR_MAX} — bullish reversal watch, no new entries"
         if pcr < PCR_MIN:
             return False, f"PCR={pcr:.2f} < {PCR_MIN} — bearish reversal watch, no new entries"
 
-        # ── 6. Regime check ───────────────────────────────────────────────
-        # reversal_watch is now a FLAG only (not a blocking regime)
-        # Strategies can still trade in reversal_watch — risk is managed via flags
-
+        # ── 5. Regime check ───────────────────────────────────────────────
         allowed_regimes = STRATEGY_ALLOWED_REGIMES.get(strategy_name)
         if allowed_regimes is None:
             logger.warning(
@@ -169,64 +143,58 @@ class StrategyFilter:
             return True, "ok (unknown strategy — no regime rule)"
 
         if regime not in allowed_regimes:
-            allowed_str = ", ".join(sorted(allowed_regimes))
+            allowed_str = ", ".join(sorted([str(r) for r in allowed_regimes]))
             return False, (
                 f"regime={regime} not suitable for {strategy_name} "
                 f"(needs: {allowed_str})"
             )
 
-        # ── 7. Direction alignment check ──────────────────────────────────
+        # ── 6. Direction alignment check ──────────────────────────────────
         oi = market_context.oi
         if strategy_name == "wave_extractor" and oi.timestamp is not None:
-            if regime == REGIME_TRENDING_BULL and oi.ce_oi_delta > 0:
-                logger.info(
-                    f"[strategy_filter] wave_extractor note: CE OI still building in bull "
-                    f"(Δ{oi.ce_oi_delta:+,}) — trend may not be confirmed yet"
-                )
-            elif regime == REGIME_TRENDING_BEAR and oi.pe_oi_delta > 0:
-                logger.info(
-                    f"[strategy_filter] wave_extractor note: PE OI still building in bear "
-                    f"(Δ{oi.pe_oi_delta:+,}) — trend may not be confirmed yet"
-                )
+            if regime == REGIME_TRENDING_BULL and getattr(oi, "ce_oi_delta", 0) > 0:
+                pass  # Trend warnings can be appended here if required for diagnostics
+            elif regime == REGIME_TRENDING_BEAR and getattr(oi, "pe_oi_delta", 0) > 0:
+                pass
 
         # ── All checks passed ─────────────────────────────────────────────
-        self._log_context(strategy_name, regime, pcr, plan)
+        self._log_context_once(strategy_name, regime, pcr, plan)
         return True, "ok"
 
     def get_dynamic_params(self, strategy_name: str) -> dict:
         """
         Returns dynamic parameters from session plan for this strategy.
-        Call this when building trade parameters.
-
-        Returns default params if session plan not ready.
         """
         plan = self._get_plan()
         if plan is None or not plan.is_ready:
             return {}
 
-        p = plan.params
+        p = getattr(plan, "params", None)
+        if not p:
+            return {}
+
         if strategy_name == "survivor":
             return {
-                "pe_gap":        p.pe_gap,
-                "ce_gap":        p.ce_gap,
-                "pe_symbol_gap": p.pe_symbol_gap,
-                "ce_symbol_gap": p.ce_symbol_gap,
-                "min_premium":   p.min_premium,
-                "position_size": p.position_size,
+                "pe_gap":        getattr(p, "pe_gap", 15.0),
+                "ce_gap":        getattr(p, "ce_gap", 15.0),
+                "pe_symbol_gap": getattr(p, "pe_symbol_gap", 300.0),
+                "ce_symbol_gap": getattr(p, "ce_symbol_gap", 300.0),
+                "min_premium":   getattr(p, "min_premium", 0.0),
+                "position_size": getattr(p, "position_size", 1),
             }
         elif strategy_name == "wave_extractor":
             return {
-                "sell_gap":      p.sell_gap,
-                "buy_gap":       p.buy_gap,
-                "cool_off_time": p.cool_off_time,
-                "position_size": p.position_size,
+                "sell_gap":      getattr(p, "sell_gap", 0.0),
+                "buy_gap":       getattr(p, "buy_gap", 0.0),
+                "cool_off_time": getattr(p, "cool_off_time", 0),
+                "position_size": getattr(p, "position_size", 1),
             }
         return {}
 
     def get_session_risk(self) -> dict:
         """
         Returns dynamic risk limits from session plan.
-        risk_manager calls this to get today's limits.
+        Enforces absolute hardcoded capital cap constraint of ₹1,50,000.
         """
         plan = self._get_plan()
         if plan is None or not plan.is_ready:
@@ -234,9 +202,14 @@ class StrategyFilter:
                 "daily_loss_limit": -3000.0,
                 "max_capital":      150000.0,
             }
+        
+        # Pull dynamic planner details but cap tightly at risk parameter limits
+        planner_capital = getattr(plan, "max_capital", 150000.0)
+        safe_capital = min(planner_capital, 150000.0)
+        
         return {
-            "daily_loss_limit": plan.daily_loss_limit,
-            "max_capital":      plan.max_capital,
+            "daily_loss_limit": getattr(plan, "daily_loss_limit", -3000.0),
+            "max_capital":      safe_capital,
         }
 
     def get_session_summary(self) -> dict:
@@ -252,74 +225,53 @@ class StrategyFilter:
                 "survivor_active": False,
                 "wave_active":     False,
                 "daily_loss_limit": -3000.0,
-                "max_capital":     150000.0,
+                "max_capital":      150000.0,
                 "notes":           [],
                 "produced_at":     None,
                 "scores": {},
             }
 
-        s = plan.scores
+        s = getattr(plan, "scores", None)
         return {
             "plan_ready":        plan.is_ready,
-            "plan_version":      plan.plan_version,
-            "regime":            plan.regime,
-            "confidence":        plan.confidence,
-            "trending_direction": plan.trending_direction,
-            "survivor_active":   plan.survivor_active,
-            "wave_active":       plan.wave_active,
-            "daily_loss_limit":  plan.daily_loss_limit,
-            "max_capital":       plan.max_capital,
-            "notes":             plan.notes,
-            "produced_at":       plan.produced_at,
+            "plan_version":      getattr(plan, "plan_version", 1),
+            "regime":            getattr(plan, "regime", "unknown"),
+            "confidence":        getattr(plan, "confidence", "unknown"),
+            "trending_direction": getattr(plan, "trending_direction", "unknown"),
+            "survivor_active":   getattr(plan, "survivor_active", False),
+            "wave_active":       getattr(plan, "wave_active", False),
+            "daily_loss_limit":  getattr(plan, "daily_loss_limit", -3000.0),
+            "max_capital":       min(getattr(plan, "max_capital", 150000.0), 150000.0),
+            "notes":             getattr(plan, "notes", []),
+            "produced_at":       getattr(plan, "produced_at", None),
             "scores": {
-                "range_score":       s.range_score,
-                "trending_score":    s.trending_score,
-                "or_width":          s.or_width,
-                "or_width_signal":   s.or_width_signal,
-                "vix_level":         s.vix_level,
-                "vix_signal":        s.vix_signal,
-                "gap_pct":           s.gap_pct,
-                "gap_signal":        s.gap_signal,
-                "midpoint_crosses":  s.midpoint_crosses,
-                "crosses_signal":    s.crosses_signal,
-                "pcr_at_open":       s.pcr_at_open,
-                "pcr_signal":        s.pcr_signal,
+                "range_score":       getattr(s, "range_score", 0),
+                "trending_score":    getattr(s, "trending_score", 0),
+                "or_width":          getattr(s, "or_width", 0),
+                "or_width_signal":   getattr(s, "or_width_signal", ""),
+                "vix_level":         getattr(s, "vix_level", 0),
+                "vix_signal":        getattr(s, "vix_signal", ""),
+                "gap_pct":           getattr(s, "gap_pct", 0),
+                "gap_signal":        getattr(s, "gap_signal", ""),
+                "midpoint_crosses":  getattr(s, "midpoint_crosses", 0),
+                "crosses_signal":    getattr(s, "crosses_signal", ""),
+                "pcr_at_open":       getattr(s, "pcr_at_open", 1.0),
+                "pcr_signal":        getattr(s, "pcr_signal", ""),
             },
             "params": {
-                "pe_gap":        plan.params.pe_gap,
-                "ce_gap":        plan.params.ce_gap,
-                "pe_symbol_gap": plan.params.pe_symbol_gap,
-                "ce_symbol_gap": plan.params.ce_symbol_gap,
-                "min_premium":   plan.params.min_premium,
-                "sell_gap":      plan.params.sell_gap,
-                "buy_gap":       plan.params.buy_gap,
-                "position_size": plan.params.position_size,
+                "pe_gap":        getattr(plan.params, "pe_gap", 0.0) if hasattr(plan, "params") else 0.0,
+                "ce_gap":        getattr(plan.params, "ce_gap", 0.0) if hasattr(plan, "params") else 0.0,
+                "pe_symbol_gap": getattr(plan.params, "pe_symbol_gap", 0.0) if hasattr(plan, "params") else 0.0,
+                "ce_symbol_gap": getattr(plan.params, "ce_symbol_gap", 0.0) if hasattr(plan, "params") else 0.0,
+                "min_premium":   getattr(plan.params, "min_premium", 0.0) if hasattr(plan, "params") else 0.0,
+                "sell_gap":      getattr(plan.params, "sell_gap", 0.0) if hasattr(plan, "params") else 0.0,
+                "buy_gap":       getattr(plan.params, "buy_gap", 0.0) if hasattr(plan, "params") else 0.0,
+                "position_size": getattr(plan.params, "position_size", 1) if hasattr(plan, "params") else 1,
             },
         }
 
     def can_trade_direction(self, strategy_name: str, direction: str) -> tuple[bool, str]:
         """Direction-level check — call after can_trade() passes."""
-        regime = market_context.regime
-        or_    = market_context.opening_range
-
-        if not or_.is_ready:
-            return True, "ok (OR not ready — skipping direction check)"
-
-        spot = market_context.oi.atm_strike
-        if spot is None:
-            return True, "ok (no spot data — skipping direction check)"
-
-        if regime == REGIME_TRENDING_BULL and direction == "SELL":
-            logger.info(
-                f"[strategy_filter] {strategy_name}: SELL in trending_bull — "
-                f"ensure this is a PE sell, not CE sell"
-            )
-        if regime == REGIME_TRENDING_BEAR and direction == "BUY":
-            logger.info(
-                f"[strategy_filter] {strategy_name}: BUY in trending_bear — "
-                f"ensure this is a CE buy (hedge), not directional buy"
-            )
-
         return True, "ok"
 
     def context_summary(self) -> dict:
@@ -335,13 +287,13 @@ class StrategyFilter:
             "or_high":       or_.high,
             "or_low":        or_.low,
             "or_midpoint":   or_.midpoint,
-            "total_ce_oi":   oi.total_ce_oi,
-            "total_pe_oi":   oi.total_pe_oi,
-            "ce_oi_delta":   oi.ce_oi_delta,
-            "pe_oi_delta":   oi.pe_oi_delta,
-            "atm_strike":    oi.atm_strike,
-            "max_pain":      oi.max_pain_strike,
-            "oi_updated_at": oi.timestamp.strftime("%H:%M:%S") if oi.timestamp else None,
+            "total_ce_oi":   getattr(oi, "total_ce_oi", 0),
+            "total_pe_oi":   getattr(oi, "total_pe_oi", 0),
+            "ce_oi_delta":   getattr(oi, "ce_oi_delta", 0),
+            "pe_oi_delta":   getattr(oi, "pe_oi_delta", 0),
+            "atm_strike":    getattr(oi, "atm_strike", None),
+            "max_pain":      getattr(oi, "max_pain_strike", None),
+            "oi_updated_at": oi.timestamp.strftime("%H:%M:%S") if getattr(oi, "timestamp", None) else None,
         }
 
     # ── Helpers ────────────────────────────────────────────────────────────
@@ -355,16 +307,20 @@ class StrategyFilter:
             logger.debug(f"[strategy_filter] session_planner not available: {e}")
             return None
 
-    def _log_context(self, strategy_name: str, regime: str, pcr: float, plan=None):
-        or_   = market_context.opening_range
-        conf  = plan.confidence if plan and plan.is_ready else "N/A"
-        logger.info(
-            f"[strategy_filter] {strategy_name} ALLOWED | "
-            f"regime={regime} | pcr={pcr:.2f} | "
-            f"OR={or_.low}–{or_.high} | "
-            f"spike={market_context.is_pcr_spike} | "
-            f"plan_confidence={conf}"
-        )
+    def _log_context_once(self, strategy_name: str, regime: str, pcr: float, plan=None):
+        """Only logs state confirmation on actual transition state changes to protect disk logs."""
+        or_ = market_context.opening_range
+        conf = getattr(plan, "confidence", "N/A") if plan else "N/A"
+        state_key = f"{strategy_name}_{regime}_{conf}"
+        
+        if self._last_state_logged.get(strategy_name) != state_key:
+            logger.info(
+                f"[strategy_filter] {strategy_name} GATES ACTIVE & PASSED | "
+                f"regime={regime} | pcr={pcr:.2f} | "
+                f"OR={or_.low}–{or_.high} | "
+                f"plan_confidence={conf}"
+            )
+            self._last_state_logged[strategy_name] = state_key
 
 
 # ── Singleton ──────────────────────────────────────────────────────────────────

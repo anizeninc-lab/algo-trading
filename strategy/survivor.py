@@ -65,17 +65,40 @@ class SurvivorAlgo(BaseStrategy):
         self._ltp_cache        = {}  # symbol -> latest LTP
         self._instruments      = []  # cached instruments list
         self._ikey_cache       = {}  # text symbol -> instrument key
-        # Time-based trigger state (reset each day by risk_manager daily reset)
-        self._time_based_pe_fired = False  # True after time trigger sold PE today
-        self._time_based_ce_fired = False  # True after time trigger sold CE today
-        self._last_time_trigger_day = -1   # day-of-month when flags were last reset
-        # Idempotent order gate — prevents duplicate orders on same signal
-        self._pending_orders: set = set()  # keys of in-flight orders
-        # Exit precedence gate — only one exit path can close a trade at a time
-        self._closing_trades: set = set()  # trade IDs currently being closed
-        # Exit precedence gate — only one exit path can close a trade at a time
-        self._closing_trades: set = set()  # trade IDs currently being closed
+        # Time-based trigger state
+        self._time_based_pe_fired = False  
+        self._time_based_ce_fired = False  
+        self._last_time_trigger_day = -1   
+        # Idempotent order gate
+        self._pending_orders: set = set()  
+        # Exit precedence gate
+        self._closing_trades: set = set()  
 
+    def reset_daily_strategy_state(self, morning_open_price: float) -> None:
+        """
+        Master daily reset hook called at market open to clear yesterday's data.
+        """
+        logger.info(f"[{self.name}] Running daily reset. Re-anchoring spot to: ₹{morning_open_price:.2f}")
+        
+        # 1. Clear flat market time trigger flags
+        self._time_based_pe_fired = False
+        self._time_based_ce_fired = False
+        
+        # 2. Re-anchor price gaps cleanly to today's morning opening price
+        self._pe_last_value = morning_open_price
+        self._ce_last_value = morning_open_price
+        self.cfg.pe_start = morning_open_price
+        self.cfg.ce_start = morning_open_price
+        
+        # 3. Reset execution statuses
+        self._pe_sold_flag = False
+        self._ce_sold_flag = False
+        
+        # 4. Flush memory grids
+        self._pending_orders.clear()
+        self._closing_trades.clear()
+        
+        self._signal(f"🔄 Daily State Sync Complete | Base Anchor: {morning_open_price:.2f}")
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def on_start(self) -> None:
@@ -166,7 +189,12 @@ class SurvivorAlgo(BaseStrategy):
         # Option ticks have low prices; index ticks have high prices
         # Use 5000 as threshold to separate options from index for both NIFTY and BANKNIFTY
         if tick.last_price < 5000:
-            self._ltp_cache[tick.symbol] = tick.last_price
+            # ─── MITIGATION POINT ────────────────────────────────────────────────
+            # Capture the clean bid-ask mid_price instead of volatile last_price.
+            # This protects risk tracking, breakeven logs, and stop losses from 
+            # artificial market spikes.
+            # ─────────────────────────────────────────────────────────────────────
+            self._ltp_cache[tick.symbol] = tick.mid_price
             self._calculate_pnl()
             # Also run SL/TP monitoring on option ticks
             loop = self._loop
@@ -303,49 +331,7 @@ class SurvivorAlgo(BaseStrategy):
         except Exception as e:
             logger.exception(f"[survivor] ERROR in on_tick: {e}")
 
-    # ── Option Selling ────────────────────────────────────────────────────────
-
-    async def _sell_option(
-        self,
-        direction:   str,
-        nifty_price: float,
-        gap:         float,
-        quantity:    int,
-    ) -> None:
-        interval     = self.cfg.strike_interval
-        base_strike  = nifty_price - gap if direction == "PE" else nifty_price + gap
-        strike       = round(base_strike / interval) * interval
-        symbol       = None
-        final_strike = strike
-
-        # Search up to 5 strikes for one that meets min premium
-        for _ in range(5):
-            candidate = self._build_symbol(direction, final_strike)
-            _is_paper = (
-                os.getenv("PAPER_TRADE", "false").lower() == "true"
-                or self.cfg.paper_trade_override
-            )
-            if _is_paper:
-                # Simulate premium in paper mode
-                premium = max(5.0, 50.0 - abs(nifty_price - final_strike) * 0.1)
-            else:
-                # Resolve real instrument key before LTP fetch
-                ikey = await self._get_instrument_key(candidate, direction, final_strike)
-                premium = await self.broker.get_ltp(ikey)
-
-            if premium >= self.cfg.min_price_to_sell:
-                symbol = ikey  # Use resolved ikey for order
-                break
-            final_strike += interval if direction == "PE" else -interval
-
-        if not symbol:
-            logger.warning(
-                f"[survivor] No {direction} strike found above "
-                f"₹{self.cfg.min_price_to_sell} — skipping"
-            )
-            return
-
-        # ── Idempotent gate ───────────────────────────────────────────────
+    # ── Idempotent gate ───────────────────────────────────────────────
         # Unique key = direction + strike + date + minute
         # Prevents duplicate orders if same signal fires twice in same minute
         import pytz as _pytz
@@ -364,13 +350,22 @@ class SurvivorAlgo(BaseStrategy):
         today_prefix = _now.strftime('%Y%m%d')
         self._pending_orders = {k for k in self._pending_orders if today_prefix in k}
 
+        # ── NEW: DETERMINISTIC CLIENT ORDER ID & MUTEX LOCK FOR PM2 RESTARTS ──
+        deterministic_client_id = f"SURV_{direction}_{int(final_strike)}_{today_prefix}"
+
         try:
             if _is_paper:
                 sell_price  = round(premium * 0.98, 1)
                 entry_price = sell_price
                 self._signal(f"[PAPER] SELL {quantity} {symbol} @ {sell_price} (simulated)")
-                order_id = "PAPER_SELL"
+                order_id = f"PAPER_{deterministic_client_id}"
             else:
+                # Double-check against already reloaded database entries to prevent multi-execution
+                if any(t.get("symbol") == symbol for t in self._open_trades_data):
+                    logger.warning(f"[survivor] MUTEX LOCK: Already holding an active trade for {symbol}. Order blocked.")
+                    self._pending_orders.discard(_order_key)
+                    return
+
                 ltp        = await self.broker.get_ltp(symbol)
                 sell_price = round(ltp * 0.98, 1) if ltp > 0 else 0.0
                 resp       = await self.broker.place_order(Order(
@@ -380,7 +375,7 @@ class SurvivorAlgo(BaseStrategy):
                     quantity=quantity,
                     product="I",
                     price=sell_price,
-                    tag=_order_key,
+                    tag=deterministic_client_id,  # Sent to Upstox API as session-unique identity
                 ))
                 if resp.status == "REJECTED":
                     self._signal(f"{direction} order REJECTED: {resp.message}")

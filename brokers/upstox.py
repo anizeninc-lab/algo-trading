@@ -37,8 +37,6 @@ class UpstoxAdapter(AbstractBrokerGateway):
         self._ws_thread      = None
         self._last_tick_time = 0.0   # epoch time of last received tick
         self._ws_healthy     = False # True when ticks flowing normally
-        self._last_tick_time = 0.0   # epoch time of last received tick
-        self._ws_healthy     = False # True when ticks flowing normally
         self._streamer = None
         self._ltp_cache = {}
         self._tick_callbacks = {}  # sym -> list of callbacks
@@ -102,8 +100,6 @@ class UpstoxAdapter(AbstractBrokerGateway):
 
     async def place_order(self, order: Order) -> OrderResponse:
         # ── QUANTITY HARDCAP ─────────────────────────────────────────────────
-        # This is a safety guard. Bot should NEVER place more than 1 lot (65 qty).
-        # If quantity exceeds this, it means there is a bug — block the order.
         if order.quantity > MAX_QTY_PER_ORDER:
             logger.error(
                 f"⛔ ORDER BLOCKED BY HARDCAP — "
@@ -120,7 +116,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
                 if order.tag in self._placed_order_tags:
                     logger.warning(f"[upstox] DUPLICATE ORDER BLOCKED by tag: {order.tag}")
                     return OrderResponse(order_id="DUPLICATE_BLOCKED", status="REJECTED",
-                                        message=f"Duplicate order tag: {order.tag}")
+                                         message=f"Duplicate order tag: {order.tag}")
                 self._placed_order_tags.add(order.tag)
 
             body = upstox_client.PlaceOrderV3Request(
@@ -237,7 +233,6 @@ class UpstoxAdapter(AbstractBrokerGateway):
             if callback not in self._tick_callbacks[sym]:
                 self._tick_callbacks[sym].append(callback)
 
-
         if self._ws_thread and self._ws_thread.is_alive():
             logger.info(f"Restarting WebSocket to add new symbols: {symbols}")
             try:
@@ -249,7 +244,6 @@ class UpstoxAdapter(AbstractBrokerGateway):
             self._streamer  = None
             import time; time.sleep(1)
         all_symbols = list(self._tick_callbacks.keys())
-
 
         def _run_streamer():
             """Use Upstox SDK MarketDataStreamerV3 directly — handles protobuf + reconnect."""
@@ -274,25 +268,43 @@ class UpstoxAdapter(AbstractBrokerGateway):
                     feeds = message.get("feeds", {})
                     for sym, feed_data in feeds.items():
                         ltp = 0.0
+                        bid_price = 0.0
+                        ask_price = 0.0
                         try:
                             ff = feed_data.get("fullFeed", {}) or {}
                             source = ff.get("marketFF") or ff.get("indexFF") or {}
+                            
+                            # 1. Fetch Last Traded Price (LTP)
                             ltpc = source.get("ltpc", {}) or {}
                             ltp = float(ltpc.get("ltp", 0) or 0)
                             if not ltp:
                                 ltpc2 = feed_data.get("ltpc", {}) or {}
                                 ltp = float(ltpc2.get("ltp", 0) or 0)
+                                
+                            # 2. Extract top tier Market Depth Bid/Ask for Option Contracts
+                            market_level = source.get("marketLevel", {}) or {}
+                            bids = market_level.get("bid", [])
+                            asks = market_level.get("ask", [])
+                            if bids and isinstance(bids, list):
+                                bid_price = float(bids[0].get("price", 0.0) or 0.0)
+                            if asks and isinstance(asks, list):
+                                ask_price = float(asks[0].get("price", 0.0) or 0.0)
                         except Exception:
                             pass
+
                         if ltp:
                             self._ltp_cache[sym] = ltp
                             if "Nifty 50" in sym or "NIFTY" in str(sym):
                                 from core.state_store import state_store
                                 state_store.update_nifty_price(float(ltp))
+                                
+                            # Construct enriched Tick object with structural depth buffers
                             tick = Tick(
                                 symbol=sym,
                                 last_price=float(ltp),
                                 timestamp=datetime.now().isoformat(),
+                                best_bid=bid_price,
+                                best_ask=ask_price
                             )
                             for cb in self._tick_callbacks.get(sym, []):
                                 try:
@@ -314,7 +326,6 @@ class UpstoxAdapter(AbstractBrokerGateway):
                     from datetime import datetime, time as dtime
                     now = datetime.now(pytz.timezone("Asia/Kolkata"))
                     market_open = dtime(9, 15) <= now.time() <= dtime(15, 15)
-                    # Don't alert in first 90s after startup — normal reconnection
                     uptime = _t.time() - self._start_time
                     if market_open and uptime > 90:
                         from core.alerting import alert_websocket_down
@@ -333,7 +344,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
         self._ws_thread.start()
         logger.info(f"WebSocket started with symbols: {all_symbols}")
 
-        # Start heartbeat monitor — alerts if no ticks for 60s during market hours
+        # Start heartbeat monitor
         def _heartbeat_monitor():
             import time
             import pytz
@@ -346,7 +357,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
                     market_open = dtime(9, 15) <= now.time() <= dtime(15, 15)
                     if not market_open:
                         _fail_count = 0
-                        continue
+                        current_time = datetime.now()
                     if self._last_tick_time == 0:
                         continue
                     elapsed = time.time() - self._last_tick_time
@@ -354,14 +365,12 @@ class UpstoxAdapter(AbstractBrokerGateway):
                         _fail_count += 1
                         self._ws_healthy = False
                         logger.warning(f"[heartbeat] No ticks for {elapsed:.0f}s — failure #{_fail_count}")
-                        # Alert after 3 consecutive failures
                         if _fail_count == 3:
                             try:
                                 from core.alerting import alert_websocket_down
                                 alert_websocket_down(f"No ticks for {elapsed:.0f}s — 3 consecutive failures")
                             except Exception:
                                 pass
-                        # Critical alert + force reconnect after 5 failures
                         if _fail_count >= 5:
                             logger.warning("[heartbeat] CRITICAL — forcing WebSocket reconnect")
                             try:
@@ -391,7 +400,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
         hb_thread.start()
         logger.info("WebSocket heartbeat monitor started")
 
-        # Start order polling thread to detect live order fills + timeout stale orders
+        # Start order polling thread
         self._known_order_states = {}
         self._order_open_times   = {}  # order_id -> epoch time when first seen as open
         def _poll_orders():
@@ -412,7 +421,6 @@ class UpstoxAdapter(AbstractBrokerGateway):
                         status = getattr(o, "status", "")
                         prev   = self._known_order_states.get(oid)
 
-                        # Detect fill
                         if prev != "complete" and status == "complete":
                             filled_qty = getattr(o, "filled_quantity", 0) or getattr(o, "quantity", 0)
                             req_qty    = getattr(o, "quantity", 0)
@@ -436,7 +444,6 @@ class UpstoxAdapter(AbstractBrokerGateway):
                             })
                             self._order_open_times.pop(oid, None)
 
-                        # Track when order first seen as open
                         elif status in ("open", "pending", "trigger pending"):
                             if oid not in self._order_open_times:
                                 self._order_open_times[oid] = now
@@ -462,7 +469,6 @@ class UpstoxAdapter(AbstractBrokerGateway):
                                     except Exception as ce:
                                         logger.error(f"[ORDER POLL] Cancel failed: {ce}")
                         else:
-                            # Rejected or cancelled — clean up tracking
                             self._order_open_times.pop(oid, None)
 
                         self._known_order_states[oid] = status
@@ -475,7 +481,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
 
     def unsubscribe_ticks(self, symbols: list) -> None:
         for sym in symbols:
-            self._tick_callbacks.pop(sym, None)  # removes all callbacks for sym
+            self._tick_callbacks.pop(sym, None)
         logger.info(f"Unsubscribed from ticks: {symbols}")
 
     def on_order_update(self, callback) -> None:
@@ -484,7 +490,6 @@ class UpstoxAdapter(AbstractBrokerGateway):
     @property
     def is_connected(self) -> bool:
         return self._connected
-
 
     async def place_gtt_trailing_sl(
         self,
@@ -495,35 +500,27 @@ class UpstoxAdapter(AbstractBrokerGateway):
         trailing_gap: float = 0.25,
         sl_pct: float = 0.15,      # SL at 15% above entry (for SELL trade)
     ) -> str:
-        """
-        Place a GTT Trailing Stop Loss order immediately after a trade opens.
-        For a SELL trade: exit is BUY, SL triggers when price RISES above entry.
-        trailing_gap: for every trailing_gap fall in LTP, SL moves down by same amount.
-        Returns GTT order ID or empty string on failure.
-        """
         try:
             import upstox_client
             cfg = upstox_client.Configuration()
             cfg.access_token = self._access_token
             client = upstox_client.ApiClient(cfg)
 
-            # For SELL trade: we bought back (BUY to exit)
-            # SL triggers when LTP RISES above trigger_price
             exit_transaction = "BUY" if order_type == "SELL" else "SELL"
             trigger_price = round(entry_price * (1 + sl_pct), 1)
 
             rule = upstox_client.GttRule(
                 strategy="TRAILING_STOP_LOSS",
-                trigger_type="RISING",      # triggers when LTP rises (bad for SELL)
+                trigger_type="RISING",
                 trigger_price=trigger_price,
                 trailing_gap=trailing_gap,
-                market_protection=0.25,     # 0.25% slippage protection
+                market_protection=0.25,
             )
 
             req = upstox_client.GttPlaceOrderRequest(
                 type="SINGLE",
                 quantity=quantity,
-                product="I",               # Intraday
+                product="I",
                 rules=[rule],
                 instrument_token=instrument_key,
                 transaction_type=exit_transaction,

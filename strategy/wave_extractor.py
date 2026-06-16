@@ -3,6 +3,7 @@ from core.strategy_filter import strategy_filter
 import asyncio
 import logging
 import os
+import pytz as _pytz
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -114,7 +115,6 @@ class WaveExtractor(BaseStrategy):
 
     # ── Background Position Sync ──────────────────────────────────────────────
 
-
     async def _auto_stop_watchdog(self) -> None:
         logger.info("[wave_extractor] Auto-stop watchdog started")
         while not self._stop_flag:
@@ -142,7 +142,6 @@ class WaveExtractor(BaseStrategy):
             await asyncio.sleep(30)
 
     async def _sync_positions(self) -> None:
-        # Skip real position sync in paper trade mode
         if os.getenv("PAPER_TRADE", "false").lower() == "true":
             return
 
@@ -208,13 +207,11 @@ class WaveExtractor(BaseStrategy):
 
             self._current_price = tick.last_price
 
-            # Update live market prices in state_store for dashboard
             if "INDEX" in tick.symbol:
                 state_store.update_nifty_price(tick.last_price)
             else:
                 state_store.update_option_price(self.cfg.option_symbol, tick.last_price)
 
-            # Monitor open trades for SL and trailing profit on every tick
             await self._monitor_open_trades()
             self._calculate_pnl()
 
@@ -222,13 +219,16 @@ class WaveExtractor(BaseStrategy):
             if os.getenv("PAPER_TRADE", "false").lower() == "true":
                 price = tick.last_price
                 if self._bracket_active:
-                    # Simulate SELL fill when price rises to sell level
-                    if self._sell_order_id == "PAPER_SELL" and self._sell_price > 0 and price >= self._sell_price:
+                    # Generate identical keys for deterministic identification
+                    _now_tz = datetime.now(_pytz.timezone("Asia/Kolkata"))
+                    today_prefix = _now_tz.strftime('%Y%m%d')
+
+                    if self._sell_order_id.startswith("PAPER_SELL") and self._sell_price > 0 and price >= self._sell_price:
                         self._signal(f"[PAPER] SELL filled @ {self._sell_price}")
                         self._bracket_active = False
                         self._net_position  -= 1
                         trade = {
-                            "order_id":    "PAPER_SELL",
+                            "order_id":    f"PAPER_WAVE_SELL_{today_prefix}",
                             "order_type":  "SELL",
                             "entry_price": self._sell_price,
                             "quantity":    self.cfg.quantity,
@@ -252,13 +252,12 @@ class WaveExtractor(BaseStrategy):
                         asyncio.create_task(self._cool_off_and_rebracket())
                         return
 
-                    # Simulate BUY fill when price drops to buy level
-                    elif self._buy_order_id == "PAPER_BUY" and self._buy_price > 0 and price <= self._buy_price:
+                    elif self._buy_order_id.startswith("PAPER_BUY") and self._buy_price > 0 and price <= self._buy_price:
                         self._signal(f"[PAPER] BUY filled @ {self._buy_price}")
                         self._bracket_active = False
                         self._net_position  += 1
                         trade = {
-                            "order_id":    "PAPER_BUY",
+                            "order_id":    f"PAPER_WAVE_BUY_{today_prefix}",
                             "order_type":  "BUY",
                             "entry_price": self._buy_price,
                             "quantity":    self.cfg.quantity,
@@ -308,8 +307,6 @@ class WaveExtractor(BaseStrategy):
 
     def _on_order_update(self, update: dict) -> None:
         try:
-            if self._stop_flag:
-                return
             if self._stop_flag:
                 return
             if os.getenv("PAPER_TRADE", "false").lower() == "true":
@@ -396,6 +393,11 @@ class WaveExtractor(BaseStrategy):
         if self._current_price == 0:
             return
 
+        # Core State Mutex Verification Guard
+        if any(t.get("symbol") == self.cfg.option_symbol for t in self._open_trades_data):
+            logger.warning("[wave_extractor] MUTEX LOCK: Active trade tracking present in core block. Bracket creation halted.")
+            return
+
         self._bracket_active = True
 
         sell_price = round(self._current_price + self.cfg.sell_gap, 2)
@@ -405,17 +407,22 @@ class WaveExtractor(BaseStrategy):
             self._bracket_active = False
             return
 
-        # Store bracket levels for paper trade fill simulator
         self._sell_price = sell_price
         self._buy_price  = buy_price
 
         self._signal(f"Bracket | SELL {sell_price} | BUY {buy_price}")
 
+        # Deterministic Identity strings matching today's lifecycle window
+        _now_tz = datetime.now(_pytz.timezone("Asia/Kolkata"))
+        today_prefix = _now_tz.strftime('%Y%m%d')
+        deterministic_sell_tag = f"WAVE_SELL_{today_prefix}"
+        deterministic_buy_tag  = f"WAVE_BUY_{today_prefix}"
+
         # ── Place SELL limit order ────────────────────────────────────────────
         try:
             if os.getenv("PAPER_TRADE", "false").lower() == "true":
                 self._signal(f"[PAPER] SELL {self.cfg.quantity} {self.cfg.option_symbol} @ {sell_price} (simulated)")
-                self._sell_order_id = "PAPER_SELL"
+                self._sell_order_id = f"PAPER_SELL_{today_prefix}"
             else:
                 sell_resp = await self.broker.place_order(Order(
                     symbol=self.cfg.option_symbol,
@@ -424,6 +431,7 @@ class WaveExtractor(BaseStrategy):
                     quantity=self.cfg.quantity,
                     product="I",
                     price=sell_price,
+                    tag=deterministic_sell_tag,  # Unique structural token sent to Upstox API
                 ))
                 self._sell_order_id = sell_resp.order_id
                 if sell_resp.status == "REJECTED":
@@ -443,7 +451,7 @@ class WaveExtractor(BaseStrategy):
         try:
             if os.getenv("PAPER_TRADE", "false").lower() == "true":
                 self._signal(f"[PAPER] BUY {self.cfg.quantity} {self.cfg.option_symbol} @ {buy_price} (simulated)")
-                self._buy_order_id = "PAPER_BUY"
+                self._buy_order_id = f"PAPER_BUY_{today_prefix}"
             else:
                 buy_resp = await self.broker.place_order(Order(
                     symbol=self.cfg.option_symbol,
@@ -452,11 +460,12 @@ class WaveExtractor(BaseStrategy):
                     quantity=self.cfg.quantity,
                     product="I",
                     price=buy_price,
+                    tag=deterministic_buy_tag,  # Unique structural token sent to Upstox API
                 ))
                 self._buy_order_id = buy_resp.order_id
                 if buy_resp.status == "REJECTED":
                     self._signal(f"BUY order REJECTED: {buy_resp.message}")
-                    if self._sell_order_id and self._sell_order_id != "PAPER_SELL":
+                    if self._sell_order_id and not self._sell_order_id.startswith("PAPER_SELL"):
                         await self.broker.cancel_order(self._sell_order_id)
                         self._signal(f"SELL {self._sell_order_id} cancelled due to BUY rejection")
                     self._sell_order_id  = ""
@@ -468,7 +477,7 @@ class WaveExtractor(BaseStrategy):
 
         except Exception as e:
             logger.error(f"[wave_extractor] BUY order failed: {e}")
-            if self._sell_order_id and self._sell_order_id != "PAPER_SELL":
+            if self._sell_order_id and not self._sell_order_id.startswith("PAPER_SELL"):
                 await self.broker.cancel_order(self._sell_order_id)
             self._sell_order_id  = ""
             self._buy_order_id   = ""
@@ -499,9 +508,13 @@ class WaveExtractor(BaseStrategy):
             exit_price = round(self._current_price * 0.98, 1)
 
         try:
+            _now_tz = datetime.now(_pytz.timezone("Asia/Kolkata"))
+            today_prefix = _now_tz.strftime('%Y%m%d')
+            deterministic_exit_tag = f"WAVE_EXIT_{trade['order_type']}_{today_prefix}"
+
             if os.getenv("PAPER_TRADE", "false").lower() == "true":
                 self._signal(f"[PAPER] EXIT {exit_order_type} {trade['quantity']} {self.cfg.option_symbol} @ {exit_price} (simulated)")
-                exit_order_id = "PAPER_EXIT"
+                exit_order_id = f"PAPER_EXIT_{today_prefix}"
             else:
                 resp = await self.broker.place_order(Order(
                     symbol=self.cfg.option_symbol,
@@ -510,10 +523,10 @@ class WaveExtractor(BaseStrategy):
                     quantity=trade["quantity"],
                     product="I",
                     price=exit_price,
+                    tag=deterministic_exit_tag,
                 ))
                 exit_order_id = resp.order_id
 
-            # Calculate and record P&L
             entry = trade["entry_price"]
             qty   = trade["quantity"]
             if trade["order_type"] == "SELL":
@@ -526,7 +539,6 @@ class WaveExtractor(BaseStrategy):
             self._realised_pnl  += pnl
             self._closed_trades += 1
 
-            # Release capital back to risk manager
             risk_manager.release_trade(self.name, trade["order_type"])
 
             self._signal(
@@ -547,7 +559,7 @@ class WaveExtractor(BaseStrategy):
             await self._close_trade(trade, "EOD")
 
     async def _cancel_active_bracket(self) -> None:
-        if self._sell_order_id and self._sell_order_id != "PAPER_SELL":
+        if self._sell_order_id and not self._sell_order_id.startswith("PAPER_SELL"):
             try:
                 await self.broker.cancel_order(self._sell_order_id)
                 self._signal(f"Pending SELL bracket cancelled: {self._sell_order_id}")
@@ -555,7 +567,7 @@ class WaveExtractor(BaseStrategy):
                 logger.error(f"[wave_extractor] Failed to cancel SELL bracket: {e}")
         self._sell_order_id = ""
 
-        if self._buy_order_id and self._buy_order_id != "PAPER_BUY":
+        if self._buy_order_id and not self._buy_order_id.startswith("PAPER_BUY"):
             try:
                 await self.broker.cancel_order(self._buy_order_id)
                 self._signal(f"Pending BUY bracket cancelled: {self._buy_order_id}")
