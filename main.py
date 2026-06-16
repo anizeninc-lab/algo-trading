@@ -152,6 +152,27 @@ async def run_strategies(config: dict):
         await vix_manager.stop()
 
 async def main():
+    # ── Time sync check ───────────────────────────────────────────────────
+    try:
+        import pytz, requests as _req
+        from datetime import datetime as _dt
+        ist = pytz.timezone("Asia/Kolkata")
+        server_time = _dt.now(ist)
+        # Compare against Upstox server time
+        try:
+            r = _req.get("https://api.upstox.com/v2/market/status", timeout=3)
+            # Just use response time header as reference
+            server_ts = r.headers.get("date", "")
+            logger.info(f"[timesync] Server IST: {server_time.strftime('%H:%M:%S')} | Upstox header: {server_ts}")
+        except Exception:
+            logger.info(f"[timesync] Server IST: {server_time.strftime('%H:%M:%S')} (Upstox unreachable)")
+        # Warn if server time looks wrong (outside 5 AM - 11 PM IST)
+        h = server_time.hour
+        if h < 5 or h > 23:
+            logger.warning(f"[timesync] WARNING: Unusual server time {server_time} — check VPS clock")
+    except Exception as te:
+        logger.warning(f"[timesync] Time check failed: {te}")
+
     # Automatically update config files with nearest weekly/monthly Nifty expiries
     try:
         from auto_rollover import perform_rollover

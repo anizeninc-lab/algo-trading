@@ -334,32 +334,52 @@ class UpstoxAdapter(AbstractBrokerGateway):
             import time
             import pytz
             from datetime import datetime, time as dtime
+            _fail_count = 0
             while True:
                 time.sleep(30)
                 try:
                     now = datetime.now(pytz.timezone("Asia/Kolkata"))
                     market_open = dtime(9, 15) <= now.time() <= dtime(15, 15)
                     if not market_open:
+                        _fail_count = 0
                         continue
                     if self._last_tick_time == 0:
                         continue
                     elapsed = time.time() - self._last_tick_time
                     if elapsed > 60:
-                        logger.warning(f"[heartbeat] No ticks for {elapsed:.0f}s — WebSocket may be stale")
+                        _fail_count += 1
                         self._ws_healthy = False
-                        try:
-                            from core.alerting import alert_websocket_down
-                            alert_websocket_down(f"No ticks for {elapsed:.0f}s — possible silent disconnect")
-                        except Exception:
-                            pass
-                        # Force reconnect if silent for >120s
-                        if elapsed > 120:
-                            logger.warning("[heartbeat] Forcing WebSocket reconnect")
+                        logger.warning(f"[heartbeat] No ticks for {elapsed:.0f}s — failure #{_fail_count}")
+                        # Alert after 3 consecutive failures
+                        if _fail_count == 3:
+                            try:
+                                from core.alerting import alert_websocket_down
+                                alert_websocket_down(f"No ticks for {elapsed:.0f}s — 3 consecutive failures")
+                            except Exception:
+                                pass
+                        # Critical alert + force reconnect after 5 failures
+                        if _fail_count >= 5:
+                            logger.warning("[heartbeat] CRITICAL — forcing WebSocket reconnect")
+                            try:
+                                from core.alerting import send_telegram, LEVEL_CRITICAL
+                                send_telegram(
+                                    f"🚨 WEBSOCKET CRITICAL\n"
+                                    f"No ticks for {elapsed:.0f}s\n"
+                                    f"{_fail_count} consecutive failures\n"
+                                    f"Forcing reconnect now",
+                                    LEVEL_CRITICAL
+                                )
+                            except Exception:
+                                pass
                             try:
                                 if self._streamer:
                                     self._streamer.close()
                             except Exception:
                                 pass
+                            _fail_count = 0
+                    else:
+                        _fail_count = 0  # reset on healthy tick
+                        self._ws_healthy = True
                 except Exception as e:
                     logger.debug(f"[heartbeat] error: {e}")
 
@@ -390,13 +410,25 @@ class UpstoxAdapter(AbstractBrokerGateway):
 
                         # Detect fill
                         if prev != "complete" and status == "complete":
-                            logger.info(f"[ORDER POLL] Order filled: {oid}")
+                            filled_qty = getattr(o, "filled_quantity", 0) or getattr(o, "quantity", 0)
+                            req_qty    = getattr(o, "quantity", 0)
+                            is_partial = filled_qty < req_qty and filled_qty > 0
+                            if is_partial:
+                                logger.warning(
+                                    f"[ORDER POLL] PARTIAL FILL: {oid} "
+                                    f"filled={filled_qty} requested={req_qty}"
+                                )
+                            else:
+                                logger.info(f"[ORDER POLL] Order filled: {oid} qty={filled_qty}")
                             self._order_callback({
-                                "order_id":     oid,
-                                "status":       "COMPLETE",
+                                "order_id":      oid,
+                                "status":        "COMPLETE",
                                 "average_price": getattr(o, "average_price", 0) or getattr(o, "price", 0),
-                                "symbol":       getattr(o, "symbol", ""),
-                                "order_type":   getattr(o, "order_type", ""),
+                                "symbol":        getattr(o, "symbol", ""),
+                                "order_type":    getattr(o, "order_type", ""),
+                                "filled_qty":    filled_qty,
+                                "requested_qty": req_qty,
+                                "is_partial":    is_partial,
                             })
                             self._order_open_times.pop(oid, None)
 

@@ -389,6 +389,19 @@ class SurvivorAlgo(BaseStrategy):
                     return
                 entry_price = await self.broker.get_ltp(symbol)
                 order_id    = resp.order_id
+                # Verify actual filled quantity (partial fill protection)
+                await asyncio.sleep(1)
+                try:
+                    orders = await self.broker.get_orders()
+                    for o in orders:
+                        if getattr(o, "order_id", "") == order_id:
+                            filled_qty = getattr(o, "filled_quantity", quantity)
+                            if filled_qty and filled_qty < quantity:
+                                logger.warning(f"[survivor] PARTIAL FILL: filled={filled_qty} requested={quantity}")
+                                quantity = filled_qty
+                            break
+                except Exception as fe:
+                    logger.debug(f"[survivor] Fill verification skipped: {fe}")
 
             trade_id = trade_logger.open_trade(
                 strategy=self.name,
@@ -624,6 +637,13 @@ class SurvivorAlgo(BaseStrategy):
                     self._signal("WATCHDOG: EOD 3:05 PM — closing all positions")
                     await self._close_all_positions()
                     await self.stop(reason="AUTO_STOP_WATCHDOG")
+                    # Generate daily report at EOD
+                    try:
+                        from core.trade_journal import generate_daily_report, print_report
+                        report = generate_daily_report()
+                        print_report(report)
+                    except Exception as je:
+                        logger.warning(f"[survivor] EOD journal failed: {je}")
                     return
 
                 # Mid-session reconciliation every 5 minutes

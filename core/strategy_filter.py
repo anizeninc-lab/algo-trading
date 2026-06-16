@@ -88,6 +88,14 @@ class StrategyFilter:
 
         if regime == REGIME_CLOSED:
             return False, "market closed"
+        # Event filter check
+        try:
+            from core.event_filter import can_trade_event_filter
+            ev_ok, ev_reason = can_trade_event_filter()
+            if not ev_ok:
+                return False, ev_reason
+        except Exception:
+            pass
 
         # ── 2. Session planner check ──────────────────────────────────────
         plan = self._get_plan()
