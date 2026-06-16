@@ -42,6 +42,18 @@ class Tick:
     symbol: str
     last_price: float
     timestamp: str
+    best_bid: float = 0.0  # Highest price a buyer is offering right now
+    best_ask: float = 0.0  # Lowest price a seller is demanding right now
+
+    @property
+    def mid_price(self) -> float:
+        """
+        Calculates a smooth, safe price to prevent rogue LTP spike triggers.
+        Falls back to last_price if the broker feed doesn't provide Bid/Ask depth.
+        """
+        if self.best_bid > 0 and self.best_ask > 0:
+            return (self.best_bid + self.best_ask) / 2.0
+        return self.last_price
 
 
 @dataclass

@@ -2,6 +2,7 @@
 # Central risk management for all strategies.
 # Enforces: max daily loss, per-trade stop loss,
 # trailing profit, max trades per day, auto-stop at 3:10 PM
+# UPGRADED: Absolute SQLite state reconciliation for crash protection.
 # HARDCODED: Max capital deployed at any time = ₹1,50,000
 
 import json
@@ -70,8 +71,49 @@ class RiskManager:
 
         # Per-strategy spam prevention
         self._last_blocked: dict[str, str] = {}
-        # Restore persisted state from previous session if same day
+        
+        # Restore state file sequence
         self._load_state()
+        
+        # CRITICAL ADDITION: Run Database Position Reconciliation for absolute safety
+        self.reconcile_active_state_from_db()
+
+    # ─── Crash & Database Reconciliation ──────────────────────────────────────
+
+    def reconcile_active_state_from_db(self) -> None:
+        """
+        ANTI-CRASH RECOVERY GATEWAY:
+        Queries the SQLite database directly on initialization to determine if there
+        are active trades left open from a prior runtime instance or an unplanned PM2 restart.
+        Rebuilds active internal state parameters seamlessly.
+        """
+        try:
+            active_trades = trade_logger.get_active_positions()
+            if not active_trades:
+                logger.info("[RiskManager] Database reconciliation complete: No hanging open positions detected.")
+                # Clear out any stale/ghost volatile capital trackers
+                self._deployed_capital = {}
+                return
+
+            logger.warning(f"[RiskManager] CRASH INTERCEPTED! Found {len(active_trades)} hanging active trades in database. Rebuilding state maps...")
+            
+            # Recalculate capital parameters directly from live rows
+            reconciled_capital = {}
+            for trade in active_trades:
+                strat = trade["strategy"]
+                otype = trade["order_type"]
+                margin = MARGIN_PER_SELL_LOT if otype == "SELL" else MARGIN_PER_BUY_LOT
+                
+                reconciled_capital[strat] = reconciled_capital.get(strat, 0.0) + margin
+                logger.info(f"[RiskManager] Reconstructed open seat: Strategy={strat} | Symbol={trade['symbol']} | Reserved=₹{margin:,.0f}")
+
+            # Atomically re-anchor volatile trackers with the source-of-truth database snapshot
+            self._deployed_capital = reconciled_capital
+                
+            logger.info(f"[RiskManager] Reconciliation complete. Deployed capital successfully re-anchored to: ₹{self.get_total_deployed_capital():,.0f}")
+            self._save_state()
+        except Exception as e:
+            logger.critical(f"[RiskManager] FATAL ERROR during live database state reconciliation: {e}")
 
     # ─── Daily Reset ──────────────────────────────────────────────────────────
 
@@ -79,10 +121,9 @@ class RiskManager:
         """Automatically reset counters at the start of each trading day."""
         now = datetime.now(pytz.timezone("Asia/Kolkata"))
         if now.weekday() < 5 and now.day != self._last_reset_day:
-            if now.hour >= 9:
-                self.reset_daily_counts()
-                self._last_reset_day = now.day
-                logger.info("[RiskManager] Auto daily reset completed")
+            self.reset_daily_counts()
+            self._last_reset_day = now.day
+            logger.info("[RiskManager] Auto daily reset completed")
 
     # ─── Capital Guard ────────────────────────────────────────────────────────
 
@@ -159,7 +200,7 @@ class RiskManager:
             self._system_halted = True
             self._halt_reason   = f"Max daily loss hit: ₹{total_pnl:.2f}"
             logger.warning(f"[RiskManager] SYSTEM HALTED — {self._halt_reason}")
-            self._save_state()  # persist halted state immediately
+            self._save_state()  # Persist halted state immediately
             return True
 
         return False
@@ -223,7 +264,7 @@ class RiskManager:
             f"[RiskManager] {strategy_name} trade count: "
             f"{self._trade_counts[strategy_name]}/{self.max_trades_per_day}"
         )
-        self._save_state()  # persist after every trade
+        self._save_state()  # Persist after every trade
 
     def release_trade(self, strategy_name: str, order_type: str = "SELL") -> None:
         """Call this when a trade is closed to free up capital."""
@@ -243,7 +284,6 @@ class RiskManager:
     def _save_state(self) -> None:
         """Persist daily state to disk so restarts don't lose counters."""
         try:
-            import pytz
             now = datetime.now(pytz.timezone("Asia/Kolkata"))
             state = {
                 "date":            now.strftime("%Y-%m-%d"),
@@ -266,7 +306,6 @@ class RiskManager:
                 return
             with open(RISK_STATE_FILE) as f:
                 state = json.load(f)
-            import pytz
             now = datetime.now(pytz.timezone("Asia/Kolkata"))
             today = now.strftime("%Y-%m-%d")
             if state.get("date") != today:
