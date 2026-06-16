@@ -601,20 +601,20 @@ class SessionPlannerEngine:
             if vix < VIX_LOW:
                 p.pe_gap        = 5.0
                 p.ce_gap        = 5.0
-                p.pe_symbol_gap = 300.0
-                p.ce_symbol_gap = 300.0
+                p.pe_symbol_gap = 150.0
+                p.ce_symbol_gap = 150.0
                 p.min_premium   = 12.0
             elif vix < VIX_NORMAL:
                 p.pe_gap        = 6.0
                 p.ce_gap        = 6.0
-                p.pe_symbol_gap = 350.0
-                p.ce_symbol_gap = 350.0
+                p.pe_symbol_gap = 200.0
+                p.ce_symbol_gap = 200.0
                 p.min_premium   = 15.0
             else:
                 p.pe_gap        = 8.0
                 p.ce_gap        = 8.0
-                p.pe_symbol_gap = 400.0
-                p.ce_symbol_gap = 400.0
+                p.pe_symbol_gap = 250.0
+                p.ce_symbol_gap = 250.0
                 p.min_premium   = 20.0
 
         else:  # trending
