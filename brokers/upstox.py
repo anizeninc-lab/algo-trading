@@ -45,6 +45,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
         self._order_callback = None
         self._connected = False
         self._placed_order_tags: set = set()  # idempotent order gate
+        self._start_time: float = __import__("time").time()  # for startup grace period
 
     async def login(self) -> bool:
         try:
@@ -308,11 +309,14 @@ class UpstoxAdapter(AbstractBrokerGateway):
                 logger.warning("WebSocket closed")
                 self._ws_healthy = False
                 try:
+                    import time as _t
                     import pytz
                     from datetime import datetime, time as dtime
                     now = datetime.now(pytz.timezone("Asia/Kolkata"))
                     market_open = dtime(9, 15) <= now.time() <= dtime(15, 15)
-                    if market_open:
+                    # Don't alert in first 90s after startup — normal reconnection
+                    uptime = _t.time() - self._start_time
+                    if market_open and uptime > 90:
                         from core.alerting import alert_websocket_down
                         alert_websocket_down("WebSocket closed — auto-reconnect in progress")
                 except Exception:
