@@ -331,7 +331,49 @@ class SurvivorAlgo(BaseStrategy):
         except Exception as e:
             logger.exception(f"[survivor] ERROR in on_tick: {e}")
 
-    # ── Idempotent gate ───────────────────────────────────────────────
+    # ── Option Selling ────────────────────────────────────────────────────────
+
+    async def _sell_option(
+        self,
+        direction:   str,
+        nifty_price: float,
+        gap:         float,
+        quantity:    int,
+    ) -> None:
+        interval     = self.cfg.strike_interval
+        base_strike  = nifty_price - gap if direction == "PE" else nifty_price + gap
+        strike       = round(base_strike / interval) * interval
+        symbol       = None
+        final_strike = strike
+
+        # Search up to 5 strikes for one that meets min premium
+        for _ in range(5):
+            candidate = self._build_symbol(direction, final_strike)
+            _is_paper = (
+                os.getenv("PAPER_TRADE", "false").lower() == "true"
+                or self.cfg.paper_trade_override
+            )
+            if _is_paper:
+                # Simulate premium in paper mode
+                premium = max(5.0, 50.0 - abs(nifty_price - final_strike) * 0.1)
+            else:
+                # Resolve real instrument key before LTP fetch
+                ikey = await self._get_instrument_key(candidate, direction, final_strike)
+                premium = await self.broker.get_ltp(ikey)
+
+            if premium >= self.cfg.min_price_to_sell:
+                symbol = ikey  # Use resolved ikey for order
+                break
+            final_strike += interval if direction == "PE" else -interval
+
+        if not symbol:
+            logger.warning(
+                f"[survivor] No {direction} strike found above "
+                f"₹{self.cfg.min_price_to_sell} — skipping"
+            )
+            return
+
+        # ── Idempotent gate ───────────────────────────────────────────────
         # Unique key = direction + strike + date + minute
         # Prevents duplicate orders if same signal fires twice in same minute
         import pytz as _pytz

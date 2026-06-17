@@ -57,6 +57,14 @@ class SaviourCombo:
         # Start Wave Extractor — opens WebSocket with all symbols
         await self.wave.start()
 
+        # Share running loop with Wave Extractor
+        import asyncio as _aio_wave
+        try:
+            _wave_loop = _aio_wave.get_running_loop()
+            self.wave._loop = _wave_loop
+            logger.info(f"[saviour_combo] Shared loop with Wave Extractor: {_wave_loop}")
+        except Exception as _we:
+            logger.error(f"[saviour_combo] Could not share loop with Wave: {_we}")
         # Start Survivor immediately if threshold is 0 or auto_start disabled
         if not self.cfg.auto_start_survivor or self.cfg.wave_net_threshold == 0:
             await self.survivor.start()
