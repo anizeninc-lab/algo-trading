@@ -7,11 +7,11 @@
   "daily_loss_limit": -3500.0,
   "max_capital": 80000.0,
   "params": {
-    "pe_gap": 6.0,
-    "ce_gap": 6.0,
-    "pe_symbol_gap": 200.0,
-    "ce_symbol_gap": 200.0,
-    "min_premium": 15.0,
+    "pe_gap": 5.0,
+    "ce_gap": 5.0,
+    "pe_symbol_gap": 150.0,
+    "ce_symbol_gap": 150.0,
+    "min_premium": 12.0,
     "sell_gap": 20.0,
     "buy_gap": 20.0,
     "cool_off_time": 5.0,
@@ -22,22 +22,23 @@
     "trending_score": 4.0,
     "or_width": null,
     "or_width_signal": "OR data not collected",
-    "vix_level": 13.19,
-    "vix_signal": "VIX=13.2 NORMAL \u2192 slight range bias",
-    "gap_pct": 0.171,
-    "gap_signal": "flat open \u2192 range likely",
+    "vix_level": 12.66,
+    "vix_signal": "VIX=12.7 LOW \u2192 calm market, range likely",
+    "gap_pct": 0.43,
+    "gap_signal": "small gap \u2192 neutral",
     "midpoint_crosses": 0,
     "crosses_signal": "0 crosses \u2192 strong directional move",
     "pcr_at_open": 1.0,
     "pcr_signal": "PCR=1.00 NEUTRAL \u2192 range bias",
-    "prev_close": 24085.7,
-    "today_open": 24044.5
+    "prev_close": 24177.85,
+    "today_open": 24073.8
   },
-  "produced_at": "2026-06-17T20:33:21.832683+05:30",
+  "produced_at": "2026-06-18T15:15:01.335363+05:30",
   "plan_version": 1,
   "notes": [
     "OR data unavailable \u2014 defaulting to RANGE MEDIUM, Survivor ACTIVE",
-    "MEDIUM confidence \u2014 position size reduced to 75%"
+    "MEDIUM confidence \u2014 position size reduced to 75%",
+    "Low VIX (12.7) \u2014 tighter triggers applied"
   ],
   "is_ready": true,
   "low_confidence_hold_until": null

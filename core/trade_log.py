@@ -249,14 +249,19 @@ class TradeLogger:
             rows = conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
 
-    def get_pnl_summary(self, strategy: Optional[str] = None) -> dict:
-        """Calculate total realized dashboard P&L metrics."""
+    def get_pnl_summary(self, strategy: Optional[str] = None, today_only: bool = False) -> dict:
+        """Calculate total realized dashboard P&L metrics.
+        today_only=True scopes to the current calendar day only — use this
+        for session-end / EOD reporting so alerts don't show lifetime totals."""
         query = "SELECT * FROM trades WHERE status = 'CLOSED'"
         params = []
 
         if strategy:
             query += " AND strategy = ?"
             params.append(strategy)
+
+        if today_only:
+            query += " AND date(entry_time) = date('now', 'localtime')"
 
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()

@@ -356,6 +356,7 @@ class SurvivorAlgo(BaseStrategy):
             if _is_paper:
                 # Simulate premium in paper mode
                 premium = max(5.0, 50.0 - abs(nifty_price - final_strike) * 0.1)
+                ikey = candidate  # paper mode has no real instrument key — use text symbol
             else:
                 # Resolve real instrument key before LTP fetch
                 ikey = await self._get_instrument_key(candidate, direction, final_strike)

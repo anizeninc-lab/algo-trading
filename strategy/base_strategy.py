@@ -72,7 +72,7 @@ class BaseStrategy(ABC):
         except Exception as e:
             logger.warning(f"[{self.name}] on_stop error: {e}")
 
-        summary = trade_logger.get_pnl_summary(strategy=self.name)
+        summary = trade_logger.get_pnl_summary(strategy=self.name, today_only=True)
         trade_logger.end_session(
             session_id=self._session_id,
             total_pnl=summary["total_pnl"],
