@@ -178,8 +178,9 @@ class UpstoxAdapter(AbstractBrokerGateway):
         try:
             try:
                 resp = self._order_api_v2.get_order_book(api_version="2.0")
-            except Exception:
-                resp = self._order_api.get_order_book_v3()
+            except Exception as inner_e:
+                logger.warning(f"get_orders primary call failed ({type(inner_e).__name__}: {str(inner_e)[:150]}) — no fallback available, returning empty")
+                return []
             orders = []
             if resp and resp.data:
                 for o in resp.data:
@@ -408,7 +409,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
             import asyncio
             ORDER_TIMEOUT_SECONDS = 60  # cancel orders open longer than this
             while True:
-                time.sleep(3)
+                time.sleep(10)  # was 3s — caused 429 rate-limit errors, raised to 10s
                 try:
                     if not self._order_callback:
                         continue

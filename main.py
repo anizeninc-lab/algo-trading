@@ -130,10 +130,12 @@ async def run_strategies(config: dict):
         strategy_name        = "bn_survivor",  # separate name — own DB records, own risk counters
     )
 
+    # BankNifty paused on request — set ENABLE_BANKNIFTY=true in .env to re-enable
+    _bn_enabled = os.getenv("ENABLE_BANKNIFTY", "false").lower() == "true"
     combo_cfg = SaviourComboConfig(
         wave=wave_cfg,
         survivor=survivor_cfg,
-        banknifty_survivor=banknifty_cfg,
+        banknifty_survivor=banknifty_cfg if _bn_enabled else None,
         max_combined_loss=config.get("max_combined_loss", -5000.0),
         auto_start_survivor=config.get("auto_start_survivor", True),
         wave_net_threshold=config.get("wave_net_threshold", 2),
