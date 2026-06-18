@@ -25,3 +25,4 @@ dashboard/frontend/node_modules/
 dashboard/frontend/dist/
 logs/
 *.log
+_archive_review/
