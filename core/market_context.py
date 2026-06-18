@@ -95,6 +95,18 @@ REGIME_OPENING         = "opening"       # Before 9:30 AM — no trades
 REGIME_CLOSED          = "closed"        # Outside market hours
 
 
+@dataclass
+class PreviousDayLevels:
+    """Previous trading day OHLC for Nifty spot — breakout/reversal context. Fetched once per day to respect API limits."""
+    high:  float = 0.0
+    low:   float = 0.0
+    close: float = 0.0
+    date:  str   = ""
+
+    @property
+    def is_ready(self) -> bool:
+        return self.high > 0 and self.low > 0
+
 class MarketContextEngine:
     """
     Singleton that holds live market context.
@@ -112,6 +124,7 @@ class MarketContextEngine:
         self._oi_snapshot = OISnapshot()
         self._prev_pcr: Optional[float] = None
         self._pcr_spike_time: Optional[datetime] = None
+        self._prev_day_levels = PreviousDayLevels()
 
         # Spot price tracking for OR
         self._or_ticks_high: float = 0.0
@@ -145,6 +158,11 @@ class MarketContextEngine:
             return self._oi_snapshot
 
     @property
+    def previous_day_levels(self) -> PreviousDayLevels:
+        with self._lock:
+            return self._prev_day_levels
+
+    @property
     def is_pcr_spike(self) -> bool:
         """True if a sudden PCR spike was detected in last 15 minutes."""
         with self._lock:
@@ -161,11 +179,49 @@ class MarketContextEngine:
 
     # ── Lifecycle ──────────────────────────────────────────────────────────
 
+    def _fetch_previous_day_levels(self) -> None:
+        """
+        Fetch yesterday's daily OHLC for Nifty spot — called ONCE at startup.
+        Uses the daily-candle endpoint (1 API call/day) to stay well within
+        Upstox rate limits.
+        """
+        try:
+            import os
+            import requests
+            token = os.getenv("UPSTOX_ACCESS_TOKEN", "")
+            if not token:
+                logger.warning("[market_context] No token — skipping previous day levels fetch")
+                return
+            url = "https://api.upstox.com/v2/historical-candle/NSE_INDEX%7CNifty%2050/day/1"
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+            r = requests.get(url, headers=headers, timeout=5)
+            data = r.json()
+            if data.get("status") != "success":
+                logger.warning(f"[market_context] Previous day levels fetch failed: {data}")
+                return
+            candles = data.get("data", {}).get("candles", [])
+            if not candles:
+                logger.warning("[market_context] No daily candles returned")
+                return
+            # Most recent completed daily candle = yesterday's session
+            latest = candles[0]  # [ts, open, high, low, close, vol, oi]
+            with self._lock:
+                self._prev_day_levels = PreviousDayLevels(
+                    high=latest[2], low=latest[3], close=latest[4], date=latest[0][:10]
+                )
+            logger.info(
+                f"[market_context] Previous day levels: H={latest[2]:.1f} "
+                f"L={latest[3]:.1f} C={latest[4]:.1f} ({latest[0][:10]})"
+            )
+        except Exception as e:
+            logger.error(f"[market_context] Previous day levels fetch error: {e}")
+
     def start(self):
         """Call once from main.py at bot startup."""
         if self._thread and self._thread.is_alive():
             logger.warning("MarketContextEngine already running")
             return
+        self._fetch_previous_day_levels()  # one-time, before loop starts
         self._stop_flag.clear()
         self._thread = threading.Thread(
             target=self._run_loop,
