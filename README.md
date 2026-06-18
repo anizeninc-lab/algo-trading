@@ -283,3 +283,34 @@ MAX_COMBINED_LOSS=-5000
 7. Dashboard P&L not updating during live trade — WebSocket option ticks not flowing to LTP cache, causing unrealised P&L to show stale/zero values. Fix: ensure option symbol subscribed correctly after trade open, verify ikey cache populated before first P&L calculation.
 
 8. Dashboard P&L vs Upstox P&L mismatch — bot records two separate trades (65+65) while Upstox shows one netted position (-130). Fix: add broker position reconciliation that maps bot trade IDs to Upstox net positions for accurate P&L display. Dashboard should show combined unrealised P&L matching Upstox exactly.
+
+## Session Log — June 16-17, 2026
+
+### June 16: Regime Engine v2 Overhaul
+Following an external audit, rewrote `core/regime_engine.py` with 10 fixes:
+1. Real cumulative session VWAP (Nifty index has no volume data — uses progressive typical-price average instead of fake simple average)
+2. Directional ADX (+DI/-DI) instead of scalar-only trend strength
+3. `reversal_watch` changed from a blocking regime to a flag — no longer pauses all entries on PCR spikes
+4. ATR-based dynamic OR breakout threshold (replaces fixed 30pt)
+5. Trend exhaustion flag (price >2x ATR from VWAP, or ADX weakening after a trend)
+6. Smoothed OI deltas (3-period rolling average, prevents sign-flip noise)
+7. New `weak_bull`/`weak_bear` regime states — Survivor now trades these in addition to `range`
+8. Gap detection vs previous close
+9. 0-100 confidence score with HIGH/MEDIUM/LOW label
+10. Regime history (last 10 classifications) + stability score
+
+Also fixed session planner's VIX-based OTM gap defaults (was 350pt at NORMAL VIX → near-zero option premiums; reduced to 200pt) and added a 90-second startup grace period before WebSocket-disconnect Telegram alerts fire.
+
+### June 17: Critical Bug — Missing `_sell_option` Method
+**Root cause of zero trades on June 16-17:** the `async def _sell_option(...)` method's signature and opening logic (strike search loop) had been accidentally deleted during the June 16 regime engine edits, leaving the back half of the method (idempotent gate, order placement, GTT retry) as orphaned dead code sitting after `on_tick`'s exception handler. Every sell attempt crashed into `AttributeError` — 3,156 times on June 17 alone — with zero trades and zero losses (fail-safe by accident).
+
+Fixed by restoring the missing method signature + strike-search opening from a known-good commit (`9c56dcf`), while preserving newer manual improvements found in the orphaned tail: a deterministic client order ID scheme (`SURV_{direction}_{strike}_{date}`) and a mutex lock against `_open_trades_data` to prevent duplicate orders across PM2 restarts.
+
+**Lesson learned:** `strategy/survivor.py` is 1000+ lines in a single class, which makes broad-match string replacements risky. Consider splitting into smaller modules (e.g. separate files for order execution, SL/TP monitoring, and reconciliation) to reduce blast radius of future edits.
+
+### Repo Cleanup
+Removed 16 stale `.bak`/`.backup`/patch files that were tracked in git despite `.gitignore` rules (added after the fact). Archived locally to `_archive_review/` (now gitignored) rather than deleted outright, for safety.
+
+### Known Issues (Unresolved)
+- `OrderApiV3` object has no attribute `get_order_book_v3` — Upstox SDK method mismatch on order polling, caught safely in try/except but needs investigation.
+- BankNifty (`bn_survivor`) paper strategy has not yet had its OTM symbol gap (500pt) checked/fixed the way Nifty's was — may have the same near-zero-premium issue.
