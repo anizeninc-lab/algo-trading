@@ -21,6 +21,7 @@ from core.market_context import (
     REGIME_OPENING,
     REGIME_CLOSED,
 )
+from core.regime_engine import regime_engine
 
 logger = logging.getLogger(__name__)
 IST = pytz.timezone("Asia/Kolkata")
@@ -147,6 +148,13 @@ class StrategyFilter:
             return False, (
                 f"regime={regime} not suitable for {strategy_name} "
                 f"(needs: {allowed_str})"
+            )
+
+        # ── 5b. Regime transition check — block entries right after a flip ─
+        if regime_engine.signals.regime_transitioning:
+            return False, (
+                f"regime just transitioned to {regime} — blocking new entries "
+                f"this cycle for stability"
             )
 
         # ── 6. Direction alignment check ──────────────────────────────────
@@ -278,6 +286,7 @@ class StrategyFilter:
         """Returns market context snapshot for dashboard API."""
         or_ = market_context.opening_range
         oi  = market_context.oi
+        sig = regime_engine.signals
         return {
             "regime":        market_context.regime,
             "pcr":           market_context.pcr,
@@ -294,6 +303,22 @@ class StrategyFilter:
             "atm_strike":    getattr(oi, "atm_strike", None),
             "max_pain":      getattr(oi, "max_pain_strike", None),
             "oi_updated_at": oi.timestamp.strftime("%H:%M:%S") if getattr(oi, "timestamp", None) else None,
+            "confidence":             sig.confidence,
+            "confidence_label":       sig.confidence_label,
+            "gap_pct":                sig.gap_pct,
+            "prev_day_high":          sig.prev_day_high,
+            "prev_day_low":           sig.prev_day_low,
+            "prev_day_breakout_bull": sig.prev_day_breakout_bull,
+            "prev_day_breakout_bear": sig.prev_day_breakout_bear,
+            "regime_transitioning":   sig.regime_transitioning,
+            "pe_support_migrating_up":      sig.pe_support_migrating_up,
+            "pe_support_migrating_down":    sig.pe_support_migrating_down,
+            "ce_resistance_migrating_up":   sig.ce_resistance_migrating_up,
+            "ce_resistance_migrating_down": sig.ce_resistance_migrating_down,
+            "highest_ce_oi_strike": getattr(oi, "highest_ce_oi_strike", None),
+            "highest_pe_oi_strike": getattr(oi, "highest_pe_oi_strike", None),
+            "swing_structure_bullish": sig.swing_structure_bullish,
+            "swing_structure_bearish": sig.swing_structure_bearish,
         }
 
     # ── Helpers ────────────────────────────────────────────────────────────

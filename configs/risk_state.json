@@ -1,8 +1,8 @@
 {
-  "date": "2026-06-18",
+  "date": "2026-06-19",
   "trade_counts": {},
   "daily_pnl": {},
-  "system_halted": false,
-  "halt_reason": "",
+  "system_halted": true,
+  "halt_reason": "KILL SWITCH ACTIVATED",
   "deployed_capital": {}
 }
