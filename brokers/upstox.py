@@ -15,6 +15,38 @@ from brokers.base import (AbstractBrokerGateway, MarginData, Order,
 load_dotenv(override=True)
 logger = logging.getLogger(__name__)
 
+# ─── PATCH: Upstox SDK's v3 feed connect() uses a dead static URL — Upstox now
+# requires an authorize-then-connect-to-dynamic-URI handshake. This monkey-patch
+# fixes connect() only; the rest of the SDK (protobuf decode, reconnect) is untouched.
+import ssl as _ssl
+import websocket as _websocket
+import requests as _requests
+from upstox_client.feeder.market_data_feeder_v3 import MarketDataFeederV3 as _MDFV3
+
+def _patched_feeder_connect(self):
+    if self.ws and self.ws.sock:
+        return
+    token_value = self.api_client.configuration.auth_settings().get("OAUTH2")["value"]
+    resp = _requests.get(
+        "https://api.upstox.com/v3/feed/market-data-feed/authorize",
+        headers={"Authorization": token_value},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    ws_url = resp.json()["data"]["authorized_redirect_uri"]
+    sslopt = {"cert_reqs": _ssl.CERT_NONE, "check_hostname": False}
+    self.ws = _websocket.WebSocketApp(
+        ws_url,
+        on_open=self.on_open,
+        on_message=self.on_message,
+        on_error=self.on_error,
+        on_close=self.on_close,
+    )
+    threading.Thread(target=self.ws.run_forever, kwargs={"sslopt": sslopt}).start()
+
+_MDFV3.connect = _patched_feeder_connect
+# ─── END PATCH ──────────────────────────────────────────────────────────────────
+
 # ─── HARDCAP — NEVER change this without careful testing ─────────────────────
 MAX_QTY_PER_ORDER = 65  # 1 lot of Nifty options = 65 qty. Bot should NEVER place more.
 # ─────────────────────────────────────────────────────────────────────────────

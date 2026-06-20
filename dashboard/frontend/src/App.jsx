@@ -1388,6 +1388,15 @@ function ContextBar({ marketCtx, astro }) {
           ) : <span style={{ fontSize: 9, color: "#f59e0b", fontWeight: 700 }}>NOT LOCKED</span>}
         </div>
       )}
+      {cell("PREV DAY H/L",
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <span style={{ fontSize: 9, fontWeight: 700, color: ctx.prev_day_breakout_bull ? "#00e87a" : "#3a5070" }}>H: {ctx.prev_day_high?.toFixed(0) || "—"}{ctx.prev_day_breakout_bull ? " ▲" : ""}</span>
+          <span style={{ fontSize: 9, fontWeight: 700, color: ctx.prev_day_breakout_bear ? "#ff3d5a" : "#3a5070" }}>L: {ctx.prev_day_low?.toFixed(0) || "—"}{ctx.prev_day_breakout_bear ? " ▼" : ""}</span>
+        </div>
+      )}
+      {cell("CONFIDENCE",
+        <span style={{ fontSize: 11, fontWeight: 800, color: ctx.confidence_label === "HIGH" ? "#00e87a" : ctx.confidence_label === "MEDIUM" ? "#f59e0b" : "#ff3d5a" }}>{ctx.confidence_label || "—"} {ctx.confidence != null ? `${ctx.confidence.toFixed(0)}%` : ""}</span>
+      )}
       {cell("ATM / MAX PAIN",
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <span style={{ fontSize: 9, color: "#3b82f6", fontWeight: 700 }}>ATM: {ctx.atm_strike || "—"}</span>

@@ -81,6 +81,12 @@ class OISnapshot:
     pcr: float = 1.0
     atm_strike: Optional[float] = None
     max_pain_strike: Optional[float] = None
+    highest_ce_oi_strike: Optional[float] = None
+    highest_pe_oi_strike: Optional[float] = None
+    pe_support_migrating_up:      bool = False
+    pe_support_migrating_down:    bool = False
+    ce_resistance_migrating_up:   bool = False
+    ce_resistance_migrating_down: bool = False
     timestamp: Optional[datetime] = None
 
 
@@ -125,6 +131,11 @@ class MarketContextEngine:
         self._prev_pcr: Optional[float] = None
         self._pcr_spike_time: Optional[datetime] = None
         self._prev_day_levels = PreviousDayLevels()
+
+        # OI migration tracking — rolling history of support/resistance strikes
+        self._pe_support_history:    list = []
+        self._ce_resistance_history: list = []
+        self._OI_MIGRATION_WINDOW = 5  # ~10 minutes at 2-min refresh interval
 
         # Spot price tracking for OR
         self._or_ticks_high: float = 0.0
@@ -192,7 +203,10 @@ class MarketContextEngine:
             if not token:
                 logger.warning("[market_context] No token — skipping previous day levels fetch")
                 return
-            url = "https://api.upstox.com/v2/historical-candle/NSE_INDEX%7CNifty%2050/day/1"
+            now_ist   = datetime.now(IST)
+            to_date   = now_ist.strftime("%Y-%m-%d")
+            from_date = (now_ist - timedelta(days=10)).strftime("%Y-%m-%d")
+            url = f"https://api.upstox.com/v2/historical-candle/NSE_INDEX%7CNifty%2050/day/{to_date}/{from_date}"
             headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
             r = requests.get(url, headers=headers, timeout=5)
             data = r.json()
@@ -387,6 +401,29 @@ class MarketContextEngine:
                     )
 
             self._prev_pcr = self._oi_snapshot.pcr
+
+            # ── OI Migration Tracking ────────────────────────────────────
+            highest_ce_strike = max(strike_oi, key=lambda k: strike_oi[k]["ce"]) if strike_oi else None
+            highest_pe_strike = max(strike_oi, key=lambda k: strike_oi[k]["pe"]) if strike_oi else None
+
+            self._pe_support_history.append(highest_pe_strike)
+            self._ce_resistance_history.append(highest_ce_strike)
+            if len(self._pe_support_history) > self._OI_MIGRATION_WINDOW:
+                self._pe_support_history.pop(0)
+            if len(self._ce_resistance_history) > self._OI_MIGRATION_WINDOW:
+                self._ce_resistance_history.pop(0)
+
+            pe_support_migrating_up = pe_support_migrating_down = False
+            ce_resistance_migrating_up = ce_resistance_migrating_down = False
+            oldest_pe = next((s for s in self._pe_support_history if s is not None), None)
+            oldest_ce = next((s for s in self._ce_resistance_history if s is not None), None)
+            if oldest_pe is not None and highest_pe_strike is not None:
+                pe_support_migrating_up   = highest_pe_strike > oldest_pe
+                pe_support_migrating_down = highest_pe_strike < oldest_pe
+            if oldest_ce is not None and highest_ce_strike is not None:
+                ce_resistance_migrating_up   = highest_ce_strike > oldest_ce
+                ce_resistance_migrating_down = highest_ce_strike < oldest_ce
+
             self._oi_snapshot = OISnapshot(
                 total_ce_oi=total_ce_oi,
                 total_pe_oi=total_pe_oi,
@@ -395,6 +432,12 @@ class MarketContextEngine:
                 pcr=new_pcr,
                 atm_strike=atm,
                 max_pain_strike=max_pain,
+                highest_ce_oi_strike=highest_ce_strike,
+                highest_pe_oi_strike=highest_pe_strike,
+                pe_support_migrating_up=pe_support_migrating_up,
+                pe_support_migrating_down=pe_support_migrating_down,
+                ce_resistance_migrating_up=ce_resistance_migrating_up,
+                ce_resistance_migrating_down=ce_resistance_migrating_down,
                 timestamp=datetime.now(IST),
             )
 
@@ -415,6 +458,7 @@ class MarketContextEngine:
             pcr      = self._oi_snapshot.pcr
             snap     = self._oi_snapshot
             or_      = self._opening_range
+            pdl      = self._prev_day_levels
             spike    = self._pcr_spike_time is not None and (
                 datetime.now(IST) - self._pcr_spike_time
             ).total_seconds() < 900
@@ -428,6 +472,13 @@ class MarketContextEngine:
             ce_oi_delta = snap.ce_oi_delta,
             pe_oi_delta = snap.pe_oi_delta,
             pcr_spike   = spike,
+            prev_close    = pdl.close if pdl.is_ready else 0.0,
+            prev_day_high = pdl.high  if pdl.is_ready else 0.0,
+            prev_day_low  = pdl.low   if pdl.is_ready else 0.0,
+            pe_support_migrating_up      = snap.pe_support_migrating_up,
+            pe_support_migrating_down    = snap.pe_support_migrating_down,
+            ce_resistance_migrating_up   = snap.ce_resistance_migrating_up,
+            ce_resistance_migrating_down = snap.ce_resistance_migrating_down,
         )
         with self._lock:
             if new_regime != self._regime:

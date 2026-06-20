@@ -88,8 +88,8 @@ def _build_payload() -> dict:
         try:
             from core.strategy_filter import strategy_filter
             market_ctx = strategy_filter.context_summary()
-        except Exception:
-            pass
+        except Exception as _mc_e:
+            logger.error(f"[dashboard] context_summary() failed: {_mc_e}", exc_info=True)
 
     # ── Astro calendar ────────────────────────────────────────────────────────
     astro = None

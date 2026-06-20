@@ -82,6 +82,17 @@ class RegimeSignals:
     gap_down:          bool  = False  # True if gap down > 0.3%
     confidence:        float = 0.0    # 0-100 confidence in current regime classification
     confidence_label:  str   = "LOW"  # LOW / MEDIUM / HIGH
+    prev_day_high:          float = 0.0
+    prev_day_low:           float = 0.0
+    prev_day_breakout_bull: bool  = False
+    prev_day_breakout_bear: bool  = False
+    pe_support_migrating_up:      bool = False
+    pe_support_migrating_down:    bool = False
+    ce_resistance_migrating_up:   bool = False
+    ce_resistance_migrating_down: bool = False
+    swing_structure_bullish:      bool = False
+    swing_structure_bearish:      bool = False
+    regime_transitioning:   bool  = False
 
 
 class RegimeEngine:
@@ -113,6 +124,12 @@ class RegimeEngine:
         pe_oi_delta:  float,
         pcr_spike:    bool,
         prev_close:   float = 0.0,  # previous day close for gap detection
+        prev_day_high: float = 0.0,  # previous day high — spot-structure breakout signal
+        prev_day_low:  float = 0.0,  # previous day low — spot-structure breakout signal
+        pe_support_migrating_up:      bool = False,
+        pe_support_migrating_down:    bool = False,
+        ce_resistance_migrating_up:   bool = False,
+        ce_resistance_migrating_down: bool = False,
     ) -> Tuple[str, RegimeSignals]:
         """
         Returns (regime_string, RegimeSignals).
@@ -120,6 +137,8 @@ class RegimeEngine:
         """
         if len(candles) < 5:
             return self._last_regime, self._signals
+
+        previous_regime = self._last_regime  # captured before reassignment, for transition detection
 
         closes = [c.close for c in candles]
         highs  = [c.high  for c in candles]
@@ -209,6 +228,31 @@ class RegimeEngine:
         elif oi_bear:
             score -= 10
 
+        # ── OI Migration (±10 points) — support/resistance strike movement ──
+        if pe_support_migrating_up:
+            score += 5
+        elif pe_support_migrating_down:
+            score -= 5
+        if ce_resistance_migrating_down:
+            score += 5
+        elif ce_resistance_migrating_up:
+            score -= 5
+
+        # ── Previous Day High/Low Breakout (±15 points) — pure spot structure ──
+        prev_day_breakout_bull = prev_day_high > 0 and spot > prev_day_high
+        prev_day_breakout_bear = prev_day_low  > 0 and spot < prev_day_low
+        if prev_day_breakout_bull:
+            score += 15
+        elif prev_day_breakout_bear:
+            score -= 15
+
+        # ── Swing Structure (±15 points) — HH-HL / LH-LL price action ──
+        swing_structure_bullish, swing_structure_bearish = self._detect_swing_structure(highs, lows)
+        if swing_structure_bullish:
+            score += 15
+        elif swing_structure_bearish:
+            score -= 15
+
         # ── Trend Exhaustion Detection ────────────────────────────────
         # Flag when trend may be overextended:
         # 1. Price too far from VWAP (> 2x ATR)
@@ -249,6 +293,9 @@ class RegimeEngine:
         reversal_risk = pcr_spike or pcr > 1.5 or pcr < 0.65
         # regime stays as-is — reversal_risk is surfaced via RegimeSignals.reversal_risk
 
+        # ── Regime Transition Detection (for entry-blocking during flips) ──
+        regime_transitioning = (regime != previous_regime)
+
         self._last_regime = regime
 
         # ── Regime History ────────────────────────────────────────────
@@ -265,7 +312,7 @@ class RegimeEngine:
         # ── Confidence Score (0-100) ──────────────────────────────────
         # Based on how many signals agree with the final regime
         raw_score_abs = abs(score)
-        confidence = min(100.0, round(raw_score_abs / 90 * 100, 1))
+        confidence = min(100.0, round(raw_score_abs / 130 * 100, 1))
         # Boost confidence if persistence counter is high
         if self._bull_count >= 2 or self._bear_count >= 2:
             confidence = min(100.0, confidence + 15)
@@ -311,6 +358,17 @@ class RegimeEngine:
             gap_pct          = gap_pct,
             gap_up           = gap_up,
             gap_down         = gap_down,
+            prev_day_high          = prev_day_high,
+            prev_day_low           = prev_day_low,
+            prev_day_breakout_bull = prev_day_breakout_bull,
+            prev_day_breakout_bear = prev_day_breakout_bear,
+            pe_support_migrating_up      = pe_support_migrating_up,
+            pe_support_migrating_down    = pe_support_migrating_down,
+            ce_resistance_migrating_up   = ce_resistance_migrating_up,
+            ce_resistance_migrating_down = ce_resistance_migrating_down,
+            swing_structure_bullish      = swing_structure_bullish,
+            swing_structure_bearish      = swing_structure_bearish,
+            regime_transitioning   = regime_transitioning,
             confidence       = confidence,
             confidence_label = confidence_label,
         )
@@ -319,6 +377,9 @@ class RegimeEngine:
             f"[regime_engine] score={score:+.0f} | vwap={'↑' if above_vwap else '↓'} "
             f"| ema={'bull' if ema_bullish else 'bear'} | adx={adx:.1f} "
             f"| or={'bull' if or_bull_break else 'bear' if or_bear_break else 'inside'} "
+            f"| pdh/pdl={'bull' if prev_day_breakout_bull else 'bear' if prev_day_breakout_bear else 'inside'} "
+            f"| swing={'bull' if swing_structure_bullish else 'bear' if swing_structure_bearish else 'none'} "
+            f"| transition={'YES' if regime_transitioning else 'no'} "
             f"| bull_count={self._bull_count} bear_count={self._bear_count} "
             f"→ {regime} [{confidence_label} {confidence:.0f}%]"
         )
@@ -422,6 +483,33 @@ class RegimeEngine:
             )
             tr_list.append(tr)
         return sum(tr_list[-period:]) / min(len(tr_list), period)
+
+    @staticmethod
+    def _detect_swing_structure(highs: List[float], lows: List[float], k: int = 2) -> Tuple[bool, bool]:
+        """
+        Detects HH-HL (bullish) or LH-LL (bearish) swing structure using simple
+        fractal pivots — a bar is a swing high/low only if it strictly exceeds
+        all bars within k positions on both sides. Needs >=2 confirmed swings
+        of each type to make a determination; returns (False, False) otherwise.
+        """
+        n = len(highs)
+        swing_highs, swing_lows = [], []
+        for i in range(k, n - k):
+            left_h, right_h = highs[i-k:i], highs[i+1:i+k+1]
+            if highs[i] > max(left_h + right_h):
+                swing_highs.append(highs[i])
+            left_l, right_l = lows[i-k:i], lows[i+1:i+k+1]
+            if lows[i] < min(left_l + right_l):
+                swing_lows.append(lows[i])
+        bullish = bearish = False
+        if len(swing_highs) >= 2 and len(swing_lows) >= 2:
+            higher_high = swing_highs[-1] > swing_highs[-2]
+            higher_low  = swing_lows[-1]  > swing_lows[-2]
+            lower_high  = swing_highs[-1] < swing_highs[-2]
+            lower_low   = swing_lows[-1]  < swing_lows[-2]
+            bullish = higher_high and higher_low
+            bearish = lower_high and lower_low
+        return bullish, bearish
 
     @staticmethod
     def _calc_adx(highs: List[float], lows: List[float], closes: List[float], period: int = 14) -> float:
