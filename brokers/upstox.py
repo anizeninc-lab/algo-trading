@@ -15,38 +15,6 @@ from brokers.base import (AbstractBrokerGateway, MarginData, Order,
 load_dotenv(override=True)
 logger = logging.getLogger(__name__)
 
-# ─── PATCH: Upstox SDK's v3 feed connect() uses a dead static URL — Upstox now
-# requires an authorize-then-connect-to-dynamic-URI handshake. This monkey-patch
-# fixes connect() only; the rest of the SDK (protobuf decode, reconnect) is untouched.
-import ssl as _ssl
-import websocket as _websocket
-import requests as _requests
-from upstox_client.feeder.market_data_feeder_v3 import MarketDataFeederV3 as _MDFV3
-
-def _patched_feeder_connect(self):
-    if self.ws and self.ws.sock:
-        return
-    token_value = self.api_client.configuration.auth_settings().get("OAUTH2")["value"]
-    resp = _requests.get(
-        "https://api.upstox.com/v3/feed/market-data-feed/authorize",
-        headers={"Authorization": token_value},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    ws_url = resp.json()["data"]["authorized_redirect_uri"]
-    sslopt = {"cert_reqs": _ssl.CERT_NONE, "check_hostname": False}
-    self.ws = _websocket.WebSocketApp(
-        ws_url,
-        on_open=self.on_open,
-        on_message=self.on_message,
-        on_error=self.on_error,
-        on_close=self.on_close,
-    )
-    threading.Thread(target=self.ws.run_forever, kwargs={"sslopt": sslopt}).start()
-
-_MDFV3.connect = _patched_feeder_connect
-# ─── END PATCH ──────────────────────────────────────────────────────────────────
-
 # ─── HARDCAP — NEVER change this without careful testing ─────────────────────
 MAX_QTY_PER_ORDER = 65  # 1 lot of Nifty options = 65 qty. Bot should NEVER place more.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -69,7 +37,8 @@ class UpstoxAdapter(AbstractBrokerGateway):
         self._ws_thread      = None
         self._last_tick_time = 0.0   # epoch time of last received tick
         self._ws_healthy     = False # True when ticks flowing normally
-        self._streamer = None
+        self._ws_loop = None   # asyncio event loop running the WS connection (own thread)
+        self._ws_conn = None   # active `websockets` connection object
         self._ltp_cache = {}
         self._tick_callbacks = {}  # sym -> list of callbacks
         self._order_callback = None
@@ -259,46 +228,79 @@ class UpstoxAdapter(AbstractBrokerGateway):
             logger.error(f"get_margin failed: {e}")
             return MarginData(available=0.0, used=0.0, total=0.0)
 
+    def _close_ws_connection(self):
+        """Thread-safe close of the active WebSocket connection, if any.
+        Schedules the close on the asyncio loop running in the WS thread."""
+        if self._ws_loop and self._ws_conn:
+            try:
+                asyncio.run_coroutine_threadsafe(self._ws_conn.close(), self._ws_loop)
+            except Exception:
+                pass
+
+    def _send_subscribe(self, instrument_keys, mode="full"):
+        """Thread-safe: send an additive subscribe request over the already-open
+        WS connection, instead of tearing down and reconnecting (which caused
+        multiple overlapping connections and tripped Upstox's per-account limit)."""
+        if not (self._ws_loop and self._ws_conn):
+            return
+        import json as _json, uuid as _uuid
+        req = {
+            "guid": str(_uuid.uuid4()),
+            "method": "sub",
+            "data": {"instrumentKeys": instrument_keys, "mode": mode},
+        }
+        payload = _json.dumps(req).encode("utf-8")
+        try:
+            asyncio.run_coroutine_threadsafe(self._ws_conn.send(payload), self._ws_loop)
+            logger.info(f"Sent additive subscribe for: {instrument_keys}")
+        except Exception as e:
+            logger.error(f"[upstox] _send_subscribe failed: {e}")
+
     def subscribe_ticks(self, symbols: list, callback) -> None:
+        new_syms = []
         for sym in symbols:
             if sym not in self._tick_callbacks:
                 self._tick_callbacks[sym] = []
+                new_syms.append(sym)
             if callback not in self._tick_callbacks[sym]:
                 self._tick_callbacks[sym].append(callback)
 
-        if self._ws_thread and self._ws_thread.is_alive():
-            logger.info(f"Restarting WebSocket to add new symbols: {symbols}")
-            try:
-                if self._streamer:
-                    self._streamer.close()
-            except Exception:
-                pass
-            self._ws_thread = None
-            self._streamer  = None
-            import time; time.sleep(1)
         all_symbols = list(self._tick_callbacks.keys())
 
+        if self._ws_thread and self._ws_thread.is_alive():
+            # WS already running — send an additive subscribe instead of restarting
+            # the whole connection (restarting caused overlapping connections and
+            # tripped Upstox's per-account connection limit, seen as 403s).
+            if new_syms:
+                self._send_subscribe(new_syms)
+            return
+
         def _run_streamer():
-            """Use Upstox SDK MarketDataStreamerV3 directly — handles protobuf + reconnect."""
-            streamer = upstox_client.MarketDataStreamerV3(
-                upstox_client.ApiClient(self._configuration), [], "full"
-            )
+            """Custom asyncio WebSocket client. The Upstox SDK's sync `websocket-client`
+            transport gets a persistent 403 on the current v3 feed — this connects
+            directly with the modern `websockets` library instead (confirmed working),
+            while reusing the SDK's exact subscribe-request format and protobuf decoding."""
+            import ssl as _ssl
+            import json as _json
+            import uuid as _uuid
+            import time as _time
+            import websockets as _websockets
+            from upstox_client.feeder.proto import MarketDataFeedV3_pb2 as _pb2
+            from google.protobuf import json_format as _json_format
 
-            def on_open():
-                import time as _time
-                logger.info("WebSocket connected to Upstox")
-                _time.sleep(3)  # Wait for all strategies to register their symbols
-                current_symbols = list(self._tick_callbacks.keys())
-                subscribe_syms = current_symbols if current_symbols else all_symbols
-                streamer.subscribe(subscribe_syms, "full")
-                logger.info(f"Subscribed to symbols: {subscribe_syms}")
+            def _build_subscribe_request(instrument_keys, mode="full"):
+                req = {
+                    "guid": str(_uuid.uuid4()),
+                    "method": "sub",
+                    "data": {"instrumentKeys": instrument_keys, "mode": mode},
+                }
+                return _json.dumps(req).encode("utf-8")
 
-            def on_message(message):
+            def _process_tick_message(data_dict):
                 try:
-                    import time as _t
-                    self._last_tick_time = _t.time()
+                    self._last_tick_time = _time.time()
                     self._ws_healthy     = True
-                    feeds = message.get("feeds", {})
+                    feeds = data_dict.get("feeds", {})
                     for sym, feed_data in feeds.items():
                         ltp = 0.0
                         bid_price = 0.0
@@ -306,15 +308,13 @@ class UpstoxAdapter(AbstractBrokerGateway):
                         try:
                             ff = feed_data.get("fullFeed", {}) or {}
                             source = ff.get("marketFF") or ff.get("indexFF") or {}
-                            
-                            # 1. Fetch Last Traded Price (LTP)
+
                             ltpc = source.get("ltpc", {}) or {}
                             ltp = float(ltpc.get("ltp", 0) or 0)
                             if not ltp:
                                 ltpc2 = feed_data.get("ltpc", {}) or {}
                                 ltp = float(ltpc2.get("ltp", 0) or 0)
-                                
-                            # 2. Extract top tier Market Depth Bid/Ask for Option Contracts
+
                             market_level = source.get("marketLevel", {}) or {}
                             bids = market_level.get("bid", [])
                             asks = market_level.get("ask", [])
@@ -330,8 +330,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
                             if "Nifty 50" in sym or "NIFTY" in str(sym):
                                 from core.state_store import state_store
                                 state_store.update_nifty_price(float(ltp))
-                                
-                            # Construct enriched Tick object with structural depth buffers
+
                             tick = Tick(
                                 symbol=sym,
                                 last_price=float(ltp),
@@ -347,32 +346,61 @@ class UpstoxAdapter(AbstractBrokerGateway):
                 except Exception as e:
                     logger.error(f"Tick processing error: {e}", exc_info=True)
 
-            def on_error(e):
-                logger.error(f"WebSocket error: {e}")
-
-            def on_close(*args):
-                logger.warning("WebSocket closed")
-                self._ws_healthy = False
+            def _alert_ws_down(msg):
                 try:
-                    import time as _t
                     import pytz
-                    from datetime import datetime, time as dtime
+                    from datetime import time as dtime
                     now = datetime.now(pytz.timezone("Asia/Kolkata"))
                     market_open = dtime(9, 15) <= now.time() <= dtime(15, 15)
-                    uptime = _t.time() - self._start_time
+                    uptime = _time.time() - self._start_time
                     if market_open and uptime > 90:
                         from core.alerting import alert_websocket_down
-                        alert_websocket_down("WebSocket closed — auto-reconnect in progress")
+                        alert_websocket_down(msg)
                 except Exception:
                     pass
 
-            self._streamer = streamer  # Set before connect so subscribe_ticks can find it
-            streamer.on("open", on_open)
-            streamer.on("message", on_message)
-            streamer.on("error", on_error)
-            streamer.on("close", on_close)
-            streamer.auto_reconnect(True, 10, 5)
-            streamer.connect()
+            async def _stream():
+                ssl_ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+                ssl_ctx.check_hostname = False
+                ssl_ctx.verify_mode = _ssl.CERT_NONE
+                url = "wss://api.upstox.com/v3/feed/market-data-feed"
+                headers = {"Authorization": f"Bearer {self.access_token}", "Accept": "*/*"}
+                backoff = 5  # reconnect delay (seconds) — grows on repeated failures to avoid rate-limit triggers
+
+                while True:
+                    try:
+                        async with _websockets.connect(
+                            url, additional_headers=headers, ssl=ssl_ctx, open_timeout=10
+                        ) as ws:
+                            self._ws_conn = ws
+                            logger.info("WebSocket connected to Upstox")
+                            backoff = 5  # reset backoff on a successful connection
+                            await asyncio.sleep(3)  # Wait for all strategies to register their symbols
+                            current_symbols = list(self._tick_callbacks.keys())
+                            subscribe_syms = current_symbols if current_symbols else all_symbols
+                            await ws.send(_build_subscribe_request(subscribe_syms, "full"))
+                            logger.info(f"Subscribed to symbols: {subscribe_syms}")
+
+                            async for message in ws:
+                                try:
+                                    decoded = _pb2.FeedResponse.FromString(message)
+                                    data_dict = _json_format.MessageToDict(decoded)
+                                    _process_tick_message(data_dict)
+                                except Exception as e:
+                                    logger.error(f"Tick processing error: {e}", exc_info=True)
+                    except Exception as e:
+                        logger.error(f"WebSocket error: {e}")
+                        self._ws_healthy = False
+                        logger.warning("WebSocket closed")
+                        _alert_ws_down("WebSocket closed — auto-reconnect in progress")
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 60)  # exponential backoff, capped at 60s
+
+            loop = asyncio.new_event_loop()
+            self._ws_loop = loop
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(_stream())
+
         self._ws_thread = threading.Thread(target=_run_streamer, daemon=True)
         self._ws_thread.start()
         logger.info(f"WebSocket started with symbols: {all_symbols}")
@@ -417,11 +445,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
                                 )
                             except Exception:
                                 pass
-                            try:
-                                if self._streamer:
-                                    self._streamer.close()
-                            except Exception:
-                                pass
+                            self._close_ws_connection()
                             _fail_count = 0
                     else:
                         _fail_count = 0  # reset on healthy tick
