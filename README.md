@@ -353,3 +353,35 @@ This also auto-resolved a phantom ₹40,000 margin reservation in `risk_manager`
 ### Known Issues (Unresolved, carried forward)
 - Exit order tag uniqueness fix (#5 above) only covers `survivor.py`'s `_close_trade()` — worth checking if `bn_survivor` or other close paths have the same fixed-tag pattern.
 - `risk_manager` capital reconciliation only runs at startup (`__init__`), not continuously — a trade going stale mid-session (not across a restart) won't self-correct margin until next restart.
+
+### Afternoon Session — Critical Paper-Mode Bug: Frozen Price, Not Trailing
+
+**Trigger:** Dashboard showed 4 paper positions sitting at ₹2000+ unrealized profit each, well past the ₹800 profit target, never closing — including one opened *after* the morning's fixes were already live.
+
+**Root cause:** `_monitor_open_trades()` in `survivor.py` computed paper-mode current price as a fixed ratio:
+```python
+curr_price = trade["entry"] * 0.95
+```
+This number never changes — it's not a simulation of decay, it's a static snapshot frozen at entry. Profit-target math against this fixed value could essentially never reach ₹800, so paper trades could only ever exit via stop-loss or EOD auto-close, never via profit target. This meant **paper mode was silently incapable of validating exit logic** — defeating its core purpose ahead of going live.
+
+**Fix:** Paper-mode price now reads from `self._ltp_cache` (the same real broker-tick cache used for live trades and dashboard display), with `trade["entry"]` as a safe fallback only if no tick has arrived yet:
+```python
+curr_price = self._ltp_cache.get(_ikey, self._ltp_cache.get(_symbol, 0.0))
+if curr_price <= 0.0:
+    curr_price = trade["entry"]
+```
+
+**Verified working:** Within minutes of restart, during a sharp real -207pt Nifty drop, two paper trades closed correctly against real premium collapse:
+| Symbol | Entry | Exit | Realized P&L |
+|---|---|---|---|
+| NIFTY 24250 CE | ₹34.70 | ₹0.30 | ₹2,236 |
+| NIFTY 24050 CE | ₹34.10 | ₹0.50 | ₹2,184 |
+
+Confirmed: Survivor's SL/TP logic and the broker-side GTT code path (fixed this morning) are both now sound. GTT itself is correctly skipped in paper mode by design — paper relies on the polling loop only, which is now validated to work correctly.
+
+**Separately investigated — not bugs:**
+- **Wave Extractor** (`-₹1,783` unrealized at time of check) — confirmed its `_current_price` is correctly sourced from live ticks (`tick.last_price`) with REST fallback, unlike Survivor's old bug. This loss reflects genuine paper market risk during the large reversal, not a monitoring failure.
+- **BankNifty (`bn_survivor`) has never placed a single trade since being added June 14** — root cause: `ENABLE_BANKNIFTY` was never set in `.env`, so `os.getenv("ENABLE_BANKNIFTY", "false")` defaults to disabled and the strategy object is never instantiated (`None`). Not a bug — simply switched off. To enable: add `ENABLE_BANKNIFTY=true` to `.env` and restart with `--update-env`. **Deferred to next session** (markets closing).
+
+### Identified Gap — Paper Mode Has No Virtual GTT
+Paper trades currently skip GTT placement entirely by design (GTT is broker-only), so paper mode cannot validate the "bot crashes/stalls, does GTT save me" scenario — only the live polling-loop exit path is tested. **Planned for next session:** add a virtual/simulated GTT check inside the independent `_refresh_ltp_loop` (runs every 3s, separate from the main monitor loop) that calculates the same trigger price `place_gtt_trailing_sl()` would use, and force-closes with a distinct `[PAPER-GTT]` tag if breached — giving a true independent-backstop test in paper mode, plus a side-by-side ledger comparing virtual-GTT trigger vs actual exit for empirical confidence before relying on it live.
