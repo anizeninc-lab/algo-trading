@@ -259,6 +259,7 @@ git add -A && git commit -m "backup: $(date +%Y-%m-%d)" && git push mygithub mai
 | Jun 11 | Premature EOD on restart | Safe on_stop — skips close before 3:05 PM |
 | Jun 12 | Duplicate trades at 9:30 open | P1 pending — idempotent orders |
 | Jun 12 | Stale open trade count | Manual DB reconcile procedure established |
+| Jun 23 | Live position with no GTT stop-loss | `_access_token` typo fixed; auto-close added if GTT fails |
 
 ---
 
@@ -314,3 +315,41 @@ Removed 16 stale `.bak`/`.backup`/patch files that were tracked in git despite `
 ### Known Issues (Unresolved)
 - `OrderApiV3` object has no attribute `get_order_book_v3` — Upstox SDK method mismatch on order polling, caught safely in try/except but needs investigation.
 - BankNifty (`bn_survivor`) paper strategy has not yet had its OTM symbol gap (500pt) checked/fixed the way Nifty's was — may have the same near-zero-premium issue.
+
+## Session Log — June 23, 2026
+
+### Trigger
+Routine health check found a paper trade (`NIFTY23JUN2624250CE`) stuck looping "PROFIT TARGET hit → DOUBLE-CLOSE BLOCKED" on every tick since the prior day, never actually closing.
+
+### Root Causes Found (5 distinct bugs)
+1. **Double-close guard duplicated in `_close_trade()`** (`strategy/survivor.py`) — the precedence-gate block (check `_closing_trades`, add trade_id) was pasted twice in a row. The first copy added the trade_id; the second copy immediately found it already present and aborted — so the function never reached the actual close/order logic, on every call, from the very first attempt.
+2. **No cleanup on failed closes** — 3 early-return paths (LTP fetch returns 0, order REJECTED, exception during `place_order`) never called `_closing_trades.discard()`, so any real failure would permanently jam that trade_id from ever closing again.
+3. **GTT silently broken for ALL live trades** — `brokers/upstox.py` line 563 referenced `self._access_token` (nonexistent attribute) instead of `self.access_token`. Every `place_gtt_trailing_sl()` call failed silently with `AttributeError`, caught and logged as a generic warning. Discovered via a real unprotected live position (`NSE_FO|56377`, BankNifty PE, entry ₹25.70 qty 65) running with **no broker-side stop-loss** for ~16 minutes before being caught manually and closed by hand — no loss incurred, but real risk exposure.
+4. **No fail-safe on GTT failure** — when both GTT attempts failed, the bot only logged a `🚨 GTT FAILED` alert and continued holding the unprotected position with no automatic safety response.
+5. **Exit order tag collision** — `tag=f"EXIT_{trade['id'][:8]}"` was identical on every close retry. Once Upstox rejected the first attempt for any reason, every subsequent retry was auto-rejected as `"Duplicate order tag"` — permanently blocking that trade from ever closing through the bot.
+
+### Fixes Applied (all compiled, diffed, restarted clean)
+1. Removed duplicated guard block in `_close_trade()` (`strategy/survivor.py`)
+2. Added `self._closing_trades.discard(trade_id)` before all 3 early-return paths
+3. Fixed typo: `cfg.access_token = self.access_token` (`brokers/upstox.py:563`)
+4. Added auto-close-on-GTT-failure: if GTT placement fails after 2 retries, the bot now immediately force-closes the position via `_close_trade(..., "GTT_FAILED_AUTOCLOSE", ...)` rather than leaving it open unprotected, with an escalating `🚨🚨 CRITICAL` alert if the auto-close itself also fails
+5. Made exit tag unique per attempt: `EXIT_{trade_id[:8]}_{timestamp_ms}` (requires `import time`, added to top of `survivor.py`)
+
+### Data Cleanup
+Reconciled 2 stale `OPEN` records in `trade_log.db` to `CLOSED`:
+- `a2b08c07-...` — `NIFTY23JUN2624250CE`, paper trade from June 22, stuck by bug #1
+- `a4fa7044-...` — `NSE_FO|56377`, real live trade, closed manually at broker by user
+
+This also auto-resolved a phantom ₹40,000 margin reservation in `risk_manager`, since its crash-recovery logic (`core/risk_manager.py` ~line 90) rebuilds `_deployed_capital` directly from `trade_logger.get_active_positions()` on every restart — closing the DB rows was sufficient, no separate margin-clearing step needed.
+
+### Confirmed
+- `PAPER_TRADE=true` switched and verified active (env vars load once via `dotenv` at process start — `pm2 restart --update-env` required for the toggle to take effect, editing `.env` alone is not enough on a running process)
+- No other orphaned `OPEN` trades remain in DB as of session end
+- Both broker-positions and DB now agree: zero open positions
+
+### Deferred
+- Telegram alerting failure (`Network is unreachable` calling `api.telegram.org`) — parked as suspected transient network issue. Revisit if it recurs; until then, dual-alerting is effectively single-path (dashboard signal only).
+
+### Known Issues (Unresolved, carried forward)
+- Exit order tag uniqueness fix (#5 above) only covers `survivor.py`'s `_close_trade()` — worth checking if `bn_survivor` or other close paths have the same fixed-tag pattern.
+- `risk_manager` capital reconciliation only runs at startup (`__init__`), not continuously — a trade going stale mid-session (not across a restart) won't self-correct margin until next restart.
