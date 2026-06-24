@@ -560,7 +560,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
         try:
             import upstox_client
             cfg = upstox_client.Configuration()
-            cfg.access_token = self._access_token
+            cfg.access_token = self.access_token
             client = upstox_client.ApiClient(cfg)
 
             exit_transaction = "BUY" if order_type == "SELL" else "SELL"

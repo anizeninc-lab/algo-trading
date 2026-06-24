@@ -292,7 +292,8 @@ class WaveExtractor(BaseStrategy):
             if (
                 not self._bracket_active
                 and not self._in_cool_off
-                and abs(self._net_position) < self.cfg.max_net_position
+                and self._net_position == 0
+                and not self._open_trades_data
                 and can_trade
             ):
                 await self._place_duo_bracket()
@@ -482,6 +483,34 @@ class WaveExtractor(BaseStrategy):
             self._sell_order_id  = ""
             self._buy_order_id   = ""
             self._bracket_active = False
+
+    async def _on_recover_trade(self, row: dict) -> None:
+        """Restore an orphaned OPEN trade from the DB into live tracking."""
+        symbol = row.get("symbol", "")
+        order_type = row.get("order_type", "BUY")
+        trade = {
+            "order_id":    row.get("broker_order_id", row.get("id")),
+            "order_type":  order_type,
+            "entry_price": row.get("entry_price"),
+            "quantity":    row.get("quantity"),
+            "symbol":      symbol,
+        }
+        self._open_trades_data.append(trade)
+        self.cfg.option_symbol = symbol
+        if order_type == "BUY":
+            self._net_position += 1
+            self._update_position("LONG")
+        else:
+            self._net_position -= 1
+            self._update_position("SHORT")
+        try:
+            risk_manager.register_trade(self.name, order_type)
+        except Exception as e:
+            logger.error(f"[wave_extractor] risk_manager.register_trade failed during recovery: {e}")
+        try:
+            self.broker.subscribe_ticks(symbols=[symbol], callback=self._on_tick_sync)
+        except Exception as e:
+            logger.error(f"[wave_extractor] Could not resubscribe ticks for recovered trade {symbol}: {e}")
 
     # ── Trade Exit ────────────────────────────────────────────────────────────
 
