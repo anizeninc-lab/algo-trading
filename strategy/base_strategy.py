@@ -26,6 +26,40 @@ class BaseStrategy(ABC):
         state_store.register_strategy(name=self.name, broker=type(broker).__name__)
         logger.info(f"[{self.name}] Initialised with config: {config}")
 
+    async def _recover_open_positions(self) -> None:
+        """
+        Startup safety check: find any trades left OPEN in the database from
+        before a crash/restart, loudly alert, and let subclasses restore tracking.
+        """
+        try:
+            orphans = trade_logger.get_active_positions(strategy=self.name)
+        except Exception as e:
+            logger.error(f"[{self.name}] _recover_open_positions query failed: {e}")
+            return
+        if not orphans:
+            return
+        for row in orphans:
+            msg = (
+                f"ORPHANED OPEN POSITION FOUND ON STARTUP | "
+                f"symbol={row.get('symbol')} | order_type={row.get('order_type')} | "
+                f"qty={row.get('quantity')} | entry={row.get('entry_price')} | "
+                f"entry_time={row.get('entry_time')} | trade_id={row.get('id')}"
+            )
+            logger.critical(f"[{self.name}] {msg}")
+            self._signal(f"⚠️ {msg}")
+            try:
+                await self._on_recover_trade(dict(row))
+            except Exception as e:
+                logger.error(f"[{self.name}] _on_recover_trade failed for {row.get('id')}: {e}")
+
+    async def _on_recover_trade(self, row: dict) -> None:
+        """
+        Default no-op. Subclasses with their own open-trade tracking
+        (survivor, wave_extractor) should override this to restore
+        the row into their own structures.
+        """
+        pass
+
     async def start(self) -> None:
         state_store.update_state(self.name, StrategyState.IDLE)
         state_store.set_broker_status(type(self.broker).__name__, "CONNECTING")
@@ -42,6 +76,7 @@ class BaseStrategy(ABC):
         except Exception as e:
             await self._set_error(f"on_start failed: {e}")
             return
+        await self._recover_open_positions()
         self._stop_flag = False
         state_store.update_state(self.name, StrategyState.RUNNING)
         await self._publish(

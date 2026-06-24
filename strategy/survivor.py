@@ -3,6 +3,7 @@ from core.strategy_filter import strategy_filter
 import asyncio
 import logging
 import os
+import time
 from dataclasses import dataclass
 
 from brokers.base import AbstractBrokerGateway, Order, Tick
@@ -506,10 +507,54 @@ class SurvivorAlgo(BaseStrategy):
                         await asyncio.sleep(2)
                 if not gtt_placed:
                     alert_gtt_failed(symbol, "GTT failed after 2 attempts — trade has NO broker-side stop")
-                    self._signal(f"🚨 GTT FAILED — {symbol} has no broker stop protection")
+                    self._signal(f"🚨 GTT FAILED — {symbol} has no broker stop protection — auto-closing position for safety")
+                    _trade_to_close = next(
+                        (t for t in self._open_trades_data if t["id"] == trade_id), None
+                    )
+                    if _trade_to_close:
+                        try:
+                            await self._close_trade(_trade_to_close, "GTT_FAILED_AUTOCLOSE", 0.0)
+                            self._signal(f"🛑 Position auto-closed | {symbol} | reason=GTT_FAILED")
+                        except Exception as ce:
+                            logger.error(f"[survivor] Auto-close after GTT failure also failed for {symbol}: {ce}")
+                            self._signal(f"🚨🚨 CRITICAL: {symbol} has NO GTT and auto-close FAILED — manual intervention required")
+                    else:
+                        logger.error(f"[survivor] Could not find trade {trade_id} in open_trades_data for auto-close")
 
         except Exception as e:
             logger.error(f"[survivor] _sell_option failed for {direction}: {e}")
+
+    async def _on_recover_trade(self, row: dict) -> None:
+        """Restore an orphaned OPEN trade from the DB into live tracking."""
+        symbol = row.get("symbol", "")
+        direction = "PE" if "PE" in symbol else ("CE" if "CE" in symbol else "")
+        self._open_trade_ids.append(row.get("id"))
+        self._open_trades_data.append({
+            "id":         row.get("id"),
+            "order_type": row.get("order_type", "SELL"),
+            "entry":      row.get("entry_price"),
+            "symbol":     symbol,
+            "quantity":   row.get("quantity"),
+            "direction":  direction,
+        })
+        if direction == "PE":
+            self._pe_sold_flag = True
+        elif direction == "CE":
+            self._ce_sold_flag = True
+        self._update_position("SHORT")
+        state_store.update_orders(self.name, len(self._open_trades_data))
+        state_store.update_trades(
+            self.name,
+            total=len(self._open_trades_data),
+            open_count=len(self._open_trades_data),
+            closed=0,
+        )
+        try:
+            ikey = await self._get_instrument_key(symbol, direction, 0)
+            self.broker.subscribe_ticks(symbols=[ikey], callback=self._on_tick_sync)
+            self._ikey_cache[symbol] = ikey
+        except Exception as e:
+            logger.error(f"[survivor] Could not resubscribe ticks for recovered trade {symbol}: {e}")
 
     async def _get_instrument_key(self, symbol: str, direction: str, strike: float) -> str:
         """Lookup instrument key for a text symbol for WebSocket subscription."""
@@ -834,8 +879,14 @@ class SurvivorAlgo(BaseStrategy):
                     or self.cfg.paper_trade_override
                 )
                 if is_paper:
-                    # Simulate slight option decay for paper trades
-                    curr_price = trade["entry"] * 0.95
+                    # Use real LTP from cache (live ticks or REST fallback via
+                    # _refresh_ltp_loop) so paper-mode SL/TP actually reacts to
+                    # real market movement, instead of a frozen 95%-of-entry value
+                    _symbol = trade["symbol"]
+                    _ikey = self._ikey_cache.get(_symbol, _symbol)
+                    curr_price = self._ltp_cache.get(_ikey, self._ltp_cache.get(_symbol, 0.0))
+                    if curr_price <= 0.0:
+                        curr_price = trade["entry"]  # safe fallback, no fake decay
                 else:
                     # Use WebSocket tick cache instead of API call to avoid 429 errors
                     ikey = self._ikey_cache.get(trade["symbol"], trade["symbol"])
@@ -925,15 +976,6 @@ class SurvivorAlgo(BaseStrategy):
             )
             return
         self._closing_trades.add(trade_id)
-        # Exit precedence gate — prevent double-close from SL + GTT + EOD firing simultaneously
-        trade_id = trade.get("id", "")
-        if trade_id in self._closing_trades:
-            logger.warning(
-                f"[survivor] DOUBLE-CLOSE BLOCKED | {trade.get('symbol')} | "
-                f"reason={reason} | already being closed"
-            )
-            return
-        self._closing_trades.add(trade_id)
 
         exit_order_type = "BUY" if trade["order_type"] == "SELL" else "SELL"
 
@@ -956,6 +998,7 @@ class SurvivorAlgo(BaseStrategy):
             if current_price == 0.0:
                 logger.error(f"[survivor] get_ltp returned 0 for {trade['symbol']} — aborting close to prevent wrong P&L")
                 self._signal(f"⚠ EXIT ABORTED: could not get LTP for {trade['symbol']}")
+                self._closing_trades.discard(trade_id)
                 return
             if exit_order_type == "BUY":
                 exit_price = round(current_price * 1.02, 1)
@@ -969,16 +1012,18 @@ class SurvivorAlgo(BaseStrategy):
                     quantity=trade["quantity"],
                     product="I",
                     price=exit_price,
-                    tag=f"EXIT_{trade['id'][:8]}",
+                    tag=f"EXIT_{trade['id'][:8]}_{int(time.time()*1000) % 100000}",
                 ))
                 if resp.status == "REJECTED":
                     self._signal(
                         f"Exit order REJECTED for {trade['symbol']}: {resp.message}"
                     )
+                    self._closing_trades.discard(trade_id)
                     return
                 order_id = resp.order_id
             except Exception as e:
                 logger.error(f"[survivor] _close_trade failed for {trade['symbol']}: {e}")
+                self._closing_trades.discard(trade_id)
                 return
 
         # Calculate P&L
@@ -991,8 +1036,6 @@ class SurvivorAlgo(BaseStrategy):
         ]
         if trade["id"] in self._open_trade_ids:
             self._open_trade_ids.remove(trade["id"])
-        # Clear closing flag
-        self._closing_trades.discard(trade["id"])
         # Clear closing flag
         self._closing_trades.discard(trade["id"])
 
