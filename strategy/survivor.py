@@ -45,6 +45,8 @@ class SurvivorConfig:
     lot_size:             int   = 65                     # 15 for BankNifty
     paper_trade_override: bool  = False                  # force paper mode for this instance
     strategy_name:        str   = "survivor"             # override for BankNifty: "bn_survivor" 
+    hedge_enabled:        bool  = True                   # buy a protective far-OTM leg with every short (caps tail risk)
+    hedge_gap:            float = 150.0                  # points further OTM than the short strike, for the hedge leg
 
 
 class SurvivorAlgo(BaseStrategy):
@@ -453,15 +455,19 @@ class SurvivorAlgo(BaseStrategy):
                 notes=f"VIX Regime Trigger | Nifty @ {nifty_price:.2f}",
             )
 
-            self._open_trade_ids.append(trade_id)
-            self._open_trades_data.append({
+            trade_data = {
                 "id":         trade_id,
                 "order_type": "SELL",
                 "entry":      entry_price,
                 "symbol":     symbol,
                 "quantity":   quantity,
                 "direction":  direction,
-            })
+            }
+            await self._open_hedge_leg(
+                trade_data, direction, final_strike, nifty_price, quantity, _is_paper
+            )
+            self._open_trade_ids.append(trade_id)
+            self._open_trades_data.append(trade_data)
 
             # Subscribe to live ticks using instrument key
             ikey = await self._get_instrument_key(symbol, direction, final_strike)
@@ -523,6 +529,113 @@ class SurvivorAlgo(BaseStrategy):
 
         except Exception as e:
             logger.error(f"[survivor] _sell_option failed for {direction}: {e}")
+
+    async def _open_hedge_leg(
+        self,
+        trade_data:   dict,
+        direction:    str,
+        short_strike: float,
+        nifty_price:  float,
+        quantity:     int,
+        is_paper:     bool,
+    ) -> None:
+        """
+        Buys a far-OTM protective leg against the short option just sold,
+        converting the naked short into a defined-risk credit spread.
+        Caps max loss structurally -- independent of GTT, server uptime,
+        or broker connectivity. Mutates trade_data in place with hedge fields.
+        """
+        trade_data["hedge_symbol"]   = None
+        trade_data["hedge_entry"]    = 0.0
+        trade_data["hedge_quantity"] = 0
+        trade_data["hedge_trade_id"] = None
+
+        if not self.cfg.hedge_enabled:
+            return
+
+        interval  = self.cfg.strike_interval
+        hedge_gap = self.cfg.hedge_gap
+        # Further OTM than the short strike, in the same direction away from spot
+        base_hedge_strike = (
+            short_strike - hedge_gap if direction == "PE" else short_strike + hedge_gap
+        )
+        hedge_strike = round(base_hedge_strike / interval) * interval
+
+        hedge_symbol  = None
+        hedge_premium = 0.0
+
+        for _ in range(4):
+            candidate = self._build_symbol(direction, hedge_strike)
+            if is_paper:
+                hedge_premium = max(1.0, 50.0 - abs(nifty_price - hedge_strike) * 0.1)
+                hedge_ikey = candidate
+            else:
+                hedge_ikey = await self._get_instrument_key(candidate, direction, hedge_strike)
+                hedge_premium = await self.broker.get_ltp(hedge_ikey)
+
+            if hedge_premium > 0.0:
+                hedge_symbol = hedge_ikey
+                break
+            # Step further OTM if illiquid / zero LTP
+            hedge_strike += (-interval if direction == "PE" else interval)
+
+        if not hedge_symbol:
+            logger.error(
+                f"[survivor] HEDGE LEG FAILED -- no liquid {direction} strike found near "
+                f"{hedge_strike:.0f}. Short position has NO structural hedge."
+            )
+            self._signal(f"\U0001F6A8 HEDGE LEG FAILED for {direction} -- position is UNHEDGED, monitor closely")
+            return
+
+        try:
+            if is_paper:
+                buy_price = round(hedge_premium * 1.02, 1)
+                self._signal(f"[PAPER] BUY {quantity} {hedge_symbol} @ {buy_price} (hedge, simulated)")
+                hedge_order_id = f"PAPER_HEDGE_{int(time.time()*1000) % 100000}"
+            else:
+                resp = await self.broker.place_order(Order(
+                    symbol=hedge_symbol,
+                    exchange="NFO",
+                    order_type="BUY",
+                    quantity=quantity,
+                    product="I",
+                    price=round(hedge_premium * 1.02, 1),
+                    tag=f"HEDGE_{direction}_{int(hedge_strike)}_{int(time.time()*1000) % 100000}",
+                ))
+                if resp.status == "REJECTED":
+                    logger.error(f"[survivor] Hedge BUY REJECTED for {hedge_symbol}: {resp.message}")
+                    self._signal(f"\U0001F6A8 HEDGE ORDER REJECTED for {direction} -- position is UNHEDGED")
+                    return
+                buy_price = await self.broker.get_ltp(hedge_symbol)
+                hedge_order_id = resp.order_id
+                self.broker.subscribe_ticks(symbols=[hedge_ikey], callback=self._on_tick_sync)
+                self._ikey_cache[hedge_symbol] = hedge_ikey
+
+            hedge_trade_id = trade_logger.open_trade(
+                strategy=self.name,
+                broker=type(self.broker).__name__,
+                symbol=hedge_symbol,
+                order_type="BUY",
+                quantity=quantity,
+                entry_price=buy_price,
+                broker_order_id=hedge_order_id,
+                notes=f"HEDGE leg for {direction} short @ {short_strike:.0f}",
+            )
+
+            trade_data["hedge_symbol"]   = hedge_symbol
+            trade_data["hedge_entry"]    = buy_price
+            trade_data["hedge_quantity"] = quantity
+            trade_data["hedge_trade_id"] = hedge_trade_id
+
+            max_loss = abs(hedge_strike - short_strike) * quantity
+            self._signal(
+                f"\U0001F6E1 HEDGE BOUGHT {hedge_symbol} @ \u20b9{buy_price:.2f} | "
+                f"Spread width: {abs(hedge_strike - short_strike):.0f} pts | "
+                f"Structural max loss: \u2248\u20b9{max_loss:,.0f}"
+            )
+        except Exception as e:
+            logger.error(f"[survivor] _open_hedge_leg failed: {e}")
+            self._signal(f"\U0001F6A8 HEDGE LEG ERROR for {direction} -- position may be UNHEDGED")
 
     async def _on_recover_trade(self, row: dict) -> None:
         """Restore an orphaned OPEN trade from the DB into live tracking."""
@@ -1026,8 +1139,36 @@ class SurvivorAlgo(BaseStrategy):
                 self._closing_trades.discard(trade_id)
                 return
 
-        # Calculate P&L
-        pnl = (trade["entry"] - exit_price) * trade["quantity"]  # SELL trade profit
+        # Close hedge leg, if one exists
+        hedge_pnl = 0.0
+        if trade.get("hedge_symbol"):
+            try:
+                if _close_paper:
+                    hedge_exit = round(trade["hedge_entry"] * 0.5, 1)  # simple paper decay model
+                else:
+                    hedge_exit = await self.broker.get_ltp(trade["hedge_symbol"])
+                    if hedge_exit > 0.0:
+                        await self.broker.place_order(Order(
+                            symbol=trade["hedge_symbol"],
+                            exchange="NFO",
+                            order_type="SELL",
+                            quantity=trade["hedge_quantity"],
+                            product="I",
+                            price=round(hedge_exit * 0.98, 1),
+                            tag=f"HEDGE_EXIT_{trade['id'][:8]}",
+                        ))
+                hedge_pnl = (hedge_exit - trade["hedge_entry"]) * trade["hedge_quantity"]
+                if trade.get("hedge_trade_id"):
+                    trade_logger.close_trade(trade["hedge_trade_id"], hedge_exit, f"HEDGE_EXIT_{reason}")
+                self._signal(
+                    f"\U0001F6E1 Hedge closed {trade['hedge_symbol']} @ \u20b9{hedge_exit:.2f} | "
+                    f"Hedge P&L: \u20b9{hedge_pnl:.2f}"
+                )
+            except Exception as he:
+                logger.error(f"[survivor] Hedge close failed for {trade.get('hedge_symbol')}: {he}")
+
+        # Calculate P&L (short leg + hedge leg combined)
+        pnl = (trade["entry"] - exit_price) * trade["quantity"] + hedge_pnl
         self._realised_pnl += pnl
 
         # Remove from open trades
