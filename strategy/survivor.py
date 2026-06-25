@@ -1223,6 +1223,17 @@ class SurvivorAlgo(BaseStrategy):
 
     # ── P&L Calculation ───────────────────────────────────────────────────────
 
+    def _get_hedge_unrealised_pnl(self, trade: dict) -> float:
+        """Returns the unrealized P&L of a trade's hedge leg (long), or 0.0 if none."""
+        hedge_symbol = trade.get("hedge_symbol")
+        if not hedge_symbol:
+            return 0.0
+        hedge_ikey = self._ikey_cache.get(hedge_symbol, hedge_symbol)
+        hedge_curr = self._ltp_cache.get(hedge_ikey, self._ltp_cache.get(hedge_symbol, 0.0))
+        if hedge_curr <= 0.0:
+            return 0.0
+        return (hedge_curr - trade["hedge_entry"]) * trade["hedge_quantity"]
+
     def _calculate_pnl(self, nifty_price: float = 0.0) -> None:
         unrealised = 0.0
         for trade in self._open_trades_data:
@@ -1243,6 +1254,7 @@ class SurvivorAlgo(BaseStrategy):
                 unrealised += (entry - curr) * qty if curr > 0 else 0.0
             else:
                 unrealised += (curr - entry) * qty if curr > 0 else 0.0
+            unrealised += self._get_hedge_unrealised_pnl(trade)
         self._unrealised_pnl = round(unrealised, 2)
         self._update_pnl(self._realised_pnl, self._unrealised_pnl)
         # Update live P&L registry for dashboard
@@ -1255,6 +1267,7 @@ class SurvivorAlgo(BaseStrategy):
                 curr  = self._ltp_cache.get(ikey, self._ltp_cache.get(trade["symbol"], 0.0))
                 if curr > 0:
                     pnl = (entry - curr) * qty if trade["order_type"] == "SELL" else (curr - entry) * qty
+                    pnl += self._get_hedge_unrealised_pnl(trade)
                     pnl_registry[trade["id"]] = round(pnl, 2)
                     ltp_registry[trade["id"]] = curr
                 # If curr == 0, keep existing registry value (don't overwrite with wrong 0)
