@@ -967,6 +967,13 @@ class SurvivorAlgo(BaseStrategy):
                                 self._ltp_cache[symbol] = trade["entry"]
                         else:
                             self._ltp_cache[symbol] = trade["entry"]
+
+                # Independent periodic SL/TP enforcement -- fires even if no
+                # ticks are arriving. Acts like a broker-side GTT would: a
+                # check enforced on a timer, independent of the live tick
+                # stream. _monitor_open_trades has its own internal 1s
+                # throttle, so this is safe to call alongside tick-driven calls.
+                await self._monitor_open_trades(self._last_nifty_price)
             except Exception as e:
                 logger.debug(f"[survivor] _refresh_ltp_loop error: {e}")
             await asyncio.sleep(3)
