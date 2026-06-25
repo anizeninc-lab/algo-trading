@@ -141,12 +141,14 @@ class RiskManager:
         margin_needed = MARGIN_PER_SELL_LOT if order_type == "SELL" else MARGIN_PER_BUY_LOT
         current       = self.get_total_deployed_capital()
         projected     = current + margin_needed
+        effective_cap = self._get_effective_max_capital()
 
-        if projected > MAX_CAPITAL_DEPLOYED:
+        if projected > effective_cap:
             reason = (
                 f"Capital limit breach — deployed: ₹{current:,.0f} + "
                 f"new: ₹{margin_needed:,.0f} = ₹{projected:,.0f} "
-                f"exceeds hardcoded limit of ₹{MAX_CAPITAL_DEPLOYED:,.0f}"
+                f"exceeds limit of ₹{effective_cap:,.0f} "
+                f"(hardcoded ceiling ₹{MAX_CAPITAL_DEPLOYED:,.0f})"
             )
             logger.warning(f"[RiskManager] CAPITAL GUARD: {reason}")
             return False, reason
@@ -176,6 +178,52 @@ class RiskManager:
             f"-₹{margin:,.0f} | Total: ₹{total:,.0f} / ₹{MAX_CAPITAL_DEPLOYED:,.0f}"
         )
 
+    # ─── Dynamic risk wiring (session_planner) ──────────────────────────────
+    # Session planner can only TIGHTEN these limits, never loosen them beyond
+    # the hardcoded safety floor/ceiling set in this file.
+
+    def _get_effective_daily_loss_limit(self) -> float:
+        """
+        Returns the more conservative of: the hardcoded -3000 floor, and
+        session_planner's dynamic daily_loss_limit for today. Since both
+        values are negative, max() picks whichever is closer to zero (tighter).
+        """
+        try:
+            from core.session_planner import session_planner
+            plan = session_planner.current_plan
+            if plan.is_ready:
+                effective = max(self.max_daily_loss, plan.daily_loss_limit)
+                if effective != self.max_daily_loss:
+                    logger.debug(
+                        f"[RiskManager] Daily loss limit tightened by session plan: "
+                        f"₹{self.max_daily_loss:.0f} -> ₹{effective:.0f}"
+                    )
+                return effective
+        except Exception as e:
+            logger.debug(f"[RiskManager] Could not read session plan daily loss limit: {e}")
+        return self.max_daily_loss
+
+    def _get_effective_max_capital(self) -> float:
+        """
+        Returns the more conservative of: the hardcoded 150000 ceiling, and
+        session_planner's dynamic max_capital for today. min() ensures the
+        hardcoded ceiling is NEVER exceeded, only ever reduced further.
+        """
+        try:
+            from core.session_planner import session_planner
+            plan = session_planner.current_plan
+            if plan.is_ready:
+                effective = min(MAX_CAPITAL_DEPLOYED, plan.max_capital)
+                if effective != MAX_CAPITAL_DEPLOYED:
+                    logger.debug(
+                        f"[RiskManager] Max capital tightened by session plan: "
+                        f"₹{MAX_CAPITAL_DEPLOYED:.0f} -> ₹{effective:.0f}"
+                    )
+                return effective
+        except Exception as e:
+            logger.debug(f"[RiskManager] Could not read session plan max capital: {e}")
+        return MAX_CAPITAL_DEPLOYED
+
     # ─── System-level checks ─────────────────────────────────────────────────
 
     def is_halted(self) -> bool:
@@ -195,10 +243,14 @@ class RiskManager:
 
         summary   = state_store.get_global_summary()
         total_pnl = summary.get("total_pnl", 0.0)
+        effective_limit = self._get_effective_daily_loss_limit()
 
-        if total_pnl <= self.max_daily_loss:
+        if total_pnl <= effective_limit:
             self._system_halted = True
-            self._halt_reason   = f"Max daily loss hit: ₹{total_pnl:.2f}"
+            self._halt_reason   = (
+                f"Max daily loss hit: ₹{total_pnl:.2f} "
+                f"(limit: ₹{effective_limit:.2f}, hardcoded floor: ₹{self.max_daily_loss:.2f})"
+            )
             logger.warning(f"[RiskManager] SYSTEM HALTED — {self._halt_reason}")
             self._save_state()  # Persist halted state immediately
             return True
