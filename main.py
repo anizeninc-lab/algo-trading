@@ -123,6 +123,8 @@ async def run_strategies(config: dict):
         ce_start             = 0.0,
         min_price_to_sell    = 50.0,
         strike_interval      = 100.0,
+        hedge_gap            = 300.0,    # 3 strikes (100pt spacing) -- same ratio as Nifty's 150/50
+        expiry_weekday       = 2,        # BankNifty expires Wednesday, not Tuesday
         instrument_name      = "BANKNIFTY",
         index_instrument_key = "NSE_INDEX|Nifty Bank",
         lot_size             = 15,

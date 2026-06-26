@@ -50,6 +50,7 @@ class SurvivorConfig:
     use_delta_selection:  bool  = False                  # SHADOW MODE ONLY for now -- does not change live trades yet
     target_delta:         float = 0.15                   # target delta for future delta-based strike selection
     delta_tolerance:      float = 0.05                   # acceptable search window around target_delta
+    expiry_weekday:       int   = 1                      # weekly expiry weekday: Nifty=1 (Tuesday), BankNifty=2 (Wednesday)
 
 
 class SurvivorAlgo(BaseStrategy):
@@ -664,7 +665,7 @@ class SurvivorAlgo(BaseStrategy):
             from datetime import datetime as _dt, timedelta as _td
             import pytz as _pytz
             now = _dt.now(_pytz.timezone("Asia/Kolkata"))
-            days_ahead = (1 - now.weekday()) % 7
+            days_ahead = (self.cfg.expiry_weekday - now.weekday()) % 7
             expiry_date = now.date() if days_ahead == 0 else (now + _td(days=days_ahead)).date()
             expiry_str = expiry_date.strftime("%Y-%m-%d")
 
@@ -747,8 +748,9 @@ class SurvivorAlgo(BaseStrategy):
             if not self._instruments:
                 self._instruments = fetch_instruments()
             now = dt.now(pytz.timezone("Asia/Kolkata"))
-            # Dynamically calculate the next upcoming Tuesday expiry
-            days_ahead = (1 - now.weekday()) % 7
+            # Dynamically calculate the next upcoming expiry weekday
+            # (configurable per-instrument: Nifty=Tuesday(1), BankNifty=Wednesday(2))
+            days_ahead = (self.cfg.expiry_weekday - now.weekday()) % 7
             if days_ahead == 0:
                 expiry = now.date()
             else:
