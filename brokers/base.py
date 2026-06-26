@@ -83,11 +83,16 @@ class AbstractBrokerGateway(ABC):
         pass
 
     @abstractmethod
-    async def get_option_chain(self, expiry: str, option_type: str) -> list:
+    async def get_option_chain(self, instrument_key: str, expiry: str) -> list:
         """
-        Fetch all available strikes for a given expiry and type.
-        option_type: 'CE' or 'PE'
-        Returns list of dicts: [{'strike': 24000, 'symbol': 'NIFTY...', 'ltp': 45.0}]
+        Fetch the live option chain (with Greeks) for a given underlying and expiry.
+        instrument_key: underlying instrument key, e.g. 'NSE_INDEX|Nifty 50'
+        expiry: expiry date string, format YYYY-MM-DD
+        Returns list of dicts, one per strike:
+          {'strike': 24000.0,
+           'ce_ltp': 45.0, 'ce_delta': 0.42, 'ce_oi': 123456, 'ce_bid': 44.5, 'ce_ask': 45.5,
+           'pe_ltp': 38.0, 'pe_delta': -0.38, 'pe_oi': 98765, 'pe_bid': 37.5, 'pe_ask': 38.5}
+        Returns [] on any failure -- callers must handle gracefully / fall back.
         """
         pass
 

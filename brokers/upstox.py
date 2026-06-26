@@ -96,8 +96,49 @@ class UpstoxAdapter(AbstractBrokerGateway):
             logger.error(f"get_ltp unexpected error for {symbol}: {e}")
             return float(self._ltp_cache.get(symbol, 0.0))
 
-    async def get_option_chain(self, expiry: str, option_type: str) -> list:
-        return []
+    async def get_option_chain(self, instrument_key: str, expiry: str) -> list:
+        """
+        Fetch the live option chain (with Greeks) for instrument_key/expiry.
+        Returns one dict per strike: strike, ce_ltp, ce_delta, ce_oi, ce_bid, ce_ask,
+        pe_ltp, pe_delta, pe_oi, pe_bid, pe_ask. Returns [] on any failure --
+        callers must handle gracefully and fall back to non-delta logic.
+        """
+        try:
+            import upstox_client as _uc
+            options_api = _uc.OptionsApi(_uc.ApiClient(self._configuration))
+            resp = options_api.get_put_call_option_chain(instrument_key, expiry)
+            if not resp or not resp.data:
+                logger.warning(f"[upstox] get_option_chain: empty response for {instrument_key} {expiry}")
+                return []
+
+            chain = []
+            for row in resp.data:
+                ce = getattr(row, "call_options", None)
+                pe = getattr(row, "put_options", None)
+                ce_greeks = getattr(ce, "option_greeks", None) if ce else None
+                pe_greeks = getattr(pe, "option_greeks", None) if pe else None
+                ce_market = getattr(ce, "market_data", None) if ce else None
+                pe_market = getattr(pe, "market_data", None) if pe else None
+                chain.append({
+                    "strike":   getattr(row, "strike_price", 0.0) or 0.0,
+                    "ce_ltp":   getattr(ce_market, "ltp", 0.0) or 0.0,
+                    "ce_delta": getattr(ce_greeks, "delta", 0.0) or 0.0,
+                    "ce_oi":    getattr(ce_market, "oi", 0.0) or 0.0,
+                    "ce_bid":   getattr(ce_market, "bid_price", 0.0) or 0.0,
+                    "ce_ask":   getattr(ce_market, "ask_price", 0.0) or 0.0,
+                    "pe_ltp":   getattr(pe_market, "ltp", 0.0) or 0.0,
+                    "pe_delta": getattr(pe_greeks, "delta", 0.0) or 0.0,
+                    "pe_oi":    getattr(pe_market, "oi", 0.0) or 0.0,
+                    "pe_bid":   getattr(pe_market, "bid_price", 0.0) or 0.0,
+                    "pe_ask":   getattr(pe_market, "ask_price", 0.0) or 0.0,
+                })
+            return chain
+        except ApiException as e:
+            logger.error(f"[upstox] get_option_chain failed: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"[upstox] get_option_chain unexpected error: {e}")
+            return []
 
     async def place_order(self, order: Order) -> OrderResponse:
         # ── QUANTITY HARDCAP ─────────────────────────────────────────────────
