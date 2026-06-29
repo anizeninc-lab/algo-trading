@@ -471,6 +471,7 @@ class SurvivorAlgo(BaseStrategy):
                 notes=f"VIX Regime Trigger | Nifty @ {nifty_price:.2f}",
             )
 
+            from core.transaction_costs import calculate_order_cost
             trade_data = {
                 "id":         trade_id,
                 "order_type": "SELL",
@@ -478,6 +479,7 @@ class SurvivorAlgo(BaseStrategy):
                 "symbol":     symbol,
                 "quantity":   quantity,
                 "direction":  direction,
+                "entry_cost": calculate_order_cost(entry_price, quantity, "SELL"),
             }
             await self._open_hedge_leg(
                 trade_data, direction, final_strike, nifty_price, quantity, _is_paper
@@ -561,10 +563,11 @@ class SurvivorAlgo(BaseStrategy):
         Caps max loss structurally -- independent of GTT, server uptime,
         or broker connectivity. Mutates trade_data in place with hedge fields.
         """
-        trade_data["hedge_symbol"]   = None
-        trade_data["hedge_entry"]    = 0.0
-        trade_data["hedge_quantity"] = 0
-        trade_data["hedge_trade_id"] = None
+        trade_data["hedge_symbol"]     = None
+        trade_data["hedge_entry"]      = 0.0
+        trade_data["hedge_quantity"]   = 0
+        trade_data["hedge_trade_id"]   = None
+        trade_data["hedge_entry_cost"] = 0.0
 
         if not self.cfg.hedge_enabled:
             return
@@ -638,10 +641,12 @@ class SurvivorAlgo(BaseStrategy):
                 notes=f"HEDGE leg for {direction} short @ {short_strike:.0f}",
             )
 
-            trade_data["hedge_symbol"]   = hedge_symbol
-            trade_data["hedge_entry"]    = buy_price
-            trade_data["hedge_quantity"] = quantity
-            trade_data["hedge_trade_id"] = hedge_trade_id
+            from core.transaction_costs import calculate_order_cost
+            trade_data["hedge_symbol"]     = hedge_symbol
+            trade_data["hedge_entry"]      = buy_price
+            trade_data["hedge_quantity"]   = quantity
+            trade_data["hedge_trade_id"]   = hedge_trade_id
+            trade_data["hedge_entry_cost"] = calculate_order_cost(buy_price, quantity, "BUY")
 
             max_loss = abs(hedge_strike - short_strike) * quantity
             self._signal(
@@ -1223,6 +1228,7 @@ class SurvivorAlgo(BaseStrategy):
 
         # Close hedge leg, if one exists
         hedge_pnl = 0.0
+        hedge_exit_cost = 0.0
         if trade.get("hedge_symbol"):
             try:
                 if _close_paper:
@@ -1240,6 +1246,8 @@ class SurvivorAlgo(BaseStrategy):
                             tag=f"HEDGE_EXIT_{trade['id'][:8]}",
                         ))
                 hedge_pnl = (hedge_exit - trade["hedge_entry"]) * trade["hedge_quantity"]
+                from core.transaction_costs import calculate_order_cost
+                hedge_exit_cost = calculate_order_cost(hedge_exit, trade["hedge_quantity"], "SELL")
                 if trade.get("hedge_trade_id"):
                     trade_logger.close_trade(trade["hedge_trade_id"], hedge_exit, f"HEDGE_EXIT_{reason}")
                 self._signal(
@@ -1249,9 +1257,21 @@ class SurvivorAlgo(BaseStrategy):
             except Exception as he:
                 logger.error(f"[survivor] Hedge close failed for {trade.get('hedge_symbol')}: {he}")
 
-        # Calculate P&L (short leg + hedge leg combined)
-        pnl = (trade["entry"] - exit_price) * trade["quantity"] + hedge_pnl
+        # Calculate P&L (short leg + hedge leg combined, NET of real transaction costs)
+        from core.transaction_costs import calculate_order_cost
+        short_exit_cost = calculate_order_cost(exit_price, trade["quantity"], "BUY")
+        total_costs = (
+            trade.get("entry_cost", 0.0)
+            + trade.get("hedge_entry_cost", 0.0)
+            + short_exit_cost
+            + hedge_exit_cost
+        )
+        gross_pnl = (trade["entry"] - exit_price) * trade["quantity"] + hedge_pnl
+        pnl = gross_pnl - total_costs
         self._realised_pnl += pnl
+        self._signal(
+            f"\U0001F4B0 Costs: \u20b9{total_costs:.2f} | Gross P&L: \u20b9{gross_pnl:.2f} | Net P&L: \u20b9{pnl:.2f}"
+        )
 
         # Remove from open trades
         self._open_trades_data = [
