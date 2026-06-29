@@ -1257,15 +1257,21 @@ class SurvivorAlgo(BaseStrategy):
             except Exception as he:
                 logger.error(f"[survivor] Hedge close failed for {trade.get('hedge_symbol')}: {he}")
 
-        # Calculate P&L (short leg + hedge leg combined, NET of real transaction costs)
+        # Calculate P&L (short leg + hedge leg combined, NET of real transaction costs).
+        # Costs are recomputed fresh here rather than read from trade_data, because
+        # entry_cost/hedge_entry_cost only ever lived in the in-memory dict -- any
+        # trade recovered via _recover_open_positions() after a PM2 restart would
+        # silently lose them. entry/quantity/hedge_entry/hedge_quantity DO survive
+        # restarts correctly (confirmed working since the June 22 recovery fix), so
+        # costs are derived from those instead.
         from core.transaction_costs import calculate_order_cost
-        short_exit_cost = calculate_order_cost(exit_price, trade["quantity"], "BUY")
-        total_costs = (
-            trade.get("entry_cost", 0.0)
-            + trade.get("hedge_entry_cost", 0.0)
-            + short_exit_cost
-            + hedge_exit_cost
+        entry_cost = calculate_order_cost(trade["entry"], trade["quantity"], "SELL")
+        hedge_entry_cost = (
+            calculate_order_cost(trade["hedge_entry"], trade["hedge_quantity"], "BUY")
+            if trade.get("hedge_symbol") else 0.0
         )
+        short_exit_cost = calculate_order_cost(exit_price, trade["quantity"], "BUY")
+        total_costs = entry_cost + hedge_entry_cost + short_exit_cost + hedge_exit_cost
         gross_pnl = (trade["entry"] - exit_price) * trade["quantity"] + hedge_pnl
         pnl = gross_pnl - total_costs
         self._realised_pnl += pnl
@@ -1287,7 +1293,10 @@ class SurvivorAlgo(BaseStrategy):
         # Release capital back to risk manager
         risk_manager.release_trade(self.name, trade["order_type"])
 
-        trade_logger.close_trade(trade["id"], exit_price, reason)
+        trade_logger.close_trade(
+            trade["id"], exit_price, reason,
+            net_pnl=pnl, gross_pnl=gross_pnl, total_costs=total_costs,
+        )
         self._update_pnl(self._realised_pnl, self._unrealised_pnl)
         self._signal(
             f"CLOSED {trade['symbol']} | Reason: {reason} | "
