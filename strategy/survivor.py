@@ -361,9 +361,14 @@ class SurvivorAlgo(BaseStrategy):
                 or self.cfg.paper_trade_override
             )
             if _is_paper:
-                # Simulate premium in paper mode
-                premium = max(5.0, 50.0 - abs(nifty_price - final_strike) * 0.1)
-                ikey = candidate  # paper mode has no real instrument key — use text symbol
+                # Resolve real instrument key so paper mode uses REAL LTP (cache or
+                # live API call) instead of a synthetic distance-based guess. This
+                # was causing entry_price to diverge from the real market price,
+                # triggering immediate artificial stop-outs.
+                ikey = await self._get_instrument_key(candidate, direction, final_strike)
+                premium = self._ltp_cache.get(ikey, self._ltp_cache.get(candidate, 0.0))
+                if premium <= 0.0:
+                    premium = await self.broker.get_ltp(ikey)
             else:
                 # Resolve real instrument key before LTP fetch
                 ikey = await self._get_instrument_key(candidate, direction, final_strike)
