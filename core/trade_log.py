@@ -115,10 +115,17 @@ class TradeLogger:
         broker_order_id: str = "",
         client_order_id: str = "",
         notes: str = "",
+        parent_trade_id: str = "",
     ) -> str:
         """
         Record a new trade when an order fills. 
         Enforces absolute identity handling via unique client_order_id signatures.
+
+        parent_trade_id links a hedge/secondary leg back to its primary trade's
+        id. Without this, hedge linkage only ever lived in the caller's
+        in-memory dict -- a restart between hedge-open and primary-close would
+        silently orphan the hedge forever, since crash recovery rebuilds trades
+        purely from DB rows and had no way to know a hedge existed at all.
         """
         # If client_order_id is missing, default back safely to an intentional unique string
         if not client_order_id:
@@ -142,8 +149,8 @@ class TradeLogger:
                 """
                 INSERT INTO trades
                     (id, strategy, broker, symbol, order_type, quantity,
-                     entry_price, entry_time, status, broker_order_id, client_order_id, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)
+                     entry_price, entry_time, status, broker_order_id, client_order_id, notes, parent_trade_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
             """,
                 (
                     trade_id,
@@ -157,6 +164,7 @@ class TradeLogger:
                     broker_order_id,
                     client_order_id,
                     notes,
+                    parent_trade_id,
                 ),
             )
 
@@ -164,6 +172,19 @@ class TradeLogger:
             f"TradeLogger: opened trade {trade_id} | {symbol} {order_type} {quantity} @ {entry_price} | ClientID: {client_order_id}"
         )
         return trade_id
+
+    def get_open_hedge_for(self, parent_trade_id: str):
+        """Find an OPEN hedge/secondary leg linked to a given parent trade id.
+        Used by crash recovery to re-attach a hedge that the primary leg's own
+        DB row has no way of referencing on its own."""
+        if not parent_trade_id:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM trades WHERE parent_trade_id = ? AND status = 'OPEN'",
+                (parent_trade_id,),
+            ).fetchone()
+        return dict(row) if row else None
 
     def close_trade(self, trade_id: str, exit_price: float, notes: str = "") -> float:
         """Mark a trade as closed and calculate realised P&L metrics."""

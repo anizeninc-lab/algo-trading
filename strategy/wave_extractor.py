@@ -235,7 +235,7 @@ class WaveExtractor(BaseStrategy):
                             "symbol":      self.cfg.option_symbol,
                         }
                         self._open_trades_data.append(trade)
-                        trade_logger.open_trade(
+                        trade["id"] = trade_logger.open_trade(
                             strategy=self.name,
                             broker=type(self.broker).__name__,
                             symbol=trade['symbol'],
@@ -264,7 +264,7 @@ class WaveExtractor(BaseStrategy):
                             "symbol":      self.cfg.option_symbol,
                         }
                         self._open_trades_data.append(trade)
-                        trade_logger.open_trade(
+                        trade["id"] = trade_logger.open_trade(
                             strategy=self.name,
                             broker=type(self.broker).__name__,
                             symbol=trade['symbol'],
@@ -335,7 +335,17 @@ class WaveExtractor(BaseStrategy):
             self._bracket_active = False
             self._signal(f"SELL filled @ {price:.2f}")
             risk_manager.register_trade(self.name, "SELL")
+            _live_trade_id = trade_logger.open_trade(
+                strategy=self.name,
+                broker=type(self.broker).__name__,
+                symbol=self.cfg.option_symbol,
+                order_type="SELL",
+                quantity=self.cfg.quantity,
+                entry_price=price,
+                broker_order_id=order_id,
+            )
             self._open_trades_data.append({
+                "id":          _live_trade_id,
                 "order_id":    order_id,
                 "order_type":  "SELL",
                 "entry_price": price,
@@ -352,7 +362,17 @@ class WaveExtractor(BaseStrategy):
             self._bracket_active = False
             self._signal(f"BUY filled @ {price:.2f}")
             risk_manager.register_trade(self.name, "BUY")
+            _live_trade_id = trade_logger.open_trade(
+                strategy=self.name,
+                broker=type(self.broker).__name__,
+                symbol=self.cfg.option_symbol,
+                order_type="BUY",
+                quantity=self.cfg.quantity,
+                entry_price=price,
+                broker_order_id=order_id,
+            )
             self._open_trades_data.append({
+                "id":          _live_trade_id,
                 "order_id":    order_id,
                 "order_type":  "BUY",
                 "entry_price": price,
@@ -558,21 +578,37 @@ class WaveExtractor(BaseStrategy):
 
             entry = trade["entry_price"]
             qty   = trade["quantity"]
+            from core.transaction_costs import calculate_order_cost
+            entry_side = trade["order_type"]
+            exit_side  = exit_order_type
+            entry_cost = calculate_order_cost(entry, qty, entry_side)
+            exit_cost  = calculate_order_cost(exit_price, qty, exit_side)
+            total_costs = entry_cost + exit_cost
             if trade["order_type"] == "SELL":
-                pnl = (entry - exit_price) * qty
+                gross_pnl = (entry - exit_price) * qty
                 self._net_position += 1
             else:
-                pnl = (exit_price - entry) * qty
+                gross_pnl = (exit_price - entry) * qty
                 self._net_position -= 1
+            pnl = gross_pnl - total_costs
 
             self._realised_pnl  += pnl
             self._closed_trades += 1
 
             risk_manager.release_trade(self.name, trade["order_type"])
 
+            if trade.get("id"):
+                trade_logger.close_trade(
+                    trade["id"], exit_price, reason,
+                    net_pnl=pnl, gross_pnl=gross_pnl, total_costs=total_costs,
+                )
+            else:
+                logger.error(f"[wave_extractor] No trade id on close -- DB record not updated for {trade.get('symbol')}")
+
             self._signal(
                 f"Exit order placed | {exit_order_type} | "
-                f"Reason: {reason} | P&L: ₹{pnl:.2f} | Order ID: {exit_order_id}"
+                f"Reason: {reason} | Costs: ₹{total_costs:.2f} | "
+                f"Gross P&L: ₹{gross_pnl:.2f} | Net P&L: ₹{pnl:.2f} | Order ID: {exit_order_id}"
             )
 
             asyncio.create_task(self._cool_off_and_rebracket())

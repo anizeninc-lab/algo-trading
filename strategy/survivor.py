@@ -639,6 +639,7 @@ class SurvivorAlgo(BaseStrategy):
                 entry_price=buy_price,
                 broker_order_id=hedge_order_id,
                 notes=f"HEDGE leg for {direction} short @ {short_strike:.0f}",
+                parent_trade_id=trade_data.get("id", ""),
             )
 
             from core.transaction_costs import calculate_order_cost
@@ -721,14 +722,36 @@ class SurvivorAlgo(BaseStrategy):
         symbol = row.get("symbol", "")
         direction = "PE" if "PE" in symbol else ("CE" if "CE" in symbol else "")
         self._open_trade_ids.append(row.get("id"))
-        self._open_trades_data.append({
+        recovered_trade = {
             "id":         row.get("id"),
             "order_type": row.get("order_type", "SELL"),
             "entry":      row.get("entry_price"),
             "symbol":     symbol,
             "quantity":   row.get("quantity"),
             "direction":  direction,
-        })
+        }
+        # Re-attach hedge leg if one exists -- without this, a hedge opened
+        # before a restart would be permanently orphaned (open forever, never
+        # closed), since hedge_symbol/hedge_entry/hedge_quantity/hedge_trade_id
+        # previously only ever lived in the in-memory dict and had no DB-side
+        # link back from the primary leg's own row.
+        hedge_row = trade_logger.get_open_hedge_for(row.get("id"))
+        if hedge_row:
+            recovered_trade["hedge_symbol"]     = hedge_row.get("symbol")
+            recovered_trade["hedge_entry"]      = hedge_row.get("entry_price")
+            recovered_trade["hedge_quantity"]   = hedge_row.get("quantity")
+            recovered_trade["hedge_trade_id"]   = hedge_row.get("id")
+            recovered_trade["hedge_entry_cost"] = 0.0  # recomputed fresh at close time, restart-safe
+            self._signal(
+                f"\U0001F517 Re-attached hedge {hedge_row.get('symbol')} to recovered trade {symbol}"
+            )
+        else:
+            recovered_trade["hedge_symbol"]     = None
+            recovered_trade["hedge_entry"]      = 0.0
+            recovered_trade["hedge_quantity"]   = 0
+            recovered_trade["hedge_trade_id"]   = None
+            recovered_trade["hedge_entry_cost"] = 0.0
+        self._open_trades_data.append(recovered_trade)
         if direction == "PE":
             self._pe_sold_flag = True
         elif direction == "CE":
