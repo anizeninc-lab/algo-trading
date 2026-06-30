@@ -509,6 +509,7 @@ class WaveExtractor(BaseStrategy):
         symbol = row.get("symbol", "")
         order_type = row.get("order_type", "BUY")
         trade = {
+            "id":          row.get("id"),
             "order_id":    row.get("broker_order_id", row.get("id")),
             "order_type":  order_type,
             "entry_price": row.get("entry_price"),

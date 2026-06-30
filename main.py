@@ -77,6 +77,12 @@ async def run_strategies(config: dict):
     session_planner.start()
     logger.info("[main] Session planner started")
 
+    # Give VIX manager the broker reference so it can use the official Upstox
+    # India VIX quote as its primary source (NSE scrape is now fallback only).
+    # Safe even though the broker may not have called login() yet -- fetches
+    # fall through to the scrape until the first strategy logs in.
+    vix_manager.set_broker(broker)
+
     # Start VIX manager first
     await vix_manager.start()
     logger.info(
