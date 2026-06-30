@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from brokers.base import AbstractBrokerGateway, Order, Tick
 from core.event_bus import EventType
 from core.risk_manager import risk_manager
-from core.auto_config import fetch_instruments, find_symbol_from_instruments
+from core.auto_config import fetch_instruments, find_symbol_from_instruments, get_nearest_tuesday, get_nearest_wednesday
 from core.state_store import Direction, state_store
 from core.trade_log import trade_logger
 from core.vix_manager import vix_manager
@@ -673,11 +673,16 @@ class SurvivorAlgo(BaseStrategy):
         if not hasattr(self.broker, "get_option_chain"):
             return
         try:
-            from datetime import datetime as _dt, timedelta as _td
             import pytz as _pytz
-            now = _dt.now(_pytz.timezone("Asia/Kolkata"))
-            days_ahead = (self.cfg.expiry_weekday - now.weekday()) % 7
-            expiry_date = now.date() if days_ahead == 0 else (now + _td(days=days_ahead)).date()
+            from datetime import datetime as _dt
+            # Use canonical expiry function from auto_config (handles holidays + rollover)
+            # rather than a raw weekday formula that has no holiday awareness.
+            _today = _dt.now(_pytz.timezone("Asia/Kolkata")).date()
+            expiry_date = (
+                get_nearest_wednesday(_today)
+                if self.cfg.expiry_weekday == 2
+                else get_nearest_tuesday(_today)
+            )
             expiry_str = expiry_date.strftime("%Y-%m-%d")
 
             chain = await self.broker.get_option_chain(
@@ -776,18 +781,18 @@ class SurvivorAlgo(BaseStrategy):
         if symbol in self._ikey_cache:
             return self._ikey_cache[symbol]
         try:
-            from datetime import datetime as dt, date, timedelta
             import pytz
+            from datetime import datetime as dt
             if not self._instruments:
                 self._instruments = fetch_instruments()
-            now = dt.now(pytz.timezone("Asia/Kolkata"))
-            # Dynamically calculate the next upcoming expiry weekday
-            # (configurable per-instrument: Nifty=Tuesday(1), BankNifty=Wednesday(2))
-            days_ahead = (self.cfg.expiry_weekday - now.weekday()) % 7
-            if days_ahead == 0:
-                expiry = now.date()
-            else:
-                expiry = (now + timedelta(days=days_ahead)).date()
+            # Use canonical expiry function from auto_config (handles holidays + rollover)
+            # rather than a raw weekday formula that has no holiday awareness.
+            _today = dt.now(pytz.timezone("Asia/Kolkata")).date()
+            expiry = (
+                get_nearest_wednesday(_today)
+                if self.cfg.expiry_weekday == 2
+                else get_nearest_tuesday(_today)
+            )
             # Ensure strike is reasonable (not full symbol number)
             clean_strike = int(strike) if strike < 100000 else int(str(int(strike))[-5:])
             ikey = find_symbol_from_instruments(
