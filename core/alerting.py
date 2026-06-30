@@ -112,6 +112,15 @@ def alert_websocket_down(error: str) -> None:
         LEVEL_WARNING
     )
 
+def alert_vix_stale(minutes_stale: float, last_known_vix: float) -> None:
+    send_telegram(
+        f"*VIX FEED STALE*\n"
+        f"No successful VIX fetch (broker or NSE) in {minutes_stale:.1f} min\n"
+        f"Last known VIX: {last_known_vix:.2f}\n"
+        f"🚨 Forcing EXTREME regime (trading halted) until feed recovers",
+        LEVEL_WARNING
+    )
+
 
 def alert_reconcile_mismatch(trade_id: str, symbol: str) -> None:
     send_telegram(

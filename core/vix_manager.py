@@ -1,12 +1,18 @@
-﻿# core/vix_manager.py
+# core/vix_manager.py
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, time as dtime
 
+import pytz
 import requests
 
 logger = logging.getLogger(__name__)
+
+IST = pytz.timezone("Asia/Kolkata")
+MARKET_OPEN  = dtime(9, 15)
+MARKET_CLOSE = dtime(15, 30)
+MAX_STALENESS_MINUTES = 5.0  # if no successful fetch in this window during market hours, fail safe
 
 
 # --- VIX Zones ----------------------------------------------------------------
@@ -98,6 +104,11 @@ VIX_REGIMES = [
 ]
 
 
+def _is_market_hours() -> bool:
+    now = datetime.now(IST).time()
+    return MARKET_OPEN <= now <= MARKET_CLOSE
+
+
 # --- VIX Manager --------------------------------------------------------------
 
 
@@ -107,11 +118,40 @@ class VixManager:
         self.update_interval = update_interval
         self._current_vix = 15.0
         self._current_regime = VIX_REGIMES[1]
-        self._last_updated = None
+        self._last_updated = None          # last poll attempt (success or fail)
+        self._last_successful_fetch = None  # last fetch that actually returned real data
+        self._last_fetch_source = "none"
         self._running = False
         self._update_task = None
+        self._broker = None
+        self._is_stale = False
+        self._stale_alert_fired = False
 
-    def fetch_vix(self) -> float:
+    def set_broker(self, broker) -> None:
+        """Called once at startup so the manager can use the official Upstox
+        India VIX quote as primary source, with the NSE scrape as fallback.
+        Safe to call even before the broker has logged in -- fetches will
+        simply fall through to the NSE scrape until login succeeds."""
+        self._broker = broker
+
+    async def _fetch_vix_via_broker(self) -> float:
+        """Primary source: official Upstox India VIX quote. Returns 0.0 on
+        any failure (not logged in yet, API error, etc) so the caller can
+        fall back to the NSE scrape."""
+        if not self._broker:
+            return 0.0
+        try:
+            vix = await self._broker.get_ltp("NSE_INDEX|India VIX")
+            if vix and vix > 0:
+                return float(vix)
+        except Exception as e:
+            logger.warning(f"[VixManager] Broker VIX fetch failed: {e}")
+        return 0.0
+
+    def fetch_vix_nse_scrape(self) -> float:
+        """Fallback source: unofficial NSE allIndices scrape. Kept as a
+        secondary source only -- this endpoint is undocumented and can break
+        without notice, which is why it is no longer the sole source of truth."""
         headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -134,16 +174,15 @@ class VixManager:
                 data = resp.json()
                 for index in data.get("data", []):
                     if index.get("index") == "INDIA VIX":
-                        vix = float(index.get("last", self._current_vix))
-                        logger.info(f"[VixManager] India VIX: {vix}")
-                        return vix
+                        vix = float(index.get("last", 0.0))
+                        if vix > 0:
+                            return vix
             logger.warning(
-                f"[VixManager] allIndices status={resp.status_code} len={len(resp.text)}"
+                f"[VixManager] NSE scrape status={resp.status_code} len={len(resp.text)}"
             )
         except Exception as e:
-            logger.warning(f"[VixManager] fetch failed: {e}")
-        logger.warning(f"[VixManager] Using last known VIX: {self._current_vix}")
-        return self._current_vix
+            logger.warning(f"[VixManager] NSE scrape failed: {e}")
+        return 0.0
 
     def _get_regime(self, vix: float) -> VixRegime:
         for regime in VIX_REGIMES:
@@ -151,33 +190,85 @@ class VixManager:
                 return regime
         return VIX_REGIMES[1]
 
-    def _update_vix(self) -> None:
-        vix = self.fetch_vix()
-        old_regime = self._current_regime.name
-        self._current_vix = vix
-        self._current_regime = self._get_regime(vix)
-        self._last_updated = datetime.now()
-        if old_regime != self._current_regime.name:
-            logger.warning(
-                f"[VixManager] REGIME CHANGE: {old_regime} -> "
-                f"{self._current_regime.name} | VIX: {vix}"
-            )
-            try:
-                from core.risk_manager import risk_manager
+    def _minutes_since_last_success(self) -> float:
+        if not self._last_successful_fetch:
+            return 999.0
+        return (datetime.now() - self._last_successful_fetch).total_seconds() / 60.0
 
-                risk_manager.max_open_positions = (
-                    self._current_regime.max_open_positions
+    async def _update_vix(self) -> None:
+        self._last_updated = datetime.now()
+
+        vix = await self._fetch_vix_via_broker()
+        source = "upstox"
+        if vix <= 0.0:
+            vix = self.fetch_vix_nse_scrape()
+            source = "nse_scrape"
+
+        if vix > 0.0:
+            # Real successful fetch -- update everything normally.
+            old_regime = self._current_regime.name
+            self._current_vix = vix
+            self._last_successful_fetch = datetime.now()
+            self._last_fetch_source = source
+            if self._is_stale:
+                logger.warning(f"[VixManager] Feed recovered via {source} | VIX: {vix}")
+            self._is_stale = False
+            self._stale_alert_fired = False
+            self._current_regime = self._get_regime(vix)
+            logger.info(f"[VixManager] VIX: {vix} | Source: {source}")
+            if old_regime != self._current_regime.name:
+                logger.warning(
+                    f"[VixManager] REGIME CHANGE: {old_regime} -> "
+                    f"{self._current_regime.name} | VIX: {vix}"
                 )
-                risk_manager.trailing_profit_pct = self._current_regime.trailing_profit
-            except Exception as e:
-                logger.error(f"[VixManager] Risk manager update failed: {e}")
+                self._apply_regime_to_risk_manager()
+            return
+
+        # Both sources failed this poll. Do NOT silently keep trading on
+        # last-known-good as if it were current -- check staleness instead.
+        logger.warning(
+            f"[VixManager] Both VIX sources failed this poll | "
+            f"Using last known: {self._current_vix} | "
+            f"Minutes since last success: {self._minutes_since_last_success():.1f}"
+        )
+
+        if not _is_market_hours():
+            return  # don't force a halt regime outside trading hours
+
+        minutes_stale = self._minutes_since_last_success()
+        if minutes_stale >= MAX_STALENESS_MINUTES:
+            if not self._is_stale:
+                logger.critical(
+                    f"[VixManager] VIX FEED STALE for {minutes_stale:.1f} min during "
+                    f"market hours -- forcing EXTREME regime (halt) as a fail-safe"
+                )
+            self._is_stale = True
+            old_regime = self._current_regime.name
+            self._current_regime = next(r for r in VIX_REGIMES if r.name == "EXTREME")
+            if old_regime != "EXTREME":
+                self._apply_regime_to_risk_manager()
+            if not self._stale_alert_fired:
+                try:
+                    from core.alerting import alert_vix_stale
+                    alert_vix_stale(minutes_stale, self._current_vix)
+                except Exception as e:
+                    logger.error(f"[VixManager] Failed to send stale alert: {e}")
+                self._stale_alert_fired = True
+
+    def _apply_regime_to_risk_manager(self) -> None:
+        try:
+            from core.risk_manager import risk_manager
+            risk_manager.max_open_positions = self._current_regime.max_open_positions
+            risk_manager.trailing_profit_pct = self._current_regime.trailing_profit
+        except Exception as e:
+            logger.error(f"[VixManager] Risk manager update failed: {e}")
 
     async def start(self) -> None:
         self._running = True
-        self._update_vix()
+        await self._update_vix()
         logger.info(
             f"[VixManager] Started | VIX: {self._current_vix:.2f} | "
-            f"Regime: {self._current_regime.name}"
+            f"Regime: {self._current_regime.name} | Source: {self._last_fetch_source}"
         )
         self._update_task = asyncio.create_task(self._update_loop())
 
@@ -196,7 +287,7 @@ class VixManager:
             try:
                 await asyncio.sleep(self.update_interval)
                 if self._running:
-                    self._update_vix()
+                    await self._update_vix()
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -226,6 +317,18 @@ class VixManager:
     @property
     def regime_name(self) -> str:
         return self._current_regime.name
+
+    @property
+    def is_stale(self) -> bool:
+        return self._is_stale
+
+    @property
+    def fetch_source(self) -> str:
+        return self._last_fetch_source
+
+    @property
+    def minutes_since_last_success(self) -> float:
+        return self._minutes_since_last_success()
 
     @property
     def last_updated(self) -> str:
