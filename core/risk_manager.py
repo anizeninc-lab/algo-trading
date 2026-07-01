@@ -434,10 +434,16 @@ class RiskManager:
         entry_price:   float,
         current_price: float,
         quantity:      int,
-        order_type:    str = "SELL",
+        order_type:    str   = "SELL",
+        sl_multiplier: float = 1.5,
     ) -> bool:
         """
         Returns True if this trade has hit the per-trade stop loss.
+
+        SL is premium-proportional: triggers when loss >= entry_premium * sl_multiplier * qty.
+        Floored at per_trade_loss (default -₹800) for cheap options,
+        capped at -₹2,500 to prevent runaway loss on high-premium entries.
+
         For SELL trades: loss occurs when price goes UP.
         For BUY trades: loss occurs when price goes DOWN.
         """
@@ -446,11 +452,16 @@ class RiskManager:
         else:
             pnl = (current_price - entry_price) * quantity
 
-        if pnl <= self.per_trade_loss:
+        # Dynamic SL: proportional to premium collected, bounded by floor/cap
+        dynamic_sl  = -(entry_price * sl_multiplier * quantity)
+        effective_sl = max(self.per_trade_loss, min(dynamic_sl, -2500.0))
+
+        if pnl <= effective_sl:
             logger.warning(
                 f"[RiskManager] Stop loss hit | "
                 f"Entry: {entry_price} | Current: {current_price} | "
-                f"P&L: ₹{pnl:.2f}"
+                f"P&L: ₹{pnl:.2f} | Effective SL: ₹{effective_sl:.2f} "
+                f"(dynamic={dynamic_sl:.0f}, floor={self.per_trade_loss})"
             )
             return True
         return False
