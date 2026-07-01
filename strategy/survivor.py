@@ -36,7 +36,7 @@ class SurvivorConfig:
     ce_quantity:          int   = 65
     pe_start:             float = 0.0
     ce_start:             float = 0.0
-    min_price_to_sell:    float = 30.0
+    min_price_to_sell:    float = 15.0  # aligned with main.py instantiation (was 30.0)
     nifty_instrument_key: str   = "NSE_INDEX|Nifty 50"
     strike_interval:      float = 50.0
     # Instrument identity fields — set these for BankNifty
