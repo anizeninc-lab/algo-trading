@@ -186,8 +186,21 @@ class TradeLogger:
             ).fetchone()
         return dict(row) if row else None
 
-    def close_trade(self, trade_id: str, exit_price: float, notes: str = "") -> float:
-        """Mark a trade as closed and calculate realised P&L metrics."""
+    def close_trade(
+        self,
+        trade_id: str,
+        exit_price: float,
+        notes: str = "",
+        net_pnl: Optional[float] = None,
+        gross_pnl: Optional[float] = None,
+        total_costs: Optional[float] = None,
+    ) -> float:
+        """Mark a trade as closed and calculate realised P&L metrics.
+
+        If net_pnl/gross_pnl/total_costs are provided (e.g. from wave_extractor
+        which computes transaction costs externally), they are stored directly.
+        Otherwise P&L is calculated from entry/exit price (legacy path).
+        """
         exit_time = datetime.now().isoformat()
 
         with self._connect() as conn:
@@ -207,12 +220,18 @@ class TradeLogger:
             quantity = row["quantity"]
             order_type = row["order_type"]
 
-            if order_type == "SELL":
-                pnl = (entry_price - exit_price) * quantity
+            if net_pnl is not None:
+                pnl          = round(net_pnl, 2)
+                _gross_pnl   = round(gross_pnl, 2)   if gross_pnl   is not None else pnl
+                _total_costs = round(total_costs, 2)  if total_costs is not None else 0.0
             else:
-                pnl = (exit_price - entry_price) * quantity
-
-            pnl = round(pnl, 2)
+                if order_type == "SELL":
+                    pnl = (entry_price - exit_price) * quantity
+                else:
+                    pnl = (exit_price - entry_price) * quantity
+                pnl          = round(pnl, 2)
+                _gross_pnl   = pnl
+                _total_costs = 0.0
 
             conn.execute(
                 """
@@ -220,14 +239,16 @@ class TradeLogger:
                 SET exit_price   = ?,
                     exit_time    = ?,
                     realised_pnl = ?,
+                    gross_pnl    = ?,
+                    total_costs  = ?,
                     status       = 'CLOSED',
                     notes        = ?
                 WHERE id = ?
             """,
-                (exit_price, exit_time, pnl, notes, trade_id),
+                (exit_price, exit_time, pnl, _gross_pnl, _total_costs, notes, trade_id),
             )
 
-        logger.info(f"TradeLogger: closed trade {trade_id} | P&L: {pnl}")
+        logger.info(f"TradeLogger: closed trade {trade_id} | Gross: {_gross_pnl} | Costs: {_total_costs} | Net P&L: {pnl}")
         return pnl
 
     def get_active_positions(self, strategy: Optional[str] = None) -> list[dict]:
