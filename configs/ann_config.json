@@ -2,7 +2,7 @@
     "access_token_file": "access_token.txt",
     "instrument_index": "NSE_INDEX|Nifty 50",
     "instrument_fo": "NSE_FO",
-    "symbol_initials": "NIFTY23JUN26",
+    "symbol_initials": "NIFTY07JUL26",
     "strike_step": 50,
     "ann_tag": "ANN_BOT",
     "product": "D",
