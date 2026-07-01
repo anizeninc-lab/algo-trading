@@ -408,14 +408,18 @@ class WaveExtractor(BaseStrategy):
             price = self._current_price
 
             if risk_manager.check_trade_stop_loss(entry, price, qty, otype):
+                _sl_pnl = (entry - price) * qty if otype == "SELL" else (price - entry) * qty
                 self._signal(
-                    f"STOP LOSS hit | {otype} | Entry: {entry:.2f} | Current: {price:.2f}"
+                    f"STOP LOSS hit | {otype} | Entry: {entry:.2f} | Current: {price:.2f} | "
+                    f"P&L: ₹{_sl_pnl:.0f}"
                 )
                 await self._close_trade(trade, "STOP_LOSS")
 
             elif risk_manager.check_trailing_profit(entry, price, otype):
+                _tp_pnl = (entry - price) * qty if otype == "SELL" else (price - entry) * qty
                 self._signal(
-                    f"TRAILING PROFIT hit | {otype} | Entry: {entry:.2f} | Current: {price:.2f}"
+                    f"TRAILING PROFIT hit | {otype} | Entry: {entry:.2f} | Current: {price:.2f} | "
+                    f"P&L: ₹{_tp_pnl:.0f}"
                 )
                 await self._close_trade(trade, "TRAILING_PROFIT")
 
@@ -442,7 +446,13 @@ class WaveExtractor(BaseStrategy):
         self._sell_price = sell_price
         self._buy_price  = buy_price
 
-        self._signal(f"Bracket | SELL {sell_price} | BUY {buy_price}")
+        from core.market_context import market_context as _mc
+        _regime = getattr(_mc, "current_regime", "unknown") if _mc else "unknown"
+        self._signal(
+            f"Bracket placed | spot={self._current_price:.1f} | "
+            f"SELL={sell_price} (+{self.cfg.sell_gap}) | BUY={buy_price} (-{self.cfg.buy_gap}) | "
+            f"regime={_regime}"
+        )
 
         # Deterministic Identity strings matching today's lifecycle window
         _now_tz = datetime.now(_pytz.timezone("Asia/Kolkata"))
