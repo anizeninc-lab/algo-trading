@@ -217,69 +217,9 @@ class WaveExtractor(BaseStrategy):
 
             # ── Paper Trade Fill Simulator ──────────────────────────────────
             if os.getenv("PAPER_TRADE", "false").lower() == "true":
-                price = tick.last_price
-                if self._bracket_active:
-                    # Generate identical keys for deterministic identification
-                    _now_tz = datetime.now(_pytz.timezone("Asia/Kolkata"))
-                    today_prefix = _now_tz.strftime('%Y%m%d')
-
-                    if self._sell_order_id.startswith("PAPER_SELL") and self._sell_price > 0 and price >= self._sell_price:
-                        self._signal(f"[PAPER] SELL filled @ {self._sell_price}")
-                        self._bracket_active = False
-                        self._net_position  -= 1
-                        trade = {
-                            "order_id":    f"PAPER_WAVE_SELL_{today_prefix}",
-                            "order_type":  "SELL",
-                            "entry_price": self._sell_price,
-                            "quantity":    self.cfg.quantity,
-                            "symbol":      self.cfg.option_symbol,
-                        }
-                        self._open_trades_data.append(trade)
-                        trade["id"] = trade_logger.open_trade(
-                            strategy=self.name,
-                            broker=type(self.broker).__name__,
-                            symbol=trade['symbol'],
-                            order_type=trade['order_type'],
-                            quantity=trade['quantity'],
-                            entry_price=trade['entry_price'],
-                            broker_order_id=trade['order_id'],
-                        )
-                        self._sell_order_id = ""
-                        self._buy_order_id  = ""
-                        risk_manager.register_trade(self.name, "SELL")
-                        self._update_pnl(self._realised_pnl, self._unrealised_pnl)
-                        self._update_position("SHORT")
-                        asyncio.create_task(self._cool_off_and_rebracket())
-                        return
-
-                    elif self._buy_order_id.startswith("PAPER_BUY") and self._buy_price > 0 and price <= self._buy_price:
-                        self._signal(f"[PAPER] BUY filled @ {self._buy_price}")
-                        self._bracket_active = False
-                        self._net_position  += 1
-                        trade = {
-                            "order_id":    f"PAPER_WAVE_BUY_{today_prefix}",
-                            "order_type":  "BUY",
-                            "entry_price": self._buy_price,
-                            "quantity":    self.cfg.quantity,
-                            "symbol":      self.cfg.option_symbol,
-                        }
-                        self._open_trades_data.append(trade)
-                        trade["id"] = trade_logger.open_trade(
-                            strategy=self.name,
-                            broker=type(self.broker).__name__,
-                            symbol=trade['symbol'],
-                            order_type=trade['order_type'],
-                            quantity=trade['quantity'],
-                            entry_price=trade['entry_price'],
-                            broker_order_id=trade['order_id'],
-                        )
-                        self._buy_order_id  = ""
-                        self._sell_order_id = ""
-                        risk_manager.register_trade(self.name, "BUY")
-                        self._update_pnl(self._realised_pnl, self._unrealised_pnl)
-                        self._update_position("LONG")
-                        asyncio.create_task(self._cool_off_and_rebracket())
-                        return
+                filled = await self._handle_paper_fill(tick.last_price)
+                if filled:
+                    return
             # ── End Paper Trade Fill Simulator ─────────────────────────────
 
             can_trade, reason = risk_manager.can_trade(self.name)
@@ -385,6 +325,75 @@ class WaveExtractor(BaseStrategy):
                 self._sell_order_id = ""
 
     # ── Trade Monitoring (SL + Trailing Profit) ───────────────────────────────
+
+    async def _handle_paper_fill(self, price: float) -> bool:
+        """Paper-mode fill simulator. Returns True if a fill was detected and handled.
+        Extracted from on_tick so future fill-path fixes have one place to land (#14).
+        """
+        if not self._bracket_active:
+            return False
+        _now_tz = datetime.now(_pytz.timezone("Asia/Kolkata"))
+        today_prefix = _now_tz.strftime('%Y%m%d')
+
+        if self._sell_order_id.startswith("PAPER_SELL") and self._sell_price > 0 and price >= self._sell_price:
+            self._signal(f"[PAPER] SELL filled @ {self._sell_price}")
+            self._bracket_active = False
+            self._net_position  -= 1
+            trade = {
+                "order_id":    f"PAPER_WAVE_SELL_{today_prefix}",
+                "order_type":  "SELL",
+                "entry_price": self._sell_price,
+                "quantity":    self.cfg.quantity,
+                "symbol":      self.cfg.option_symbol,
+            }
+            self._open_trades_data.append(trade)
+            trade["id"] = trade_logger.open_trade(
+                strategy=self.name,
+                broker=type(self.broker).__name__,
+                symbol=trade["symbol"],
+                order_type=trade["order_type"],
+                quantity=trade["quantity"],
+                entry_price=trade["entry_price"],
+                broker_order_id=trade["order_id"],
+            )
+            self._sell_order_id = ""
+            self._buy_order_id  = ""
+            risk_manager.register_trade(self.name, "SELL")
+            self._update_pnl(self._realised_pnl, self._unrealised_pnl)
+            self._update_position("SHORT")
+            asyncio.create_task(self._cool_off_and_rebracket())
+            return True
+
+        if self._buy_order_id.startswith("PAPER_BUY") and self._buy_price > 0 and price <= self._buy_price:
+            self._signal(f"[PAPER] BUY filled @ {self._buy_price}")
+            self._bracket_active = False
+            self._net_position  += 1
+            trade = {
+                "order_id":    f"PAPER_WAVE_BUY_{today_prefix}",
+                "order_type":  "BUY",
+                "entry_price": self._buy_price,
+                "quantity":    self.cfg.quantity,
+                "symbol":      self.cfg.option_symbol,
+            }
+            self._open_trades_data.append(trade)
+            trade["id"] = trade_logger.open_trade(
+                strategy=self.name,
+                broker=type(self.broker).__name__,
+                symbol=trade["symbol"],
+                order_type=trade["order_type"],
+                quantity=trade["quantity"],
+                entry_price=trade["entry_price"],
+                broker_order_id=trade["order_id"],
+            )
+            self._buy_order_id  = ""
+            self._sell_order_id = ""
+            risk_manager.register_trade(self.name, "BUY")
+            self._update_pnl(self._realised_pnl, self._unrealised_pnl)
+            self._update_position("LONG")
+            asyncio.create_task(self._cool_off_and_rebracket())
+            return True
+
+        return False
 
     async def _monitor_open_trades(self) -> None:
         if not self._open_trades_data:
