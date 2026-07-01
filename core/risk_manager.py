@@ -229,6 +229,21 @@ class RiskManager:
     def is_halted(self) -> bool:
         return self._system_halted
 
+    def is_trading_blocked(self) -> tuple[bool, str]:
+        """Single pre-trade gate. Returns (blocked: bool, reason: str).
+        Checks in priority order: system halted → auto-stop time → VIX halt.
+        Strategies call this once at the top of on_tick and bail early if blocked.
+        """
+        if self._system_halted:
+            return True, self._halt_reason or "System halted"
+        if self.check_auto_stop():
+            return True, "Auto-stop time reached (3:10 PM)"
+        # VIX halt — import here to avoid circular import at module level
+        from core.vix_manager import vix_manager as _vm
+        if _vm.get_params().get("halt_trading", False):
+            return True, "VIX EXTREME — trading halted by vix_manager"
+        return False, ""
+
     def check_auto_stop(self) -> bool:
         now = datetime.now(pytz.timezone("Asia/Kolkata"))
         if now.hour > self.auto_stop_hour:

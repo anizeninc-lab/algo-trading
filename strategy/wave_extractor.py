@@ -187,24 +187,23 @@ class WaveExtractor(BaseStrategy):
 
     async def on_tick(self, tick: Tick) -> None:
         try:
-            if self._stop_flag:
+            if self._stop_flag or not self.is_market_open():
                 return
-
-            if not self.is_market_open():
+            # ── Global pre-trade gate (#24) ────────────────────────────────────
+            blocked, reason = risk_manager.is_trading_blocked()
+            if blocked:
+                if reason != self._last_block_reason:
+                    self._last_block_reason = reason
+                    logger.info(f"[wave_extractor] Trading blocked: {reason}")
+                    if "daily loss" in reason.lower() or "halted" in reason.lower():
+                        await self._close_all_positions()
+                        await self.stop(reason="MAX_DAILY_LOSS")
+                    elif "auto-stop" in reason.lower():
+                        await self._close_all_positions()
+                        await self.stop(reason="AUTO_STOP")
                 return
-
-            if risk_manager.check_auto_stop():
-                self._signal("Auto-stop triggered (3:10 PM) — closing all positions")
-                await self._close_all_positions()
-                await self.stop(reason="AUTO_STOP")
-                return
-
-            if risk_manager.check_max_daily_loss():
-                self._signal("Max daily loss hit — closing all positions")
-                await self._close_all_positions()
-                await self.stop(reason="MAX_DAILY_LOSS")
-                return
-
+            else:
+                self._last_block_reason = ""
             self._current_price = tick.last_price
 
             if "INDEX" in tick.symbol:
