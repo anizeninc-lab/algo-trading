@@ -153,7 +153,7 @@ class WaveExtractor(BaseStrategy):
             if pos.symbol == self.cfg.option_symbol:
                 actual_qty = pos.quantity
 
-        lot_size   = self.cfg.quantity or 25
+        lot_size   = self.cfg.quantity or 65  # 65 = Nifty lot size; fallback if cfg.quantity unset
         actual_net = actual_qty // lot_size if lot_size else actual_qty
 
         if actual_net != self._net_position:
