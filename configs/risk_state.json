@@ -1,8 +1,10 @@
 {
-  "date": "2026-06-19",
+  "date": "2026-07-01",
   "trade_counts": {},
   "daily_pnl": {},
   "system_halted": true,
-  "halt_reason": "KILL SWITCH ACTIVATED",
-  "deployed_capital": {}
+  "halt_reason": "Max daily loss hit: \u20b9-8098.34 (limit: \u20b9-3000.00, hardcoded floor: \u20b9-3000.00)",
+  "deployed_capital": {
+    "wave_extractor": 0.0
+  }
 }
