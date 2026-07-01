@@ -519,6 +519,72 @@ async def get_events(
     return {"events": events, "count": len(events)}
 
 
+@app.get("/api/bot-status")
+async def get_bot_status():
+    """Single endpoint for dashboard operational state panel (#25)."""
+    from core.risk_manager import risk_manager
+    from core.vix_manager import vix_manager
+    from datetime import date
+
+    blocked, block_reason = risk_manager.is_trading_blocked()
+
+    # Capital
+    max_cap   = risk_manager.max_capital_deployed if hasattr(risk_manager, "max_capital_deployed") else 150000
+    risk_state = risk_manager._load_state() if hasattr(risk_manager, "_load_state") else {}
+    deployed  = sum((risk_manager._deployed_capital or {}).values()) if hasattr(risk_manager, "_deployed_capital") else 0.0
+    remaining = max(0.0, max_cap - deployed)
+
+    # Trades today
+    try:
+        today = date.today().isoformat()
+        counts = risk_manager._trade_counts or {}
+        trades_today = sum(counts.values())
+    except Exception:
+        trades_today = 0
+
+    # Daily P&L
+    summary = state_store.get_global_summary()
+    daily_pnl = summary.get("total_pnl", 0.0)
+
+    # Effective daily loss limit
+    try:
+        limit = risk_manager._get_effective_daily_loss_limit()
+    except Exception:
+        limit = risk_manager.max_daily_loss if hasattr(risk_manager, "max_daily_loss") else -3000.0
+
+    # VIX halt
+    vix_halted = vix_manager.get_params().get("halt_trading", False)
+
+    # Trading status label
+    if risk_manager.is_halted():
+        status = "HALTED"
+        status_col = "red"
+    elif vix_halted:
+        status = "VIX BLOCKED"
+        status_col = "orange"
+    elif blocked:
+        status = "BLOCKED"
+        status_col = "orange"
+    else:
+        status = "TRADING"
+        status_col = "green"
+
+    return {
+        "trading_status":   status,
+        "status_colour":    status_col,
+        "is_halted":        risk_manager.is_halted(),
+        "halt_reason":      risk_manager._halt_reason if hasattr(risk_manager, "_halt_reason") else "",
+        "block_reason":     block_reason,
+        "capital_deployed": round(deployed, 2),
+        "capital_remaining": round(remaining, 2),
+        "capital_max":      max_cap,
+        "capital_pct":      round((deployed / max_cap * 100) if max_cap > 0 else 0, 1),
+        "trades_today":     trades_today,
+        "daily_pnl":        round(daily_pnl, 2),
+        "daily_loss_limit": round(limit, 2),
+        "pnl_pct_of_limit": round((daily_pnl / abs(limit) * 100) if limit != 0 else 0, 1),
+    }
+
 @app.get("/api/health")
 async def health():
     return {

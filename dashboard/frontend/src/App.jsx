@@ -1826,6 +1826,87 @@ const DEFAULT = {
   market: { nifty_price: 0, option_price: 0 },
 }
 
+// ── Bot Status Bar (#25) ─────────────────────────────────────────────────────
+function BotStatusBar() {
+  const [status, setStatus] = React.useState(null)
+  React.useEffect(() => {
+    async function fetch() {
+      try {
+        const r = await axios.get(`${API}/api/bot-status`)
+        setStatus(r.data)
+      } catch {}
+    }
+    fetch()
+    const id = setInterval(fetch, 5000)
+    return () => clearInterval(id)
+  }, [])
+  if (!status) return null
+
+  const colMap = { green: C.green, red: C.red, orange: C.orange }
+  const col = colMap[status.status_colour] || C.muted
+  const capPct = status.capital_pct || 0
+  const capCol = capPct > 80 ? C.red : capPct > 50 ? C.orange : C.green
+  const pnlPct = Math.abs(status.pnl_pct_of_limit || 0)
+  const pnlCol = pnlPct > 80 ? C.red : pnlPct > 50 ? C.orange : C.green
+
+  return (
+    <div style={{ background: C.card, borderRadius: 10, padding: "10px 16px", border: `1px solid ${col}40`, marginBottom: 12, display: "flex", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
+      {/* Trading Status */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 160 }}>
+        <div style={{ width: 10, height: 10, borderRadius: "50%", background: col, boxShadow: `0 0 6px ${col}` }} />
+        <div>
+          <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>TRADING STATUS</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: col }}>{status.trading_status}</div>
+        </div>
+      </div>
+      {/* Halt/Block Reason */}
+      {(status.halt_reason || status.block_reason) && (
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 2 }}>
+            {status.is_halted ? "HALT REASON" : "BLOCK REASON"}
+          </div>
+          <div style={{ fontSize: 10, color: col, fontWeight: 600 }}>
+            {status.halt_reason || status.block_reason}
+          </div>
+        </div>
+      )}
+      {/* Capital Bar */}
+      <div style={{ minWidth: 160 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+          <span style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>CAPITAL DEPLOYED</span>
+          <span style={{ fontSize: 8, color: capCol, fontWeight: 800 }}>{capPct}%</span>
+        </div>
+        <div style={{ height: 5, background: C.border, borderRadius: 3, marginBottom: 3 }}>
+          <div style={{ height: "100%", width: `${Math.min(capPct, 100)}%`, background: capCol, borderRadius: 3, transition: "width 0.5s" }} />
+        </div>
+        <div style={{ fontSize: 9, color: C.muted }}>
+          ₹{status.capital_deployed?.toLocaleString()} / ₹{status.capital_max?.toLocaleString()} 
+          <span style={{ color: C.green, marginLeft: 6 }}>₹{status.capital_remaining?.toLocaleString()} free</span>
+        </div>
+      </div>
+      {/* Daily P&L vs Limit */}
+      <div style={{ minWidth: 160 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+          <span style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>DAILY LOSS USED</span>
+          <span style={{ fontSize: 8, color: pnlCol, fontWeight: 800 }}>{pnlPct.toFixed(1)}%</span>
+        </div>
+        <div style={{ height: 5, background: C.border, borderRadius: 3, marginBottom: 3 }}>
+          <div style={{ height: "100%", width: `${Math.min(pnlPct, 100)}%`, background: pnlCol, borderRadius: 3, transition: "width 0.5s" }} />
+        </div>
+        <div style={{ fontSize: 9, color: C.muted }}>
+          P&L: <span style={{ color: pnlC(status.daily_pnl) }}>₹{status.daily_pnl?.toFixed(2)}</span>
+          <span style={{ marginLeft: 6 }}>Limit: ₹{status.daily_loss_limit?.toFixed(0)}</span>
+        </div>
+      </div>
+      {/* Trades Today */}
+      <div style={{ textAlign: "center", minWidth: 80 }}>
+        <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 2 }}>TRADES TODAY</div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: C.text, fontFamily: "monospace" }}>{status.trades_today}</div>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [data,     setData]     = useState(DEFAULT)
   const [trades,   setTrades]   = useState([])
@@ -1978,6 +2059,9 @@ export default function App() {
         <TokenCountdown token={token} />
         <AutoStopCountdown />
       </div>
+
+      {/* ── Bot Status Bar ── */}
+      <BotStatusBar />
 
       {/* ── Bot Health + Paper Toggle Row ── */}
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "stretch" }}>
