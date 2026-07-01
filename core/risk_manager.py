@@ -51,6 +51,7 @@ class RiskManager:
         max_trades_per_day:  int   = 3,
         auto_stop_hour:      int   = 15,
         auto_stop_minute:    int   = 10,
+        max_weekly_loss:     float = -10000.0,
     ):
         self.max_daily_loss      = max_daily_loss
         self.per_trade_loss      = per_trade_loss
@@ -58,6 +59,7 @@ class RiskManager:
         self.max_trades_per_day  = max_trades_per_day
         self.auto_stop_hour      = auto_stop_hour
         self.auto_stop_minute    = auto_stop_minute
+        self.max_weekly_loss     = max_weekly_loss
 
         # Per-strategy trade counters (reset each day)
         self._trade_counts:   dict[str, int]   = {}
@@ -229,6 +231,39 @@ class RiskManager:
     def is_halted(self) -> bool:
         return self._system_halted
 
+    def check_weekly_drawdown(self) -> bool:
+        """Check rolling 5-day P&L from trade DB. Halts if total exceeds max_weekly_loss.
+        Uses closed trade realised_pnl — no extra persistence needed (#9).
+        """
+        if self._system_halted:
+            return True
+        try:
+            from core.trade_log import trade_logger as _tl
+            from datetime import date, timedelta
+            import sqlite3
+            # Last 5 calendar days (covers Mon-Fri week)
+            cutoff = (date.today() - timedelta(days=7)).isoformat()
+            with sqlite3.connect(_tl.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT SUM(realised_pnl) as total FROM trades "
+                    "WHERE status='CLOSED' AND exit_time >= ?",
+                    (cutoff,)
+                ).fetchone()
+            weekly_pnl = rows["total"] if rows and rows["total"] is not None else 0.0
+            if weekly_pnl <= self.max_weekly_loss:
+                self._system_halted = True
+                self._halt_reason   = (
+                    f"Weekly drawdown limit hit: ₹{weekly_pnl:.2f} "
+                    f"(limit: ₹{self.max_weekly_loss:.2f}, last 7 calendar days)"
+                )
+                logger.warning(f"[RiskManager] SYSTEM HALTED — {self._halt_reason}")
+                self._save_state()
+                return True
+        except Exception as e:
+            logger.warning(f"[RiskManager] Weekly drawdown check failed: {e}")
+        return False
+
     def is_trading_blocked(self) -> tuple[bool, str]:
         """Single pre-trade gate. Returns (blocked: bool, reason: str).
         Checks in priority order: system halted → auto-stop time → VIX halt.
@@ -236,6 +271,8 @@ class RiskManager:
         """
         if self._system_halted:
             return True, self._halt_reason or "System halted"
+        if self.check_weekly_drawdown():
+            return True, self._halt_reason
         if self.check_auto_stop():
             return True, "Auto-stop time reached (3:10 PM)"
         # VIX halt — import here to avoid circular import at module level
