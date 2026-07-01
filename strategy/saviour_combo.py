@@ -228,19 +228,24 @@ class SaviourCombo:
     def _get_combined_pnl(self) -> float:
         wave_s     = state_store.get_strategy("wave_extractor")
         survivor_s = state_store.get_strategy("survivor")
+        bn_s       = state_store.get_strategy("bn_survivor") if self.bn_survivor else None
         wave_pnl     = (wave_s.realised_pnl     + wave_s.unrealised_pnl)     if wave_s     else 0.0
         survivor_pnl = (survivor_s.realised_pnl + survivor_s.unrealised_pnl) if survivor_s else 0.0
-        return round(wave_pnl + survivor_pnl, 2)
+        bn_pnl       = (bn_s.realised_pnl       + bn_s.unrealised_pnl)       if bn_s       else 0.0
+        # NOTE: max_combined_loss (-5000) is intentionally looser than risk_manager daily limit (-3000).
+        # If BankNifty ever goes live, audit both limits for consistency.
+        return round(wave_pnl + survivor_pnl + bn_pnl, 2)
 
     def _update_combo_status(self, combined_pnl: float) -> None:
         wave_s     = state_store.get_strategy("wave_extractor")
         survivor_s = state_store.get_strategy("survivor")
+        bn_s       = state_store.get_strategy("bn_survivor") if self.bn_survivor else None
 
         total_trades = 0
         open_trades  = 0
         open_orders  = 0
 
-        for s in [wave_s, survivor_s]:
+        for s in [wave_s, survivor_s, bn_s]:
             if s:
                 total_trades += getattr(s, "total_trades", 0)
                 open_trades  += getattr(s, "open_trades",  0)
