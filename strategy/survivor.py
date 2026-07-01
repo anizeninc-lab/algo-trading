@@ -484,9 +484,25 @@ class SurvivorAlgo(BaseStrategy):
                 "direction":  direction,
                 "entry_cost": calculate_order_cost(entry_price, quantity, "SELL"),
             }
-            await self._open_hedge_leg(
+            hedge_ok = await self._open_hedge_leg(
                 trade_data, direction, final_strike, nifty_price, quantity, _is_paper
             )
+            if hedge_ok is False and not _is_paper:
+                logger.error(f"[survivor] Hedge failed in live mode for {trade_id} -- auto-closing naked short")
+                self._signal(f"\U0001F6A8 HEDGE FAILED -- auto-closing naked short {direction} {int(final_strike)} for safety")
+                try:
+                    ltp = await self.broker.get_ltp(symbol)
+                    await self.broker.place_order(Order(
+                        symbol=symbol, exchange="NFO", order_type="BUY",
+                        quantity=quantity, product="I", price=round(ltp * 1.02, 1),
+                        tag=f"HEDGE_FAIL_CLOSE_{trade_id[-6:]}",
+                    ))
+                    trade_logger.close_trade(trade_id, ltp, "HEDGE_FAILED_AUTOCLOSE")
+                except Exception as ce:
+                    logger.error(f"[survivor] Auto-close after hedge failure failed: {ce}")
+                    self._signal(f"\U0001F6A8\U0001F6A8 CRITICAL: naked short {symbol} -- hedge AND auto-close FAILED -- manual intervention required")
+                self._pending_orders.discard(_order_key)
+                return
             self._open_trade_ids.append(trade_id)
             self._open_trades_data.append(trade_data)
 
@@ -607,7 +623,7 @@ class SurvivorAlgo(BaseStrategy):
                 f"{hedge_strike:.0f}. Short position has NO structural hedge."
             )
             self._signal(f"\U0001F6A8 HEDGE LEG FAILED for {direction} -- position is UNHEDGED, monitor closely")
-            return
+            return False
 
         try:
             if is_paper:
@@ -627,7 +643,7 @@ class SurvivorAlgo(BaseStrategy):
                 if resp.status == "REJECTED":
                     logger.error(f"[survivor] Hedge BUY REJECTED for {hedge_symbol}: {resp.message}")
                     self._signal(f"\U0001F6A8 HEDGE ORDER REJECTED for {direction} -- position is UNHEDGED")
-                    return
+                    return False
                 buy_price = await self.broker.get_ltp(hedge_symbol)
                 hedge_order_id = resp.order_id
                 self.broker.subscribe_ticks(symbols=[hedge_ikey], callback=self._on_tick_sync)
@@ -648,6 +664,7 @@ class SurvivorAlgo(BaseStrategy):
             from core.transaction_costs import calculate_order_cost
             trade_data["hedge_symbol"]     = hedge_symbol
             trade_data["hedge_entry"]      = buy_price
+            trade_data["hedge_ok"]         = True
             trade_data["hedge_quantity"]   = quantity
             trade_data["hedge_trade_id"]   = hedge_trade_id
             trade_data["hedge_entry_cost"] = calculate_order_cost(buy_price, quantity, "BUY")
