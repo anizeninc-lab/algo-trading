@@ -151,6 +151,7 @@ async def run_strategies(config: dict):
     )
 
     combo = SaviourCombo(broker, combo_cfg)
+    dashboard_api.combo_ref = combo  # wire Greeks + kill switch
     await combo.start()
 
     try:

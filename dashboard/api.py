@@ -519,6 +519,74 @@ async def get_events(
     return {"events": events, "count": len(events)}
 
 
+@app.get("/api/greeks")
+async def get_portfolio_greeks():
+    """Aggregate BS Greeks across all open positions from survivor + wave_extractor."""
+    try:
+        from core.greeks_engine import aggregate_portfolio_greeks
+        from core.vix_manager import vix_manager as _vm
+        from core.state_store import state_store as _ss
+
+        spot = _ss.get_market_data().get('nifty_price', 0.0)
+        vix  = _vm.current_vix    or 0.0
+
+        # Collect open trades from both strategies via combo_ref if available
+        trades = []
+        if combo_ref is not None:
+            for strat in [combo_ref.survivor, combo_ref.bn_survivor, combo_ref.wave]:
+                if strat is None:
+                    continue
+                for t in getattr(strat, "_open_trades_data", []):
+                    sym = t.get("symbol") or t.get("symbol")
+                    qty = t.get("quantity", 65)
+                    ot  = t.get("order_type", "SELL")
+                    if sym:
+                        trades.append({"symbol": sym, "quantity": qty, "order_type": ot})
+        else:
+            # Fallback: query open trades from DB
+            open_trades = trade_logger.get_trades(status="OPEN", limit=50)
+            for t in open_trades:
+                sym = t.get("symbol")
+                qty = t.get("quantity", 65)
+                ot  = t.get("order_type", "SELL")
+                if sym:
+                    trades.append({"symbol": sym, "quantity": qty, "order_type": ot})
+
+        portfolio = aggregate_portfolio_greeks(trades, spot, vix)
+
+        return {
+            "status":       "ok",
+            "spot":         spot,
+            "vix":          vix,
+            "trade_count":  len(portfolio.trades),
+            "total_delta":  portfolio.total_delta,
+            "total_gamma":  portfolio.total_gamma,
+            "total_theta":  portfolio.total_theta,
+            "total_vega":   portfolio.total_vega,
+            "error":        portfolio.error,
+            "trades": [
+                {
+                    "symbol":    tg.symbol,
+                    "direction": tg.direction,
+                    "strike":    tg.strike,
+                    "dte":       tg.dte,
+                    "quantity":  tg.quantity,
+                    "delta":     tg.delta,
+                    "gamma":     tg.gamma,
+                    "theta":     tg.theta,
+                    "vega":      tg.vega,
+                    "net_delta": tg.net_delta,
+                    "net_theta": tg.net_theta,
+                    "net_vega":  tg.net_vega,
+                }
+                for tg in portfolio.trades
+            ],
+        }
+    except Exception as e:
+        logger.exception(f"[greeks] Error: {e}")
+        return {"status": "error", "error": str(e)}
+
+
 @app.get("/api/bot-status")
 async def get_bot_status():
     """Single endpoint for dashboard operational state panel (#25)."""
