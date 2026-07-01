@@ -336,13 +336,14 @@ class WaveExtractor(BaseStrategy):
         today_prefix = _now_tz.strftime('%Y%m%d')
 
         if self._sell_order_id.startswith("PAPER_SELL") and self._sell_price > 0 and price >= self._sell_price:
-            self._signal(f"[PAPER] SELL filled @ {self._sell_price}")
+            _slip_sell = round(self._sell_price * 0.995, 1)  # 0.5% adverse slippage — sell slightly lower
+            self._signal(f"[PAPER] SELL filled @ {_slip_sell} (limit={self._sell_price}, slip=-0.5%)")
             self._bracket_active = False
             self._net_position  -= 1
             trade = {
                 "order_id":    f"PAPER_WAVE_SELL_{today_prefix}",
                 "order_type":  "SELL",
-                "entry_price": self._sell_price,
+                "entry_price": _slip_sell,
                 "quantity":    self.cfg.quantity,
                 "symbol":      self.cfg.option_symbol,
             }
@@ -365,13 +366,14 @@ class WaveExtractor(BaseStrategy):
             return True
 
         if self._buy_order_id.startswith("PAPER_BUY") and self._buy_price > 0 and price <= self._buy_price:
-            self._signal(f"[PAPER] BUY filled @ {self._buy_price}")
+            _slip_buy = round(self._buy_price * 1.005, 1)  # 0.5% adverse slippage — buy slightly higher
+            self._signal(f"[PAPER] BUY filled @ {_slip_buy} (limit={self._buy_price}, slip=+0.5%)")
             self._bracket_active = False
             self._net_position  += 1
             trade = {
                 "order_id":    f"PAPER_WAVE_BUY_{today_prefix}",
                 "order_type":  "BUY",
-                "entry_price": self._buy_price,
+                "entry_price": _slip_buy,
                 "quantity":    self.cfg.quantity,
                 "symbol":      self.cfg.option_symbol,
             }
