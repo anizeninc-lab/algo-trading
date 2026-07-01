@@ -163,13 +163,13 @@ async def kill_switch(flatten: bool = True):
         closed = 0
         if flatten and combo_ref is not None:
             try:
-                await combo_ref.survivor._close_all_positions()
+                await combo_ref.survivor.close_all_positions()
                 closed += len(combo_ref.survivor._open_trades_data)
             except Exception as e:
                 logger.error(f"Kill switch: survivor close failed: {e}")
             try:
                 if combo_ref.bn_survivor:
-                    await combo_ref.bn_survivor._close_all_positions()
+                    await combo_ref.bn_survivor.close_all_positions()
             except Exception as e:
                 logger.error(f"Kill switch: bn_survivor close failed: {e}")
 
