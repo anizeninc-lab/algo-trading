@@ -1352,6 +1352,10 @@ class SurvivorAlgo(BaseStrategy):
         )
         alert_trade_closed(trade['symbol'], trade['entry'], exit_price, trade['quantity'], pnl, reason)
 
+    async def close_all_positions(self) -> None:
+        """Public wrapper for dashboard/killswitch use — avoids cross-layer private method calls."""
+        await self._close_all_positions()
+
     async def _close_all_positions(self) -> None:
         if not self._open_trades_data:
             return
