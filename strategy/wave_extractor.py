@@ -37,8 +37,9 @@ class WaveExtractor(BaseStrategy):
         super().__init__(name="wave_extractor", broker=broker, config=vars(config))
         self.cfg               = config
         self._loop             = None
-        self._net_position     = 0
-        self._sell_order_id    = ""
+        self._net_position      = 0
+        self._last_block_reason = ""    # pre-trade gate: log only on state change
+        self._sell_order_id     = ""
         self._buy_order_id     = ""
         self._sell_price       = 0.0
         self._buy_price        = 0.0

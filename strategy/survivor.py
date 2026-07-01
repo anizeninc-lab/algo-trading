@@ -80,6 +80,7 @@ class SurvivorAlgo(BaseStrategy):
         self._pending_orders: set = set()  
         # Exit precedence gate
         self._closing_trades: set = set()  
+        self._last_block_reason   = ""   # pre-trade gate: log only on state change
 
     def reset_daily_strategy_state(self, morning_open_price: float) -> None:
         """
