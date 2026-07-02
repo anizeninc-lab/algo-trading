@@ -73,6 +73,13 @@ class RiskManager:
 
         # Per-strategy spam prevention
         self._last_blocked: dict[str, str] = {}
+        # API circuit breaker
+        self._api_fail_times: list  = []   # timestamps of recent failures
+        self._api_cb_tripped: bool  = False
+        self._api_cb_tripped_at: float = 0.0
+        self._CB_WINDOW:    int   = 60    # seconds — sliding window
+        self._CB_THRESHOLD: int   = 5     # failures in window to trip
+        self._CB_RESET:     int   = 300   # seconds before auto-reset
         
         # Restore state file sequence
         self._load_state()
@@ -267,6 +274,57 @@ class RiskManager:
             logger.warning(f"[RiskManager] Weekly drawdown check failed: {e}")
         return False
 
+    # ── API Circuit Breaker ───────────────────────────────────────────────────
+    def record_api_failure(self) -> None:
+        """Call after any broker API error. Trips circuit breaker if threshold exceeded."""
+        import time as _time
+        now = _time.time()
+        # Prune old failures outside the sliding window
+        self._api_fail_times = [t for t in self._api_fail_times if now - t < self._CB_WINDOW]
+        self._api_fail_times.append(now)
+        if len(self._api_fail_times) >= self._CB_THRESHOLD and not self._api_cb_tripped:
+            self._api_cb_tripped    = True
+            self._api_cb_tripped_at = now
+            self._system_halted     = True
+            self._halt_reason       = (
+                f"API circuit breaker tripped: {len(self._api_fail_times)} failures "
+                f"in {self._CB_WINDOW}s window — trading halted for {self._CB_RESET}s"
+            )
+            logger.warning(f"[RiskManager] CIRCUIT BREAKER TRIPPED — {self._halt_reason}")
+            self._save_state()
+            try:
+                from core.alerting import alert_risk_breach
+                alert_risk_breach(self._halt_reason)
+            except Exception:
+                pass
+
+    def record_api_success(self) -> None:
+        """Call after a successful broker API call. Resets failure streak."""
+        import time as _time
+        # Auto-reset circuit breaker after CB_RESET seconds
+        if self._api_cb_tripped:
+            if _time.time() - self._api_cb_tripped_at >= self._CB_RESET:
+                self._api_cb_tripped  = False
+                self._api_fail_times  = []
+                self._system_halted   = False
+                self._halt_reason     = ""
+                logger.info("[RiskManager] API circuit breaker auto-reset after cooldown")
+                self._save_state()
+        else:
+            # Clear recent failures on success to avoid stale counts
+            self._api_fail_times = []
+
+    def check_api_circuit_breaker(self) -> tuple[bool, str]:
+        """Returns (tripped, reason). Auto-resets after CB_RESET seconds."""
+        import time as _time
+        if self._api_cb_tripped:
+            elapsed = _time.time() - self._api_cb_tripped_at
+            if elapsed >= self._CB_RESET:
+                self.record_api_success()  # triggers reset
+                return False, ""
+            return True, self._halt_reason
+        return False, ""
+
     def is_trading_blocked(self) -> tuple[bool, str]:
         """Single pre-trade gate. Returns (blocked: bool, reason: str).
         Checks in priority order: system halted → auto-stop time → VIX halt.
@@ -274,6 +332,9 @@ class RiskManager:
         """
         if self._system_halted:
             return True, self._halt_reason or "System halted"
+        _cb_tripped, _cb_reason = self.check_api_circuit_breaker()
+        if _cb_tripped:
+            return True, _cb_reason
         if self.check_weekly_drawdown():
             return True, self._halt_reason
         if self.check_auto_stop():
