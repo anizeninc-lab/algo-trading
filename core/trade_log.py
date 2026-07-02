@@ -116,6 +116,7 @@ class TradeLogger:
         client_order_id: str = "",
         notes: str = "",
         parent_trade_id: str = "",
+        paper_trade: bool = False,
     ) -> str:
         """
         Record a new trade when an order fills. 
@@ -149,8 +150,8 @@ class TradeLogger:
                 """
                 INSERT INTO trades
                     (id, strategy, broker, symbol, order_type, quantity,
-                     entry_price, entry_time, status, broker_order_id, client_order_id, notes, parent_trade_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
+                     entry_price, entry_time, status, broker_order_id, client_order_id, notes, parent_trade_id, paper_trade)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?)
             """,
                 (
                     trade_id,
@@ -165,6 +166,7 @@ class TradeLogger:
                     client_order_id,
                     notes,
                     parent_trade_id,
+                    1 if paper_trade else 0,
                 ),
             )
 
