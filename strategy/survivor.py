@@ -447,21 +447,48 @@ class SurvivorAlgo(BaseStrategy):
                     self._pending_orders.discard(_order_key)  # allow retry on rejection
                     alert_order_rejected(symbol, resp.message)
                     return
-                entry_price = await self.broker.get_ltp(symbol)
                 order_id    = resp.order_id
-                # Verify actual filled quantity (partial fill protection)
-                await asyncio.sleep(1)
-                try:
-                    orders = await self.broker.get_orders()
-                    for o in orders:
-                        if getattr(o, "order_id", "") == order_id:
-                            filled_qty = getattr(o, "filled_quantity", quantity)
-                            if filled_qty and filled_qty < quantity:
-                                logger.warning(f"[survivor] PARTIAL FILL: filled={filled_qty} requested={quantity}")
-                                quantity = filled_qty
-                            break
-                except Exception as fe:
-                    logger.debug(f"[survivor] Fill verification skipped: {fe}")
+                # ── Fill timeout poller: wait up to 60s for fill, else cancel ──
+                _fill_timeout  = 60  # seconds
+                _poll_interval = 2   # seconds between checks
+                _elapsed       = 0
+                entry_price    = 0.0
+                filled_qty     = 0
+                _fill_confirmed = False
+                while _elapsed < _fill_timeout:
+                    await asyncio.sleep(_poll_interval)
+                    _elapsed += _poll_interval
+                    try:
+                        orders = await self.broker.get_orders()
+                        for o in orders:
+                            if getattr(o, "order_id", "") == order_id:
+                                _status    = getattr(o, "status", "")
+                                filled_qty = getattr(o, "filled_quantity", 0) or 0
+                                avg_price  = getattr(o, "average_price", 0.0) or 0.0
+                                if _status == "COMPLETE" and filled_qty > 0:
+                                    entry_price     = avg_price if avg_price > 0 else await self.broker.get_ltp(symbol)
+                                    quantity        = filled_qty
+                                    _fill_confirmed = True
+                                    logger.info(f"[survivor] Fill confirmed: {filled_qty} @ {entry_price:.2f} in {_elapsed}s")
+                                elif _status in ("REJECTED", "CANCELLED"):
+                                    self._signal(f"Order {order_id} {_status} — aborting")
+                                    self._pending_orders.discard(_order_key)
+                                    return
+                                elif filled_qty > 0 and filled_qty < quantity:
+                                    logger.warning(f"[survivor] PARTIAL FILL so far: {filled_qty}/{quantity} — continuing to wait")
+                                break
+                    except Exception as fe:
+                        logger.debug(f"[survivor] Fill poll error: {fe}")
+                    if _fill_confirmed:
+                        break
+                if not _fill_confirmed:
+                    self._signal(f"⏱ Order timeout ({_fill_timeout}s) — cancelling unfilled SELL {order_id}")
+                    try:
+                        await self.broker.cancel_order(order_id)
+                    except Exception as ce:
+                        logger.warning(f"[survivor] Cancel after timeout failed: {ce}")
+                    self._pending_orders.discard(_order_key)
+                    return
 
             trade_id = trade_logger.open_trade(
                 strategy=self.name,

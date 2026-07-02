@@ -25,6 +25,7 @@ class WaveConfig:
     buy_gap:              float = 20.0
     quantity:             int   = 65
     cool_off_time:        float = 5.0
+    order_timeout:        float = 60.0  # seconds before unfilled bracket is cancelled
     multiplier_scale:     list  = field(default_factory=lambda: [1.0, 1.3, 1.7, 2.2, 2.8])
     max_net_position:     int   = 2
     delta_limit:          float = 200.0
@@ -45,6 +46,7 @@ class WaveExtractor(BaseStrategy):
         self._buy_price        = 0.0
         self._bracket_active   = False
         self._in_cool_off      = False
+        self._bracket_placed_at: float = 0.0  # epoch seconds when bracket was placed
         self._current_price    = 0.0
         self._realised_pnl     = 0.0
         self._unrealised_pnl   = 0.0
@@ -439,6 +441,8 @@ class WaveExtractor(BaseStrategy):
             return
 
         self._bracket_active = True
+        self._bracket_placed_at = time.time()
+        asyncio.create_task(self._order_timeout_watchdog())
 
         sell_price = round(self._current_price + self.cfg.sell_gap, 2)
         buy_price  = round(self._current_price - self.cfg.buy_gap, 2)
@@ -669,6 +673,33 @@ class WaveExtractor(BaseStrategy):
         self._bracket_active = False
 
     # ── Utilities ─────────────────────────────────────────────────────────────
+
+    async def _order_timeout_watchdog(self) -> None:
+        """Cancel unfilled bracket orders if neither side fills within order_timeout seconds."""
+        placed_at = self._bracket_placed_at
+        await asyncio.sleep(self.cfg.order_timeout)
+        # If bracket is still active and no fill has occurred since we were launched
+        if not self._bracket_active or self._bracket_placed_at != placed_at:
+            return  # already filled or replaced
+        if self._open_trades_data:
+            return  # at least one side filled — let monitor handle it
+        self._signal(
+            f"⏱ Order timeout ({self.cfg.order_timeout:.0f}s) — cancelling unfilled bracket "
+            f"SELL={self._sell_order_id} BUY={self._buy_order_id}"
+        )
+        # Cancel both sides
+        for oid, label in [(self._sell_order_id, "SELL"), (self._buy_order_id, "BUY")]:
+            if oid and not oid.startswith("PAPER_"):
+                try:
+                    await self.broker.cancel_order(oid)
+                    self._signal(f"Cancelled stale {label} order: {oid}")
+                except Exception as e:
+                    logger.warning(f"[wave_extractor] Cancel {label} failed: {e}")
+        self._sell_order_id  = ""
+        self._buy_order_id   = ""
+        self._bracket_active = False
+        self._bracket_placed_at = 0.0
+        asyncio.create_task(self._cool_off_and_rebracket())
 
     async def _cool_off_and_rebracket(self) -> None:
         self._in_cool_off = True
