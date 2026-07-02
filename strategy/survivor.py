@@ -1281,11 +1281,30 @@ class SurvivorAlgo(BaseStrategy):
             else:
                 exit_price = round(current_price * 0.98, 1)
             try:
+                # ── Exit size validation: confirm broker position before closing ──
+                _exit_qty = trade["quantity"]
+                try:
+                    _positions = await self.broker.get_positions()
+                    _broker_qty = 0
+                    for _p in _positions:
+                        if _p.symbol == trade["symbol"]:
+                            _broker_qty = abs(_p.quantity)
+                            break
+                    if _broker_qty == 0:
+                        logger.warning(f"[survivor] EXIT SKIPPED: broker shows 0 position for {trade['symbol']} — may already be closed")
+                        self._signal(f"⚠ Exit skipped — broker confirms no open position for {trade['symbol']}")
+                        self._closing_trades.discard(trade_id)
+                        return
+                    if _exit_qty > _broker_qty:
+                        logger.warning(f"[survivor] EXIT SIZE MISMATCH: local={_exit_qty} broker={_broker_qty} — scaling down")
+                        _exit_qty = _broker_qty
+                except Exception as _ve:
+                    logger.warning(f"[survivor] Exit validation skipped: {_ve}")
                 resp = await self.broker.place_order(Order(
                     symbol=trade["symbol"],
                     exchange="NFO",
                     order_type=exit_order_type,
-                    quantity=trade["quantity"],
+                    quantity=_exit_qty,
                     product="I",
                     price=exit_price,
                     tag=f"EXIT_{trade['id'][:8]}_{int(time.time()*1000) % 100000}",
