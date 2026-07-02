@@ -662,7 +662,7 @@ class SessionPlannerEngine:
         if confidence == "LOW":
             return 0.0         # No capital deployed on uncertain days
         elif confidence == "MEDIUM":
-            base = 80000.0
+            base = 150000.0
         else:
             base = 150000.0
 
