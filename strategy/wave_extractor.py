@@ -283,6 +283,7 @@ class WaveExtractor(BaseStrategy):
                 quantity=self.cfg.quantity,
                 entry_price=price,
                 broker_order_id=order_id,
+                paper_trade=(os.getenv("PAPER_TRADE","false").lower()=="true"),
             )
             self._open_trades_data.append({
                 "id":          _live_trade_id,
@@ -310,6 +311,7 @@ class WaveExtractor(BaseStrategy):
                 quantity=self.cfg.quantity,
                 entry_price=price,
                 broker_order_id=order_id,
+                paper_trade=(os.getenv("PAPER_TRADE","false").lower()=="true"),
             )
             self._open_trades_data.append({
                 "id":          _live_trade_id,
@@ -356,6 +358,7 @@ class WaveExtractor(BaseStrategy):
                 quantity=trade["quantity"],
                 entry_price=trade["entry_price"],
                 broker_order_id=trade["order_id"],
+                paper_trade=True,
             )
             self._sell_order_id = ""
             self._buy_order_id  = ""
@@ -386,6 +389,7 @@ class WaveExtractor(BaseStrategy):
                 quantity=trade["quantity"],
                 entry_price=trade["entry_price"],
                 broker_order_id=trade["order_id"],
+                paper_trade=True,
             )
             self._buy_order_id  = ""
             self._sell_order_id = ""

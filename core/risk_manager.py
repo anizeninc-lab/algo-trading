@@ -250,7 +250,7 @@ class RiskManager:
                 conn.row_factory = sqlite3.Row
                 rows = conn.execute(
                     "SELECT SUM(realised_pnl) as total FROM trades "
-                    "WHERE status='CLOSED' AND exit_time >= ?",
+                    "WHERE status='CLOSED' AND exit_time >= ? AND paper_trade = 0",
                     (cutoff,)
                 ).fetchone()
             weekly_pnl = rows["total"] if rows and rows["total"] is not None else 0.0

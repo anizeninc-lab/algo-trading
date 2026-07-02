@@ -659,6 +659,7 @@ class SurvivorAlgo(BaseStrategy):
                 broker_order_id=hedge_order_id,
                 notes=f"HEDGE leg for {direction} short @ {short_strike:.0f}",
                 parent_trade_id=trade_data.get("id", ""),
+                paper_trade=_is_paper,
             )
 
             from core.transaction_costs import calculate_order_cost
