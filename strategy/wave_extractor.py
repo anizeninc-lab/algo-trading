@@ -595,11 +595,30 @@ class WaveExtractor(BaseStrategy):
                 self._signal(f"[PAPER] EXIT {exit_order_type} {trade['quantity']} {self.cfg.option_symbol} @ {exit_price} (simulated)")
                 exit_order_id = f"PAPER_EXIT_{today_prefix}"
             else:
+                # ── Exit size validation: confirm broker position before closing ──
+                _exit_qty = trade["quantity"]
+                try:
+                    _positions = await self.broker.get_positions()
+                    _broker_qty = 0
+                    for _p in _positions:
+                        if _p.symbol == self.cfg.option_symbol:
+                            _broker_qty = abs(_p.quantity)
+                            break
+                    if _broker_qty == 0:
+                        logger.warning(f"[wave_extractor] EXIT SKIPPED: broker shows 0 position for {self.cfg.option_symbol} — may already be closed")
+                        self._signal(f"⚠ Exit skipped — broker confirms no open position for {self.cfg.option_symbol}")
+                        trade_logger.close_trade(trade["id"], exit_price, f"{reason}_ALREADY_CLOSED", net_pnl=0.0)
+                        return
+                    if _exit_qty > _broker_qty:
+                        logger.warning(f"[wave_extractor] EXIT SIZE MISMATCH: local={_exit_qty} broker={_broker_qty} — scaling down")
+                        _exit_qty = _broker_qty
+                except Exception as _ve:
+                    logger.warning(f"[wave_extractor] Exit validation skipped: {_ve}")
                 resp = await self.broker.place_order(Order(
                     symbol=self.cfg.option_symbol,
                     exchange="NFO",
                     order_type=exit_order_type,
-                    quantity=trade["quantity"],
+                    quantity=_exit_qty,
                     product="I",
                     price=exit_price,
                     tag=deterministic_exit_tag,
