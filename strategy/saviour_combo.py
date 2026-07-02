@@ -195,6 +195,11 @@ class SaviourCombo:
                     )
 
                 self._update_combo_status(combined_pnl)
+                # ── Periodic broker parity check (every 15 min) ──────────────
+                import time as _time
+                if _time.time() - self._last_parity_check >= self._PARITY_INTERVAL:
+                    self._last_parity_check = _time.time()
+                    asyncio.create_task(self._broker_parity_check())
 
             except asyncio.CancelledError:
                 break
@@ -224,6 +229,68 @@ class SaviourCombo:
                 )
 
     # ── P&L and Status ────────────────────────────────────────────────────────
+
+    async def _broker_parity_check(self) -> None:
+        """Cross-check local positions + P&L against broker every 15 minutes.
+        Logs warnings and sends Telegram alert if divergence exceeds tolerance.
+        """
+        try:
+            broker_positions = await self.broker.get_positions()
+        except Exception as e:
+            logger.warning(f"[saviour_combo] Parity check: get_positions failed: {e}")
+            return
+
+        # Build local symbol -> qty map from all strategies
+        local_map: dict = {}
+        for strategy in [self.wave, self.survivor] + ([self.bn_survivor] if self.bn_survivor else []):
+            for trade in getattr(strategy, "_open_trades_data", []):
+                sym = trade.get("symbol", "")
+                qty = trade.get("quantity", 0)
+                local_map[sym] = local_map.get(sym, 0) + qty
+
+        # Build broker symbol -> qty + pnl map
+        broker_map: dict = {}
+        broker_pnl = 0.0
+        for p in broker_positions:
+            if abs(p.quantity) > 0:
+                broker_map[p.symbol] = abs(p.quantity)
+                broker_pnl += p.pnl
+
+        mismatches = []
+        for sym, local_qty in local_map.items():
+            broker_qty = broker_map.get(sym, 0)
+            if local_qty != broker_qty:
+                mismatches.append(f"{sym}: local={local_qty} broker={broker_qty}")
+        for sym, broker_qty in broker_map.items():
+            if sym not in local_map:
+                mismatches.append(f"{sym}: local=0 broker={broker_qty} [GHOST]")
+
+        local_pnl = self._get_combined_pnl()
+        pnl_diff  = abs(local_pnl - broker_pnl)
+        has_issues = mismatches or pnl_diff > self._PARITY_PNL_TOL
+
+        if has_issues:
+            msg_lines = ["⚠️ PARITY CHECK FAILED"]
+            if mismatches:
+                msg_lines.append("Position mismatches:")
+                msg_lines.extend(f"  • {m}" for m in mismatches)
+            if pnl_diff > self._PARITY_PNL_TOL:
+                msg_lines.append(
+                    f"P&L divergence: local=₹{local_pnl:.2f} broker=₹{broker_pnl:.2f} "
+                    f"diff=₹{pnl_diff:.2f} (tolerance ₹{self._PARITY_PNL_TOL:.0f})"
+                )
+            full_msg = "\n".join(msg_lines)
+            logger.warning(f"[saviour_combo] {full_msg}")
+            try:
+                from core.alerting import send_telegram, LEVEL_WARNING
+                send_telegram(full_msg, LEVEL_WARNING)
+            except Exception:
+                pass
+        else:
+            logger.info(
+                f"[saviour_combo] Parity OK | positions={len(local_map)} matched | "
+                f"local_pnl=₹{local_pnl:.2f} broker_pnl=₹{broker_pnl:.2f}"
+            )
 
     def _get_combined_pnl(self) -> float:
         wave_s     = state_store.get_strategy("wave_extractor")
