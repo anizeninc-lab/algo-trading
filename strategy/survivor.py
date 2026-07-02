@@ -83,7 +83,7 @@ class SurvivorAlgo(BaseStrategy):
         self._last_block_reason   = ""   # pre-trade gate: log only on state change
         # Resolved once at init — avoids repeated os.getenv calls in signal logic
         self._is_paper = (
-            self._is_paper
+            os.getenv("PAPER_TRADE", "false").lower() == "true"
             or self.cfg.paper_trade_override
         )
 

@@ -49,7 +49,11 @@ class TradeLogger:
                     status           TEXT DEFAULT 'OPEN',
                     broker_order_id  TEXT,
                     client_order_id  TEXT UNIQUE,
-                    notes            TEXT
+                    notes            TEXT,
+                    gross_pnl        REAL DEFAULT 0,
+                    total_costs      REAL DEFAULT 0,
+                    parent_trade_id  TEXT DEFAULT '',
+                    paper_trade      INTEGER NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS strategy_sessions (
