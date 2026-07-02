@@ -81,6 +81,11 @@ class SurvivorAlgo(BaseStrategy):
         # Exit precedence gate
         self._closing_trades: set = set()  
         self._last_block_reason   = ""   # pre-trade gate: log only on state change
+        # Resolved once at init — avoids repeated os.getenv calls in signal logic
+        self._is_paper = (
+            self._is_paper
+            or self.cfg.paper_trade_override
+        )
 
     def reset_daily_strategy_state(self, morning_open_price: float) -> None:
         """
@@ -359,10 +364,7 @@ class SurvivorAlgo(BaseStrategy):
         # Search up to 5 strikes for one that meets min premium
         for _ in range(5):
             candidate = self._build_symbol(direction, final_strike)
-            _is_paper = (
-                os.getenv("PAPER_TRADE", "false").lower() == "true"
-                or self.cfg.paper_trade_override
-            )
+            _is_paper = self._is_paper
             if _is_paper:
                 # Resolve real instrument key so paper mode uses REAL LTP (cache or
                 # live API call) instead of a synthetic distance-based guess. This
@@ -549,10 +551,7 @@ class SurvivorAlgo(BaseStrategy):
             alert_trade_opened(symbol, direction, entry_price, quantity, int(final_strike))
 
             # Place GTT Trailing SL immediately after live trade opens
-            _is_paper = (
-                os.getenv("PAPER_TRADE", "false").lower() == "true"
-                or self.cfg.paper_trade_override
-            )
+            _is_paper = self._is_paper
             if not _is_paper and hasattr(self.broker, 'place_gtt_trailing_sl'):
                 gtt_placed = False
                 for _gtt_attempt in range(2):  # 1 retry
@@ -871,10 +870,7 @@ class SurvivorAlgo(BaseStrategy):
 
             # Fetch live broker positions for reconciliation
             broker_symbols = set()
-            _is_paper = (
-                os.getenv("PAPER_TRADE", "false").lower() == "true"
-                or self.cfg.paper_trade_override
-            )
+            _is_paper = self._is_paper
             if not _is_paper:
                 try:
                     import upstox_client
@@ -1005,7 +1001,7 @@ class SurvivorAlgo(BaseStrategy):
                 now = _dt.now(pytz.timezone("Asia/Kolkata"))
                 market_open = _dtime(9, 30) <= now.time() <= _dtime(15, 5)
                 _is_paper = (
-                    os.getenv("PAPER_TRADE", "false").lower() == "true"
+                    self._is_paper
                     or self.cfg.paper_trade_override
                 )
                 if (
@@ -1151,7 +1147,7 @@ class SurvivorAlgo(BaseStrategy):
         for trade in list(self._open_trades_data):
             try:
                 is_paper = (
-                    os.getenv("PAPER_TRADE", "false").lower() == "true"
+                    self._is_paper
                     or self.cfg.paper_trade_override
                 )
                 if is_paper:
@@ -1256,7 +1252,7 @@ class SurvivorAlgo(BaseStrategy):
         exit_order_type = "BUY" if trade["order_type"] == "SELL" else "SELL"
 
         _close_paper = (
-            os.getenv("PAPER_TRADE", "false").lower() == "true"
+            self._is_paper
             or self.cfg.paper_trade_override
         )
         if _close_paper:

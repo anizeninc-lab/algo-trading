@@ -47,6 +47,8 @@ class WaveExtractor(BaseStrategy):
         self._bracket_active   = False
         self._in_cool_off      = False
         self._bracket_placed_at: float = 0.0  # epoch seconds when bracket was placed
+        # Resolved once at init — avoids repeated os.getenv calls in signal logic
+        self._is_paper = self._is_paper
         self._current_price    = 0.0
         self._realised_pnl     = 0.0
         self._unrealised_pnl   = 0.0
@@ -145,7 +147,7 @@ class WaveExtractor(BaseStrategy):
             await asyncio.sleep(30)
 
     async def _sync_positions(self) -> None:
-        if os.getenv("PAPER_TRADE", "false").lower() == "true":
+        if self._is_paper:
             return
 
         positions = await self.broker.get_positions()
@@ -218,7 +220,7 @@ class WaveExtractor(BaseStrategy):
             self._calculate_pnl()
 
             # ── Paper Trade Fill Simulator ──────────────────────────────────
-            if os.getenv("PAPER_TRADE", "false").lower() == "true":
+            if self._is_paper:
                 filled = await self._handle_paper_fill(tick.last_price)
                 if filled:
                     return
@@ -252,7 +254,7 @@ class WaveExtractor(BaseStrategy):
         try:
             if self._stop_flag:
                 return
-            if os.getenv("PAPER_TRADE", "false").lower() == "true":
+            if self._is_paper:
                 return
             asyncio.run_coroutine_threadsafe(
                 self._handle_order_update(update), self._loop
@@ -289,7 +291,7 @@ class WaveExtractor(BaseStrategy):
                 quantity=filled_qty,
                 entry_price=price,
                 broker_order_id=order_id,
-                paper_trade=(os.getenv("PAPER_TRADE","false").lower()=="true"),
+                paper_trade=self._is_paper,
             )
             self._open_trades_data.append({
                 "id":          _live_trade_id,
@@ -316,7 +318,7 @@ class WaveExtractor(BaseStrategy):
                 quantity=filled_qty,
                 entry_price=price,
                 broker_order_id=order_id,
-                paper_trade=(os.getenv("PAPER_TRADE","false").lower()=="true"),
+                paper_trade=self._is_paper,
             )
             self._open_trades_data.append({
                 "id":          _live_trade_id,
@@ -473,7 +475,7 @@ class WaveExtractor(BaseStrategy):
 
         # ── Place SELL limit order ────────────────────────────────────────────
         try:
-            if os.getenv("PAPER_TRADE", "false").lower() == "true":
+            if self._is_paper:
                 self._signal(f"[PAPER] SELL {self.cfg.quantity} {self.cfg.option_symbol} @ {sell_price} (simulated)")
                 self._sell_order_id = f"PAPER_SELL_{today_prefix}"
             else:
@@ -502,7 +504,7 @@ class WaveExtractor(BaseStrategy):
 
         # ── Place BUY limit order ─────────────────────────────────────────────
         try:
-            if os.getenv("PAPER_TRADE", "false").lower() == "true":
+            if self._is_paper:
                 self._signal(f"[PAPER] BUY {self.cfg.quantity} {self.cfg.option_symbol} @ {buy_price} (simulated)")
                 self._buy_order_id = f"PAPER_BUY_{today_prefix}"
             else:
@@ -594,7 +596,7 @@ class WaveExtractor(BaseStrategy):
             today_prefix = _now_tz.strftime('%Y%m%d')
             deterministic_exit_tag = f"WAVE_EXIT_{trade['order_type']}_{today_prefix}"
 
-            if os.getenv("PAPER_TRADE", "false").lower() == "true":
+            if self._is_paper:
                 self._signal(f"[PAPER] EXIT {exit_order_type} {trade['quantity']} {self.cfg.option_symbol} @ {exit_price} (simulated)")
                 exit_order_id = f"PAPER_EXIT_{today_prefix}"
             else:
