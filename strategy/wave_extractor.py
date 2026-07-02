@@ -263,26 +263,30 @@ class WaveExtractor(BaseStrategy):
     async def _handle_order_update(self, update: dict) -> None:
         if self._stop_flag:
             return
-
-        order_id = update.get("order_id", "")
-        status   = update.get("status", "")
-
+        order_id   = update.get("order_id", "")
+        status     = update.get("status", "")
         if status != "COMPLETE":
             return
-
-        price = float(update.get("average_price", 0))
-
+        price      = float(update.get("average_price", 0))
+        filled_qty = int(update.get("filled_qty", 0) or self.cfg.quantity)
+        is_partial = update.get("is_partial", False)
+        if is_partial:
+            logger.warning(
+                f"[wave_extractor] PARTIAL FILL: order={order_id} "
+                f"filled={filled_qty} requested={self.cfg.quantity} @ {price:.2f} "
+                "— logging actual filled qty, adjusting risk accordingly"
+            )
         if order_id == self._sell_order_id:
             self._net_position  -= 1
             self._bracket_active = False
-            self._signal(f"SELL filled @ {price:.2f}")
+            self._signal(f"SELL filled @ {price:.2f} qty={filled_qty}" + (" [PARTIAL]" if is_partial else ""))
             risk_manager.register_trade(self.name, "SELL")
             _live_trade_id = trade_logger.open_trade(
                 strategy=self.name,
                 broker=type(self.broker).__name__,
                 symbol=self.cfg.option_symbol,
                 order_type="SELL",
-                quantity=self.cfg.quantity,
+                quantity=filled_qty,
                 entry_price=price,
                 broker_order_id=order_id,
                 paper_trade=(os.getenv("PAPER_TRADE","false").lower()=="true"),
@@ -292,25 +296,24 @@ class WaveExtractor(BaseStrategy):
                 "order_id":    order_id,
                 "order_type":  "SELL",
                 "entry_price": price,
-                "quantity":    self.cfg.quantity,
+                "quantity":    filled_qty,
                 "symbol":      self.cfg.option_symbol,
             })
             if self._buy_order_id:
                 await self.broker.cancel_order(self._buy_order_id)
                 self._signal(f"Opposing BUY bracket cancelled: {self._buy_order_id}")
                 self._buy_order_id = ""
-
         elif order_id == self._buy_order_id:
             self._net_position  += 1
             self._bracket_active = False
-            self._signal(f"BUY filled @ {price:.2f}")
+            self._signal(f"BUY filled @ {price:.2f} qty={filled_qty}" + (" [PARTIAL]" if is_partial else ""))
             risk_manager.register_trade(self.name, "BUY")
             _live_trade_id = trade_logger.open_trade(
                 strategy=self.name,
                 broker=type(self.broker).__name__,
                 symbol=self.cfg.option_symbol,
                 order_type="BUY",
-                quantity=self.cfg.quantity,
+                quantity=filled_qty,
                 entry_price=price,
                 broker_order_id=order_id,
                 paper_trade=(os.getenv("PAPER_TRADE","false").lower()=="true"),
@@ -320,7 +323,7 @@ class WaveExtractor(BaseStrategy):
                 "order_id":    order_id,
                 "order_type":  "BUY",
                 "entry_price": price,
-                "quantity":    self.cfg.quantity,
+                "quantity":    filled_qty,
                 "symbol":      self.cfg.option_symbol,
             })
             if self._sell_order_id:
