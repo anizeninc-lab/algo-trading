@@ -511,6 +511,38 @@ class UpstoxAdapter(AbstractBrokerGateway):
                     else:
                         _fail_count = 0  # reset on healthy tick
                         self._ws_healthy = True
+                    # ── REST fallback: push ticks via REST when WS is unhealthy ──
+                    if not self._ws_healthy and self._tick_callbacks:
+                        try:
+                            import asyncio as _asyncio
+                            _all_syms = list(self._tick_callbacks.keys())
+                            logger.info(f"[heartbeat] REST fallback: polling {len(_all_syms)} symbols")
+                            for _sym in _all_syms:
+                                try:
+                                    _resp = self._market_api.ltp(_sym, api_version="2.0")
+                                    if _resp and _resp.data:
+                                        _keys = list(_resp.data.keys())
+                                        if _keys:
+                                            _ltp = float(_resp.data[_keys[0]].last_price)
+                                            if _ltp > 0:
+                                                self._ltp_cache[_sym] = _ltp
+                                                self._last_tick_time  = time.time()
+                                                _tick = Tick(
+                                                    symbol=_sym,
+                                                    last_price=_ltp,
+                                                    timestamp=datetime.now().isoformat(),
+                                                )
+                                                for _cb in self._tick_callbacks.get(_sym, []):
+                                                    try:
+                                                        _cb(_tick)
+                                                    except Exception:
+                                                        pass
+                                                logger.debug(f"[heartbeat] REST tick: {_sym} @ {_ltp}")
+                                except Exception as _se:
+                                    logger.warning(f"[heartbeat] REST fallback failed for {_sym}: {_se}")
+                            time.sleep(2)  # throttle REST polling to ~0.5 req/s
+                        except Exception as _fe:
+                            logger.warning(f"[heartbeat] REST fallback error: {_fe}")
                 except Exception as e:
                     logger.debug(f"[heartbeat] error: {e}")
 
