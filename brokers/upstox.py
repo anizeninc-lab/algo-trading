@@ -91,6 +91,11 @@ class UpstoxAdapter(AbstractBrokerGateway):
             return price
         except ApiException as e:
             logger.error(f"get_ltp failed for {symbol}: {e}")
+            try:
+                from core.risk_manager import risk_manager as _rm
+                _rm.record_api_failure()
+            except Exception:
+                pass
             return float(self._ltp_cache.get(symbol, 0.0))
         except Exception as e:
             logger.error(f"get_ltp unexpected error for {symbol}: {e}")
@@ -186,6 +191,11 @@ class UpstoxAdapter(AbstractBrokerGateway):
             )
         except ApiException as e:
             logger.error(f"place_order failed: {e}")
+            try:
+                from core.risk_manager import risk_manager as _rm
+                _rm.record_api_failure()
+            except Exception:
+                pass
             return OrderResponse(order_id="", status="REJECTED", message=str(e))
 
     async def cancel_order(self, order_id: str) -> bool:
@@ -195,6 +205,11 @@ class UpstoxAdapter(AbstractBrokerGateway):
             return True
         except ApiException as e:
             logger.error(f"cancel_order failed for {order_id}: {e}")
+            try:
+                from core.risk_manager import risk_manager as _rm
+                _rm.record_api_failure()
+            except Exception:
+                pass
             return False
 
     async def get_positions(self) -> list:
@@ -214,6 +229,11 @@ class UpstoxAdapter(AbstractBrokerGateway):
             return positions
         except ApiException as e:
             logger.error(f"get_positions failed: {e}")
+            try:
+                from core.risk_manager import risk_manager as _rm
+                _rm.record_api_failure()
+            except Exception:
+                pass
             return []
 
     async def get_orders(self) -> list:
