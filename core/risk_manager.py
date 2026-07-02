@@ -235,6 +235,9 @@ class RiskManager:
         """Check rolling 5-day P&L from trade DB. Halts if total exceeds max_weekly_loss.
         Uses closed trade realised_pnl — no extra persistence needed (#9).
         """
+        # One-time session override — set WEEKLY_LOSS_OVERRIDE=1 in env to skip check
+        if os.getenv('WEEKLY_LOSS_OVERRIDE', '0') == '1':
+            return False
         if self._system_halted:
             return True
         try:
@@ -417,8 +420,8 @@ class RiskManager:
                 return
             self._trade_counts     = state.get("trade_counts", {})
             self._daily_pnl        = state.get("daily_pnl", {})
-            self._system_halted    = state.get("system_halted", False)
-            self._halt_reason      = state.get("halt_reason", "")
+            self._system_halted    = state.get("system_halted", False) and os.getenv("WEEKLY_LOSS_OVERRIDE", "0") != "1"
+            self._halt_reason      = "" if os.getenv("WEEKLY_LOSS_OVERRIDE", "0") == "1" else state.get("halt_reason", "")
             self._deployed_capital = state.get("deployed_capital", {})
             logger.info(
                 f"[RiskManager] State restored from disk | "
