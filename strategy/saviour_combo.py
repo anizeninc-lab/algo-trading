@@ -240,6 +240,8 @@ class SaviourCombo:
     # ── P&L and Status ────────────────────────────────────────────────────────
 
     async def _broker_parity_check(self) -> None:
+        if getattr(self.survivor, "_is_paper", False):
+            return  # Skip parity check in paper mode — broker has no real positions
         """Cross-check local positions + P&L against broker every 15 minutes.
         Logs warnings and sends Telegram alert if divergence exceeds tolerance.
         """
