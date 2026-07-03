@@ -48,7 +48,7 @@ class WaveExtractor(BaseStrategy):
         self._in_cool_off      = False
         self._bracket_placed_at: float = 0.0  # epoch seconds when bracket was placed
         # Resolved once at init — avoids repeated os.getenv calls in signal logic
-        self._is_paper = self._is_paper
+        self._is_paper = os.getenv("PAPER_TRADE", "false").lower() == "true"
         self._current_price    = 0.0
         self._realised_pnl     = 0.0
         self._unrealised_pnl   = 0.0

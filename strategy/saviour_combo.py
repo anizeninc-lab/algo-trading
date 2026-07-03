@@ -27,6 +27,8 @@ class SaviourComboConfig:
 
 
 class SaviourCombo:
+    _PARITY_INTERVAL = 900  # 15 minutes
+    _PARITY_PNL_TOL  = 500  # ₹500 tolerance
 
     def __init__(self, broker: AbstractBrokerGateway, config: SaviourComboConfig):
         self.broker  = broker
@@ -44,6 +46,7 @@ class SaviourCombo:
         self._running           = False
         self._survivor_started  = False
         self._monitor_task      = None
+        self._last_parity_check = 0.0
         state_store.register_strategy(name=self.name, broker=type(broker).__name__)
         logger.info("[saviour_combo] Initialised")
 
