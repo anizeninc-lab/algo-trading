@@ -317,7 +317,7 @@ def auto_select_banknifty_symbols(instruments: list = None) -> dict:
 
         today          = date.today()
         weekly_expiry  = get_nearest_wednesday(today)
-        monthly_expiry = get_nearest_banknifty_monthly_expiry(today)
+        monthly_expiry = get_nearest_monthly_expiry(today)
 
         logger.info(f"[AutoConfig] BNF Weekly expiry (Wednesday): {weekly_expiry}")
         logger.info(f"[AutoConfig] BNF Monthly expiry: {monthly_expiry}")
