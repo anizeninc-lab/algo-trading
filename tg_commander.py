@@ -77,9 +77,12 @@ def handle_status() -> str:
         trades_resp = requests.get(f"{DASHBOARD_URL}/api/trades", timeout=10).json()
         open_trades = [t for t in trades_resp.get("trades", []) if t.get("status") == "OPEN"]
         total_unrealised = sum(t.get("unrealised_pnl", 0) or 0 for t in open_trades)
+        from datetime import date as _date
+        today_str = _date.today().isoformat()
         total_realised   = sum(t.get("realised_pnl", 0) or 0
                                for t in trades_resp.get("trades", [])
-                               if t.get("status") == "CLOSED")
+                               if t.get("status") == "CLOSED"
+                               and t.get("entry_time", "").startswith(today_str))
         lines = [
             f"📊 <b>Bot Status</b>",
             f"Status: <b>{status}</b>" + (f" — {reason}" if reason else ""),

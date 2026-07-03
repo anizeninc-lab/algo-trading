@@ -2,7 +2,7 @@
   "date": "2026-07-03",
   "trade_counts": {},
   "daily_pnl": {},
-  "system_halted": false,
-  "halt_reason": "",
+  "system_halted": true,
+  "halt_reason": "Max daily loss hit: \u20b9-4004.00 (limit: \u20b9-3000.00, hardcoded floor: \u20b9-3000.00)",
   "deployed_capital": {}
 }
