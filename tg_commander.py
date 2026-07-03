@@ -69,26 +69,40 @@ def handle_status() -> str:
         reason    = data.get("halt_reason", "")
         deployed  = data.get("capital_deployed", 0)
         remaining = data.get("capital_remaining", 0)
-        daily_pnl = data.get("daily_loss_pct", 0)
         trades    = data.get("trades_today", 0)
-
         greeks = requests.get(f"{DASHBOARD_URL}/api/greeks", timeout=10).json()
         delta  = greeks.get("total_delta", 0)
         theta  = greeks.get("total_theta", 0)
         n_trades = greeks.get("trade_count", 0)
-
+        trades_resp = requests.get(f"{DASHBOARD_URL}/api/trades", timeout=10).json()
+        open_trades = [t for t in trades_resp.get("trades", []) if t.get("status") == "OPEN"]
+        total_unrealised = sum(t.get("unrealised_pnl", 0) or 0 for t in open_trades)
+        total_realised   = sum(t.get("realised_pnl", 0) or 0
+                               for t in trades_resp.get("trades", [])
+                               if t.get("status") == "CLOSED")
         lines = [
             f"📊 <b>Bot Status</b>",
             f"Status: <b>{status}</b>" + (f" — {reason}" if reason else ""),
             f"Capital deployed: ₹{deployed:,.0f} | Remaining: ₹{remaining:,.0f}",
-            f"Trades today: {trades}",
-            f"Open positions: {n_trades}",
+            f"Trades today: {trades} | Open positions: {n_trades}",
+            f"Unrealised P&L: <b>₹{total_unrealised:+.0f}</b>",
+            f"Realised P&L today: <b>₹{total_realised:+.0f}</b>",
             f"Portfolio delta: {delta:.3f} | Theta: ₹{theta:.0f}/day",
         ]
+        if open_trades:
+            lines.append("\n<b>Open Positions:</b>")
+            for t in open_trades:
+                sym   = t.get("symbol", "")[-10:]
+                side  = t.get("order_type", "")
+                qty   = t.get("quantity", 0)
+                entry = t.get("entry_price", 0)
+                ltp   = t.get("current_ltp", 0)
+                upnl  = t.get("unrealised_pnl", 0) or 0
+                emoji = "🟢" if upnl >= 0 else "🔴"
+                lines.append(f"{emoji} {sym} {side} {qty} | entry ₹{entry} → ltp ₹{ltp} | P&L ₹{upnl:+.0f}")
         return "\n".join(lines)
     except Exception as e:
         return f"❌ Status fetch failed: {e}"
-
 
 def handle_resume() -> str:
     try:
