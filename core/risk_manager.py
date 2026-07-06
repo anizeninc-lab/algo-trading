@@ -481,8 +481,31 @@ class RiskManager:
                 return
             self._trade_counts     = state.get("trade_counts", {})
             self._daily_pnl        = state.get("daily_pnl", {})
-            self._system_halted    = state.get("system_halted", False) and os.getenv("WEEKLY_LOSS_OVERRIDE", "0") != "1"
-            self._halt_reason      = "" if os.getenv("WEEKLY_LOSS_OVERRIDE", "0") == "1" else state.get("halt_reason", "")
+            # Re-validate halt against today's actual DB P&L — don't blindly restore halted=True
+            persisted_halt   = state.get("system_halted", False)
+            persisted_reason = state.get("halt_reason", "")
+            weekly_override  = os.getenv("WEEKLY_LOSS_OVERRIDE", "0") == "1"
+            if persisted_halt and not weekly_override and "KILL SWITCH" not in persisted_reason:
+                # Re-check today's realised P&L from DB before restoring halt
+                try:
+                    import sqlite3 as _sq
+                    from core.trade_log import trade_logger as _tl2
+                    _today = datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d")
+                    with _sq.connect(_tl2.db_path) as _conn:
+                        _row = _conn.execute(
+                            "SELECT SUM(realised_pnl) as total FROM trades "
+                            "WHERE status='CLOSED' AND DATE(exit_time)=? AND paper_trade=0",
+                            (_today,)
+                        ).fetchone()
+                    _today_pnl = _row[0] if _row and _row[0] is not None else 0.0
+                    if _today_pnl > self.max_daily_loss:
+                        persisted_halt = False
+                        persisted_reason = ""
+                        logger.info(f"[RiskManager] Halt cleared on startup — today P&L ₹{_today_pnl:.2f} within limit")
+                except Exception as _ve:
+                    logger.warning(f"[RiskManager] Could not re-validate halt on startup: {_ve}")
+            self._system_halted    = persisted_halt and not weekly_override
+            self._halt_reason      = "" if weekly_override else persisted_reason
             self._deployed_capital = state.get("deployed_capital", {})
             logger.info(
                 f"[RiskManager] State restored from disk | "
