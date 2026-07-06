@@ -222,7 +222,11 @@ class SurvivorAlgo(BaseStrategy):
                     self._monitor_open_trades(self._last_nifty_price), loop
                 )
             return
-        logger.info(f"[survivor] Nifty tick: {tick.last_price:.2f} | PE anchor: {self._pe_last_value:.2f} | diff: {tick.last_price - self._pe_last_value:.2f}")
+        # Log tick only once per minute to reduce log volume
+        _now_ts = __import__('time').time()
+        if not hasattr(self, '_last_tick_log') or _now_ts - self._last_tick_log >= 60:
+            logger.info(f"[survivor] Nifty tick: {tick.last_price:.2f} | PE anchor: {self._pe_last_value:.2f} | diff: {tick.last_price - self._pe_last_value:.2f}")
+            self._last_tick_log = _now_ts
         self._last_nifty_price = tick.last_price
         loop = self._loop
         if loop is None or not loop.is_running():
