@@ -510,6 +510,7 @@ class SurvivorAlgo(BaseStrategy):
                 entry_price=entry_price,
                 broker_order_id=order_id,
                 notes=f"VIX Regime Trigger | Nifty @ {nifty_price:.2f}",
+                paper_trade=_is_paper,
             )
 
             from core.transaction_costs import calculate_order_cost
