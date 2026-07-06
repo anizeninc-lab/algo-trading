@@ -1424,15 +1424,22 @@ class SurvivorAlgo(BaseStrategy):
         # EOD summary alert
         try:
             from core.alerting import alert_eod_close
-            import pytz
+            import sqlite3, pytz
             from datetime import datetime
             today = datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d")
-            trades = trade_logger.get_trades(status="CLOSED", limit=100)
-            today_trades = [t for t in trades if t.get("exit_time","").startswith(today)]
-            total_pnl = sum(t.get("realised_pnl", 0) for t in today_trades)
-            alert_eod_close(total_pnl, len(today_trades))
-        except Exception:
-            pass
+            with sqlite3.connect(trade_logger.db_path) as _conn:
+                _conn.row_factory = sqlite3.Row
+                _row = _conn.execute(
+                    "SELECT SUM(realised_pnl) as total, COUNT(*) as cnt FROM trades "
+                    "WHERE status='CLOSED' AND DATE(exit_time)=? AND notes != 'DUPLICATE_CLEANUP'",
+                    (today,)
+                ).fetchone()
+            total_pnl = _row["total"] or 0.0
+            trade_cnt = _row["cnt"] or 0
+            alert_eod_close(total_pnl, trade_cnt)
+            logger.info(f"[survivor] EOD alert sent — P&L: ₹{total_pnl:.2f} | Trades: {trade_cnt}")
+        except Exception as _e:
+            logger.warning(f"[survivor] EOD alert failed: {_e}")
 
     # ── P&L Calculation ───────────────────────────────────────────────────────
 
