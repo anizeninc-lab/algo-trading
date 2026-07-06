@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # ─── HARDCODED CAPITAL LIMIT ──────────────────────────────────────────────────
 # This is the ABSOLUTE maximum capital that can be deployed at any time.
 # This limit is HARDCODED and will NOT change even if account balance increases.
-MAX_CAPITAL_DEPLOYED = 150000.0  # ₹1,50,000 — DO NOT CHANGE
+MAX_CAPITAL_DEPLOYED = 250000.0  # ₹2,50,000 — raised for paper trading (Nifty 150k + BankNifty 100k)
 
 # Estimated margin required per lot for options SELL (conservative estimate)
 MARGIN_PER_SELL_LOT  = 40000.0  # ₹40,000 per SELL lot
