@@ -65,6 +65,7 @@ class SurvivorAlgo(BaseStrategy):
         self._ce_sold_flag     = False
         self._open_trade_ids   = []
         self._open_trades_data = []
+        self._trades_reloaded  = False  # gate: block entries until DB reload completes
         self._realised_pnl     = 0.0
         self._unrealised_pnl   = 0.0
         self._last_nifty_price = 0.0
@@ -142,6 +143,7 @@ class SurvivorAlgo(BaseStrategy):
         logger.info("[survivor] Auto-stop watchdog started")
         await asyncio.sleep(5)  # Wait for WebSocket
         await self._reload_open_trades()
+        self._trades_reloaded = True
 
         logger.info(
             f"[survivor] PE Anchor: {self._pe_last_value} | "
@@ -222,6 +224,8 @@ class SurvivorAlgo(BaseStrategy):
                     self._monitor_open_trades(self._last_nifty_price), loop
                 )
             return
+        if not self._trades_reloaded:
+            return  # block all entries until DB reload completes on startup
         # Log tick only once per minute to reduce log volume
         _now_ts = __import__('time').time()
         if not hasattr(self, '_last_tick_log') or _now_ts - self._last_tick_log >= 60:
