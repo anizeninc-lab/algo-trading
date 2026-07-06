@@ -420,6 +420,11 @@ class SurvivorAlgo(BaseStrategy):
         # ── NEW: DETERMINISTIC CLIENT ORDER ID & MUTEX LOCK FOR PM2 RESTARTS ──
         deterministic_client_id = f"SURV_{direction}_{int(final_strike)}_{today_prefix}"
 
+        # Duplicate check — applies to both paper and live mode
+        if any(t.get("symbol") == symbol for t in self._open_trades_data):
+            logger.warning(f"[survivor] MUTEX LOCK: Already holding {symbol} in paper/live mode. Order blocked.")
+            self._pending_orders.discard(_order_key)
+            return
         try:
             if _is_paper:
                 sell_price  = round(premium * 0.98, 1)
