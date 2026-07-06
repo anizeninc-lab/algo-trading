@@ -682,6 +682,29 @@ async def startup():
         except Exception as e:
             logger.warning(f"MarketContextEngine start failed: {e}")
     logger.info("Dashboard API started. Event bus running.")
+    # Seed today's realised P&L from SQLite into state_store on startup
+    try:
+        import sqlite3
+        from datetime import date
+        today = date.today().isoformat()
+        db_path = trade_logger.db_path
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT strategy, SUM(realised_pnl) as total FROM trades "
+                "WHERE status='CLOSED' AND DATE(exit_time)=? AND paper_trade=0 "
+                "GROUP BY strategy",
+                (today,)
+            ).fetchall()
+            for row in rows:
+                strat = row["strategy"]
+                pnl   = row["total"] or 0.0
+                if pnl != 0.0:
+                    state_store._states.setdefault(strat, __import__('core.state_store', fromlist=['StrategyStatus']).StrategyStatus())
+                    state_store._states[strat].realised_pnl = pnl
+                    logger.info(f"[startup] Seeded {strat} realised_pnl = ₹{pnl:.2f} from DB")
+    except Exception as e:
+        logger.warning(f"[startup] Could not seed realised P&L from DB: {e}")
 
 
 # ── Unrealised PnL Registry ───────────────────────────────────────────────────
