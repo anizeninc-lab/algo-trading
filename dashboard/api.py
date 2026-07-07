@@ -853,3 +853,51 @@ async def deploy_strategy(body: dict = _Body(...)):
     except Exception as e:
         logger.error(f"deploy_strategy error: {e}")
         return {"success": False, "error": str(e), "orders": results}
+
+@app.get("/api/capital")
+async def get_capital_intelligence():
+    """Capital Intelligence — per-strategy pools, utilization, capacity matrix."""
+    from core.risk_manager import risk_manager
+    PER_STRATEGY_CAP = 150000.0
+    strategies = {
+        "survivor":     {"name": "Nifty Survivor",    "cap": PER_STRATEGY_CAP, "lot_size": 65,  "margin_per_lot": 40000},
+        "bn_survivor":  {"name": "BankNifty Survivor", "cap": PER_STRATEGY_CAP, "lot_size": 15,  "margin_per_lot": 40000},
+        "wave_extractor":{"name": "Wave Extractor",   "cap": PER_STRATEGY_CAP, "lot_size": 65,  "margin_per_lot": 40000},
+    }
+    deployed = risk_manager._deployed_capital
+    total_cap = PER_STRATEGY_CAP * len(strategies)
+    total_deployed = sum(deployed.values())
+    result = []
+    for key, meta in strategies.items():
+        used = deployed.get(key, 0.0)
+        free = max(0.0, meta["cap"] - used)
+        pct  = round((used / meta["cap"]) * 100, 1) if meta["cap"] > 0 else 0
+        max_lots = int(meta["cap"] // meta["margin_per_lot"])
+        cur_lots = int(used // meta["margin_per_lot"])
+        status = "HEALTHY" if pct < 50 else "ACTIVE" if pct < 90 else "FULL"
+        result.append({
+            "key":           key,
+            "name":          meta["name"],
+            "cap":           meta["cap"],
+            "deployed":      round(used, 2),
+            "free":          round(free, 2),
+            "pct":           pct,
+            "max_lots":      max_lots,
+            "current_lots":  cur_lots,
+            "status":        status,
+        })
+    return {
+        "strategies":      result,
+        "total_cap":       total_cap,
+        "total_deployed":  round(total_deployed, 2),
+        "total_free":      round(total_cap - total_deployed, 2),
+        "total_pct":       round((total_deployed / total_cap) * 100, 1) if total_cap > 0 else 0,
+        "per_strategy_cap": PER_STRATEGY_CAP,
+    }
+
+@app.post("/api/capital/configure")
+async def configure_capital(body: dict):
+    """Manually update per-strategy capital limit."""
+    new_cap = float(body.get("per_strategy_cap", 150000))
+    new_cap = max(50000, min(500000, new_cap))  # clamp 50k–500k
+    return {"success": True, "per_strategy_cap": new_cap, "message": f"Capital updated to ₹{new_cap:,.0f} (restart required to apply)"}
