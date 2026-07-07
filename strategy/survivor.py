@@ -197,7 +197,7 @@ class SurvivorAlgo(BaseStrategy):
         is_eod = (now.hour > 15) or (now.hour == 15 and now.minute >= 5)
         if is_eod:
             logger.info("[survivor] on_stop: EOD — closing all positions")
-            await self._close_all_positions()
+            await self._close_all_positions(reason="EOD")
         else:
             logger.info(
                 f"[survivor] on_stop: {now.strftime('%H:%M')} IST — "
@@ -265,10 +265,10 @@ class SurvivorAlgo(BaseStrategy):
                     self._last_block_reason = reason
                     logger.info(f"[survivor] Trading blocked: {reason}")
                     if "daily loss" in reason.lower() or "halted" in reason.lower():
-                        await self._close_all_positions()
+                        await self._close_all_positions(reason="LOSS_LIMIT")
                         await self.stop(reason="MAX_DAILY_LOSS")
                     elif "auto-stop" in reason.lower():
-                        await self._close_all_positions()
+                        await self._close_all_positions(reason="EOD")
                         await self.stop(reason="AUTO_STOP")
                 return
             else:
@@ -1007,7 +1007,7 @@ class SurvivorAlgo(BaseStrategy):
                 if risk_manager.check_auto_stop():
                     logger.warning("[survivor] WATCHDOG: EOD auto-stop triggered")
                     self._signal("WATCHDOG: EOD 3:05 PM — closing all positions")
-                    await self._close_all_positions()
+                    await self._close_all_positions(reason="EOD")
                     await self.stop(reason="AUTO_STOP_WATCHDOG")
                     # Generate daily report at EOD
                     try:
@@ -1111,13 +1111,13 @@ class SurvivorAlgo(BaseStrategy):
                 if risk_manager.check_auto_stop():
                     logger.warning("[survivor] WATCHDOG: EOD auto-stop 3:05 PM")
                     self._signal("EOD auto-stop 3:05 PM [WATCHDOG]")
-                    await self._close_all_positions()
+                    await self._close_all_positions(reason="EOD")
                     await self.stop(reason="AUTO_STOP")
                     return
                 if risk_manager.check_max_daily_loss():
                     logger.warning("[survivor] WATCHDOG: Max daily loss hit")
                     self._signal("Max daily loss [WATCHDOG]")
-                    await self._close_all_positions()
+                    await self._close_all_positions(reason="EOD")
                     await self.stop(reason="MAX_DAILY_LOSS")
                     return
                 for trade in list(self._open_trades_data):
@@ -1417,9 +1417,9 @@ class SurvivorAlgo(BaseStrategy):
 
     async def close_all_positions(self) -> None:
         """Public wrapper for dashboard/killswitch use — avoids cross-layer private method calls."""
-        await self._close_all_positions()
+        await self._close_all_positions(reason="MANUAL")
 
-    async def _close_all_positions(self) -> None:
+    async def _close_all_positions(self, reason: str = "EOD") -> None:
         if not self._open_trades_data:
             return
         self._signal(f"Closing all {len(self._open_trades_data)} open trade(s)...")
