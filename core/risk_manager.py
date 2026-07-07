@@ -73,6 +73,11 @@ class RiskManager:
 
         # Per-strategy spam prevention
         self._last_blocked: dict[str, str] = {}
+        # Opportunity tracking
+        self._opp_detected:  dict[str, int] = {}  # signals that passed all filters
+        self._opp_blocked:   dict[str, int] = {}  # signals blocked (any reason)
+        self._opp_executed:  dict[str, int] = {}  # actual trades placed
+        self._block_reasons: dict[str, dict] = {} # reason -> count
         # API circuit breaker
         self._api_fail_times: list  = []   # timestamps of recent failures
         self._api_cb_tripped: bool  = False
@@ -157,7 +162,7 @@ class RiskManager:
                 f"new: ₹{margin_needed:,.0f} = ₹{projected:,.0f} "
                 f"exceeds per-strategy cap of ₹{PER_STRATEGY_CAP:,.0f}"
             )
-            logger.warning(f"[RiskManager] CAPITAL GUARD: {reason}")
+            logger.debug(f"[RiskManager] CAPITAL GUARD: {reason}")
             return False, reason
 
         return True, ""
@@ -411,6 +416,8 @@ class RiskManager:
 
         # Clear last blocked if now allowed
         self._last_blocked.pop(strategy_name, None)
+        # Count as detected opportunity
+        self._opp_detected[strategy_name] = self._opp_detected.get(strategy_name, 0) + 1
         return True, ""
 
     def _log_blocked_once(self, strategy_name: str, reason: str) -> None:
@@ -418,8 +425,16 @@ class RiskManager:
         if self._last_blocked.get(strategy_name) != reason:
             logger.info(f"[RiskManager] {strategy_name} blocked: {reason}")
             self._last_blocked[strategy_name] = reason
+        # Always count block (deduplicated by reason change for logging, but count every tick)
+        self._opp_blocked[strategy_name] = self._opp_blocked.get(strategy_name, 0) + 1
+        # Track reason breakdown
+        if strategy_name not in self._block_reasons:
+            self._block_reasons[strategy_name] = {}
+        short = reason.split("—")[0].split(":")[0].strip()[:40]
+        self._block_reasons[strategy_name][short] = self._block_reasons[strategy_name].get(short, 0) + 1
 
     def register_trade(self, strategy_name: str, order_type: str = "SELL") -> None:
+        self._opp_executed[strategy_name] = self._opp_executed.get(strategy_name, 0) + 1
         """Call this when a new trade is opened."""
         self._trade_counts[strategy_name] = (
             self._trade_counts.get(strategy_name, 0) + 1

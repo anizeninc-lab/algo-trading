@@ -142,10 +142,12 @@ def alert_system_start(nifty_price: float, regime: str, paper: bool) -> None:
     )
 
 
-def alert_eod_close(total_pnl: float, trades: int) -> None:
+def alert_eod_close(total_pnl: float, trades: int, reason: str = "EOD") -> None:
     level = LEVEL_PROFIT if total_pnl >= 0 else LEVEL_LOSS
+    emoji = "✅" if reason == "TP" else "🕐" if reason == "EOD" else "🛑"
+    label = "ALL TARGETS HIT" if reason == "TP" else "EOD — ALL POSITIONS CLOSED" if reason == "EOD" else "ALL POSITIONS CLOSED"
     send_telegram(
-        f"*EOD — ALL POSITIONS CLOSED*\n"
+        f"*{emoji} {label}*\n"
         f"Today's P&L: `₹{total_pnl:+.2f}`\n"
         f"Trades: `{trades}`",
         level

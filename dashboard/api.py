@@ -901,3 +901,41 @@ async def configure_capital(body: dict):
     new_cap = float(body.get("per_strategy_cap", 150000))
     new_cap = max(50000, min(500000, new_cap))  # clamp 50k–500k
     return {"success": True, "per_strategy_cap": new_cap, "message": f"Capital updated to ₹{new_cap:,.0f} (restart required to apply)"}
+
+@app.get("/api/opportunities")
+async def get_opportunities():
+    """Opportunity meter — detected vs executed vs blocked per strategy."""
+    try:
+        from core.risk_manager import risk_manager
+        strategies = ["survivor", "bn_survivor", "wave_extractor"]
+        result = []
+        total_detected = 0
+        total_executed = 0
+        total_blocked  = 0
+        for s in strategies:
+            detected = risk_manager._opp_detected.get(s, 0)
+            executed = risk_manager._opp_executed.get(s, 0)
+            blocked  = risk_manager._opp_blocked.get(s, 0)
+            reasons  = risk_manager._block_reasons.get(s, {})
+            top_reasons = sorted(reasons.items(), key=lambda x: x[1], reverse=True)[:3]
+            hit_rate = round((executed / detected * 100), 1) if detected > 0 else 0.0
+            total_detected += detected
+            total_executed += executed
+            total_blocked  += blocked
+            result.append({
+                "strategy":    s,
+                "detected":    detected,
+                "executed":    executed,
+                "blocked":     blocked,
+                "hit_rate":    hit_rate,
+                "top_reasons": [{"reason": r, "count": c} for r, c in top_reasons],
+            })
+        return {
+            "strategies":      result,
+            "total_detected":  total_detected,
+            "total_executed":  total_executed,
+            "total_blocked":   total_blocked,
+            "total_hit_rate":  round((total_executed / total_detected * 100), 1) if total_detected > 0 else 0.0,
+        }
+    except Exception as e:
+        return {"error": str(e), "strategies": [], "total_detected": 0, "total_executed": 0, "total_blocked": 0}

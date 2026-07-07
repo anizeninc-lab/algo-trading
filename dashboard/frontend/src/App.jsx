@@ -815,7 +815,7 @@ function TradeLedger({ trades }) {
   const [selected, setSelected] = useState(null)
   const [filter, setFilter] = useState("ALL")
   const filtered = trades.filter(t => filter === "ALL" ? true : t.status === filter)
-  const cols = ["TRADE ID", "STRATEGY", "INSTRUMENT", "DIR", "QTY", "ENTRY TIME", "ENTRY ₹", "EXIT TIME", "EXIT ₹", "PREMIUM", "STATUS", "P&L"]
+  const cols = ["TRADE ID", "STRATEGY", "INSTRUMENT", "DIR", "QTY", "ENTRY TIME", "ENTRY ₹", "EXIT TIME", "EXIT ₹", "PREMIUM", "CAP USED", "% RETURN", "STATUS", "P&L"]
 
   const exportCSV = () => {
     const rows = [cols.join(",")]
@@ -824,7 +824,7 @@ function TradeLedger({ trades }) {
       rows.push([
         t.id, t.strategy, t.symbol, t.order_type, t.quantity,
         t.entry_time, t.entry_price, t.exit_time, t.exit_price,
-        premium.toFixed(2), t.status, t.realised_pnl
+        premium.toFixed(2), 40000, premium > 0 ? ((t.realised_pnl||0)/premium*100).toFixed(1)+"%" : "0%", t.status, t.realised_pnl
       ].join(","))
     })
     const blob = new Blob([rows.join("\n")], { type: "text/csv" })
@@ -848,7 +848,7 @@ function TradeLedger({ trades }) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           {[
             { title: "TRADE DETAILS", rows: [["Trade ID", t.id], ["Strategy", t.strategy], ["Instrument", t.symbol], ["Direction", t.order_type], ["Quantity", t.quantity], ["Status", t.status], ["Broker Order ID", t.broker_order_id]] },
-            { title: "CAPITAL & RISK", rows: [["Entry Price", fmtRs(t.entry_price)], ["Exit Price", fmtRs(t.exit_price)], ["Premium", fmtRs(premium)], ["Est. Margin", fmtRs(margin)], ["Max Risk", fmtRs(maxRisk)], ["Realised P&L", fmtRs(t.realised_pnl)], ["Risk/Reward", rr]] },
+            { title: "CAPITAL & RISK", rows: [["Entry Price", fmtRs(t.entry_price)], ["Exit Price", fmtRs(t.exit_price)], ["Premium", fmtRs(premium)], ["Est. Margin", fmtRs(margin)], ["Max Risk", fmtRs(maxRisk)], ["Realised P&L", fmtRs(t.realised_pnl)], ["% Return", premium > 0 ? ((t.realised_pnl||0)/premium*100).toFixed(1)+"%" : "—"], ["Risk/Reward", rr]] },
           ].map(({ title, rows }) => (
             <div key={title} style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
               <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>{title}</div>
@@ -907,6 +907,8 @@ function TradeLedger({ trades }) {
                     <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10 }}>{fmtTime(t.exit_time)}</td>
                     <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace" }}>{fmtRs(t.exit_price)}</td>
                     <td style={{ padding: "8px 12px", color: C.orange, fontFamily: "monospace" }}>{fmtRs(premium)}</td>
+                    <td style={{ padding: "8px 12px", color: C.cyan, fontFamily: "monospace" }}>₹40,000</td>
+                    <td style={{ padding: "8px 12px", color: pnlC(t.realised_pnl), fontFamily: "monospace", fontWeight: 700 }}>{premium > 0 ? ((t.realised_pnl||0)/premium*100).toFixed(1)+"%" : "—"}</td>
                     <td style={{ padding: "8px 12px" }}><Pill label={t.status} colour={statusCol} size={9} /></td>
                     <td style={{ padding: "8px 12px", fontWeight: 700, color: pnlC(t.realised_pnl), fontFamily: "monospace" }}>{fmtRs(t.realised_pnl)}</td>
                   </tr>
@@ -1275,6 +1277,92 @@ function OpenPositions({ trades }) {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+
+
+// ── Opportunity Meter ─────────────────────────────────────────────────────────
+function OpportunityMeter() {
+  const [data, setData] = React.useState(null)
+  React.useEffect(() => {
+    async function fetch() {
+      try {
+        const r = await axios.get(`${API}/api/opportunities`)
+        setData(r.data)
+      } catch {}
+    }
+    fetch()
+    const id = setInterval(fetch, 5000)
+    return () => clearInterval(id)
+  }, [])
+
+  if (!data) return <div style={{ color: C.muted, fontSize: 11 }}>Loading opportunity data...</div>
+
+  const stratName = { survivor: "Nifty", bn_survivor: "BankNifty", wave_extractor: "Wave" }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1.5 }}>OPPORTUNITY METER</div>
+
+      {/* ── Total Summary ── */}
+      <div style={{ background: C.card, borderRadius: 10, padding: "14px 18px", border: `1px solid ${C.border}`, display: "flex", gap: 24, flexWrap: "wrap" }}>
+        {[
+          { label: "DETECTED",  val: data.total_detected,  col: C.cyan },
+          { label: "EXECUTED",  val: data.total_executed,  col: C.green },
+          { label: "BLOCKED",   val: data.total_blocked,   col: C.red },
+          { label: "HIT RATE",  val: data.total_hit_rate + "%", col: data.total_hit_rate > 50 ? C.green : C.orange },
+        ].map(({ label, val, col }) => (
+          <div key={label}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>{label}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: col, fontFamily: "monospace" }}>{val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Per Strategy ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+        {data.strategies.map(s => (
+          <div key={s.strategy} style={{ background: C.card, borderRadius: 10, padding: "14px 16px", border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>{stratName[s.strategy] || s.strategy}</div>
+            <div style={{ display: "flex", gap: 14, marginBottom: 10, flexWrap: "wrap" }}>
+              {[
+                { label: "DETECTED", val: s.detected, col: C.cyan },
+                { label: "EXECUTED", val: s.executed, col: C.green },
+                { label: "HIT RATE", val: s.hit_rate + "%", col: s.hit_rate > 50 ? C.green : C.orange },
+              ].map(({ label, val, col }) => (
+                <div key={label}>
+                  <div style={{ fontSize: 9, color: C.muted }}>{label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: col, fontFamily: "monospace" }}>{val}</div>
+                </div>
+              ))}
+            </div>
+            {/* Execution bar */}
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                <span style={{ fontSize: 9, color: C.muted }}>EXECUTION RATE</span>
+                <span style={{ fontSize: 9, color: C.green }}>{s.hit_rate}%</span>
+              </div>
+              <div style={{ height: 4, background: C.border, borderRadius: 2 }}>
+                <div style={{ height: "100%", width: `${s.hit_rate}%`, background: C.green, borderRadius: 2, transition: "width 0.5s" }} />
+              </div>
+            </div>
+            {/* Top block reasons */}
+            {s.top_reasons.length > 0 && (
+              <div>
+                <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>TOP BLOCK REASONS</div>
+                {s.top_reasons.map((r, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ fontSize: 9, color: C.muted, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.reason}</span>
+                    <span style={{ fontSize: 9, color: C.orange, fontFamily: "monospace" }}>{r.count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -2262,7 +2350,7 @@ export default function App() {
           {tab === "execlog"   && <ExecutionLog trades={trades} />}
           {tab === "banknifty"  && <BankNiftyPanel />}
           {tab === "perf"      && <PerformancePanel trades={trades} />}
-          {tab === "risk"      && <div style={{ display: "flex", flexDirection: "column", gap: 16 }}><CapitalIntelligencePanel trades={trades} /><RiskPanel trades={trades} global={g} /></div>}
+          {tab === "risk"      && <div style={{ display: "flex", flexDirection: "column", gap: 16 }}><OpportunityMeter /><CapitalIntelligencePanel trades={trades} /><RiskPanel trades={trades} global={g} /></div>}
           {tab === "strategy"  && <StrategyLab nifty={market?.nifty_price || 0} vix={vix?.value || 0} />}
         </div>
       </div>
