@@ -22,23 +22,23 @@
     "trending_score": 4.0,
     "or_width": null,
     "or_width_signal": "OR data not collected",
-    "vix_level": 11.79,
-    "vix_signal": "VIX=11.8 LOW \u2192 calm market, range likely",
-    "gap_pct": 0.439,
+    "vix_level": 11.71,
+    "vix_signal": "VIX=11.7 LOW \u2192 calm market, range likely",
+    "gap_pct": 0.385,
     "gap_signal": "small gap \u2192 neutral",
     "midpoint_crosses": 0,
     "crosses_signal": "0 crosses \u2192 strong directional move",
     "pcr_at_open": 1.0,
     "pcr_signal": "PCR=1.00 NEUTRAL \u2192 range bias",
-    "prev_close": 24269.05,
-    "today_open": 24375.65
+    "prev_close": 24370.55,
+    "today_open": 24464.45
   },
-  "produced_at": "2026-07-03T15:22:26.733205+05:30",
+  "produced_at": "2026-07-07T15:25:28.030373+05:30",
   "plan_version": 1,
   "notes": [
     "OR data unavailable \u2014 defaulting to RANGE MEDIUM, Survivor ACTIVE",
     "MEDIUM confidence \u2014 position size reduced to 75%",
-    "Low VIX (11.8) \u2014 tighter triggers applied"
+    "Low VIX (11.7) \u2014 tighter triggers applied"
   ],
   "is_ready": true,
   "low_confidence_hold_until": null

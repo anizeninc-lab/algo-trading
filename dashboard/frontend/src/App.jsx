@@ -1985,6 +1985,8 @@ export default function App() {
   const openCount = trades.filter(t => t.status === "OPEN").length
   const todayStr  = now.toISOString().slice(0, 10)
   const todayPnl  = trades.filter(t => t.status === "CLOSED" && t.exit_time?.slice(0, 10) === todayStr).reduce((s, t) => s + (t.realised_pnl || 0), 0)
+  const unrealisedTotal = trades.filter(t => t.status === "OPEN").reduce((s, t) => s + (t.unrealised_pnl || 0), 0)
+  const currentPnl = todayPnl + unrealisedTotal
   const brokerOn  = Object.values(g.broker_status || {}).some(v => v === "CONNECTED")
 
   // Sound alerts
@@ -2049,7 +2051,7 @@ export default function App() {
       {/* ── Top stats ── */}
       <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
         <NiftyBox market={market} />
-        <StatTile label="CURRENT P&L"    value={fmtRs(g.total_pnl)}  colour={pnlC(g.total_pnl)}  bg={pnlBg(g.total_pnl)} />
+        <StatTile label="CURRENT P&L"    value={fmtRs(currentPnl)}   colour={pnlC(currentPnl)}   bg={pnlBg(currentPnl)} />
         <StatTile label="TODAY REALISED" value={fmtRs(todayPnl)}     colour={pnlC(todayPnl)}     bg={pnlBg(todayPnl)} />
         <StatTile label="OPEN POSITIONS" value={openCount}           colour={openCount > 0 ? C.blue : C.muted} />
         <StatTile label="ACTIVE STRATS"  value={`${g.active_strategies || 0}/${g.total_strategies || 0}`} colour={C.text} />

@@ -19,7 +19,7 @@ this file -- every caller goes through calculate_order_cost().
 """
 
 BROKERAGE_PER_ORDER = 20.0
-STT_SELL_PCT        = 0.15 / 100.0
+STT_SELL_PCT        = 0.0625 / 100.0  # Upstox standard F&O options rate
 EXCHANGE_TXN_PCT    = 0.03553   / 100.0
 GST_PCT             = 18.0   / 100.0
 STAMP_DUTY_BUY_PCT  = 0.003  / 100.0
