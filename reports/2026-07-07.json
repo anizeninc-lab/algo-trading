@@ -1,0 +1,59 @@
+{
+  "date": "2026-07-07",
+  "generated_at": "2026-07-07 15:14:43 IST",
+  "stop_reason": "MANUAL",
+  "paper_trade": true,
+  "summary": {
+    "total_trades": 6,
+    "winning": 3,
+    "losing": 3,
+    "win_rate_pct": 50.0,
+    "net_pnl": 1560.42,
+    "combined_pnl": 438.01
+  },
+  "by_strategy": {
+    "survivor": {
+      "total_pnl": 1560.42,
+      "total_trades": 6,
+      "winning": 3,
+      "losing": 3,
+      "win_rate": 50.0
+    },
+    "wave_extractor": {
+      "total_pnl": 0.0,
+      "total_trades": 0,
+      "winning": 0,
+      "losing": 0,
+      "win_rate": 0.0
+    },
+    "bn_survivor": {
+      "total_pnl": 0.0,
+      "total_trades": 0,
+      "winning": 0,
+      "losing": 0,
+      "win_rate": 0.0
+    }
+  },
+  "risk_state": {
+    "daily_pnl": {},
+    "trade_counts": {
+      "survivor": 3
+    },
+    "deployed_capital": {
+      "survivor": 120000.0
+    },
+    "system_halted": false,
+    "halt_reason": ""
+  },
+  "system": {
+    "total_pnl": 876.02,
+    "active_strategies": 0,
+    "total_strategies": 4,
+    "system_health": "OK",
+    "broker_status": {
+      "UpstoxAdapter": "DISCONNECTED"
+    },
+    "system_start": "2026-07-07T11:32:06.032584",
+    "last_updated": "2026-07-07T15:14:43.598489"
+  }
+}

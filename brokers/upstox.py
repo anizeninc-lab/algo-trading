@@ -77,7 +77,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
             if now - self._ltp_ts.get(symbol, 0) < 5.0:
                 return float(self._ltp_cache[symbol])
         try:
-            resp = self._market_api.ltp(symbol, api_version="2.0")
+            resp = await asyncio.to_thread(self._market_api.ltp, symbol, api_version="2.0")
             if not resp.data:
                 logger.warning(f"get_ltp: empty data for {symbol}")
                 return float(self._ltp_cache.get(symbol, 0.0))

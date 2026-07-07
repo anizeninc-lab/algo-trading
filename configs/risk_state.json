@@ -1,8 +1,12 @@
 {
-  "date": "2026-07-03",
-  "trade_counts": {},
+  "date": "2026-07-07",
+  "trade_counts": {
+    "survivor": 3
+  },
   "daily_pnl": {},
-  "system_halted": true,
-  "halt_reason": "Max daily loss hit: \u20b9-4004.00 (limit: \u20b9-3000.00, hardcoded floor: \u20b9-3000.00)",
-  "deployed_capital": {}
+  "system_halted": false,
+  "halt_reason": "",
+  "deployed_capital": {
+    "survivor": 120000.0
+  }
 }

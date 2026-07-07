@@ -144,6 +144,16 @@ class SurvivorAlgo(BaseStrategy):
         await asyncio.sleep(5)  # Wait for WebSocket
         await self._reload_open_trades()
         self._trades_reloaded = True
+        try:
+            import sqlite3 as _sq, pathlib as _pl
+            from datetime import date as _dt
+            _db = _pl.Path('trade_log.db')
+            with _sq.connect(str(_db)) as _c:
+                _r = _c.execute("SELECT COUNT(*) FROM trades WHERE status='CLOSED' AND DATE(entry_time)=?", (_dt.today().isoformat(),)).fetchone()
+                self._closed_trades = _r[0] if _r else 0
+                print(f'[survivor] Seeded _closed_trades={self._closed_trades}')
+        except Exception as _e:
+            print(f'[survivor] Could not seed counter: {_e}')
 
         logger.info(
             f"[survivor] PE Anchor: {self._pe_last_value} | "
@@ -1115,24 +1125,20 @@ class SurvivorAlgo(BaseStrategy):
                     ikey = self._ikey_cache.get(symbol, symbol)
                     # Check both symbol and ikey in cache
                     cached = self._ltp_cache.get(ikey, self._ltp_cache.get(symbol, 0.0))
-                    if cached == 0.0:
-                        # Fallback: fetch via REST API (throttled — max once per 30s per symbol)
-                        now_ts = __import__('time').time()
-                        last_fetch_key = f"_last_rest_fetch_{symbol}"
-                        last_fetch = getattr(self, last_fetch_key, 0)
-                        if now_ts - last_fetch > 10:
-                            try:
-                                ltp = await self.broker.get_ltp(ikey)
-                                if ltp > 0:
-                                    self._ltp_cache[ikey] = ltp
-                                    self._ltp_cache[symbol] = ltp
-                                    logger.info(f"[survivor] REST fallback LTP: {ikey} = {ltp}")
-                                setattr(self, last_fetch_key, now_ts)
-                            except Exception as fe:
-                                logger.debug(f"[survivor] REST fallback failed: {fe}")
-                                self._ltp_cache[symbol] = trade["entry"]
-                        else:
-                            self._ltp_cache[symbol] = trade["entry"]
+                    # Always refresh via REST every 10s (WS may not deliver option ticks)
+                    now_ts = __import__('time').time()
+                    last_fetch_key = f"_last_rest_fetch_{symbol}"
+                    last_fetch = getattr(self, last_fetch_key, 0)
+                    if now_ts - last_fetch > 10:
+                        try:
+                            ltp = await self.broker.get_ltp(ikey)
+                            if ltp > 0:
+                                self._ltp_cache[ikey] = ltp
+                                self._ltp_cache[symbol] = ltp
+                                logger.info(f"[survivor] REST LTP: {ikey} = {ltp}")
+                            setattr(self, last_fetch_key, now_ts)
+                        except Exception as fe:
+                            logger.debug(f"[survivor] REST fallback failed: {fe}")
 
                 # Independent periodic SL/TP enforcement -- fires even if no
                 # ticks are arriving. Acts like a broker-side GTT would: a

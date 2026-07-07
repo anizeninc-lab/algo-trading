@@ -140,7 +140,7 @@ class RiskManager:
         """Returns total capital currently deployed across all strategies."""
         return sum(self._deployed_capital.values())
 
-    def check_capital_limit(self, order_type: str = "SELL") -> tuple[bool, str]:
+    def check_capital_limit(self, order_type: str = "SELL", strategy_name: str = "") -> tuple[bool, str]:
         """
         HARDCODED CAPITAL GUARD — checks if adding one more trade
         would exceed the ₹1,50,000 capital limit.
@@ -148,16 +148,14 @@ class RiskManager:
         Returns (False, reason) if limit would be breached.
         """
         margin_needed = MARGIN_PER_SELL_LOT if order_type == "SELL" else MARGIN_PER_BUY_LOT
-        current       = self.get_total_deployed_capital()
-        projected     = current + margin_needed
-        effective_cap = self._get_effective_max_capital()
-
-        if projected > effective_cap:
+        PER_STRATEGY_CAP = 150000.0
+        strategy_deployed = self._deployed_capital.get(strategy_name, 0.0)
+        projected = strategy_deployed + margin_needed
+        if projected > PER_STRATEGY_CAP:
             reason = (
-                f"Capital limit breach — deployed: ₹{current:,.0f} + "
+                f"Capital limit breach — {strategy_name} deployed: ₹{strategy_deployed:,.0f} + "
                 f"new: ₹{margin_needed:,.0f} = ₹{projected:,.0f} "
-                f"exceeds limit of ₹{effective_cap:,.0f} "
-                f"(hardcoded ceiling ₹{MAX_CAPITAL_DEPLOYED:,.0f})"
+                f"exceeds per-strategy cap of ₹{PER_STRATEGY_CAP:,.0f}"
             )
             logger.warning(f"[RiskManager] CAPITAL GUARD: {reason}")
             return False, reason
@@ -406,7 +404,7 @@ class RiskManager:
             return False, reason
 
         # HARDCODED CAPITAL GUARD — always checked last
-        capital_ok, capital_reason = self.check_capital_limit(order_type)
+        capital_ok, capital_reason = self.check_capital_limit(order_type, strategy_name)
         if not capital_ok:
             self._log_blocked_once(strategy_name, capital_reason)
             return False, capital_reason
@@ -561,11 +559,12 @@ class RiskManager:
         quantity:      int = 65,
     ) -> bool:
         """
-        Close when profit >= profit_target (default Rs800 per trade).
+        Close when profit >= 40% of premium collected.
+        e.g. entry Rs20 x 65 qty = Rs1300 collected -> TP at Rs520 (40%)
         """
         if entry_price <= 0:
             return False
-        profit_target = getattr(self, "profit_target", 800.0)
+        profit_target = round(entry_price * quantity * 0.40, 2)
         if order_type == "SELL":
             pnl = (entry_price - current_price) * quantity
         else:
@@ -589,4 +588,4 @@ risk_manager = RiskManager(
     auto_stop_hour      = 15,
     auto_stop_minute    = 10,
 )
-risk_manager.profit_target = 600.0  # Close trade when profit >= Rs600
+# TP now 40% of premium collected — see check_trailing_profit()
