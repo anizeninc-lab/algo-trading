@@ -748,8 +748,9 @@ class SurvivorAlgo(BaseStrategy):
             # Use canonical expiry function from auto_config (handles holidays + rollover)
             # rather than a raw weekday formula that has no holiday awareness.
             _today = _dt.now(_pytz.timezone("Asia/Kolkata")).date()
+            from core.auto_config import get_nearest_monthly_expiry
             expiry_date = (
-                get_nearest_wednesday(_today)
+                get_nearest_monthly_expiry(_today)
                 if self.cfg.expiry_weekday == 2
                 else get_nearest_tuesday(_today)
             )
@@ -858,8 +859,9 @@ class SurvivorAlgo(BaseStrategy):
             # Use canonical expiry function from auto_config (handles holidays + rollover)
             # rather than a raw weekday formula that has no holiday awareness.
             _today = dt.now(pytz.timezone("Asia/Kolkata")).date()
+            from core.auto_config import get_nearest_monthly_expiry
             expiry = (
-                get_nearest_wednesday(_today)
+                get_nearest_monthly_expiry(_today)
                 if self.cfg.expiry_weekday == 2
                 else get_nearest_tuesday(_today)
             )
