@@ -70,6 +70,8 @@ class RiskManager:
 
         # Capital tracking — tracks deployed capital per strategy
         self._deployed_capital: dict[str, float] = {}
+        # Per-strategy capital cap — configurable, persisted to configs/capital_config.json
+        self._per_strategy_cap: float = self._load_capital_config()
 
         # Per-strategy spam prevention
         self._last_blocked: dict[str, str] = {}
@@ -145,6 +147,36 @@ class RiskManager:
         """Returns total capital currently deployed across all strategies."""
         return sum(self._deployed_capital.values())
 
+    def _load_capital_config(self) -> float:
+        """Load per-strategy capital cap from configs/capital_config.json."""
+        try:
+            import json
+            cfg_path = Path("configs/capital_config.json")
+            if cfg_path.exists():
+                data = json.loads(cfg_path.read_text())
+                cap = float(data.get("per_strategy_cap", 150000.0))
+                logger.info(f"[RiskManager] Loaded per_strategy_cap: ₹{cap:,.0f}")
+                return cap
+        except Exception as e:
+            logger.warning(f"[RiskManager] Could not load capital_config.json: {e}")
+        return 150000.0
+
+    def set_per_strategy_cap(self, new_cap: float) -> None:
+        """Update per-strategy capital cap and persist to disk."""
+        new_cap = max(50000.0, min(200000.0, float(new_cap)))
+        self._per_strategy_cap = new_cap
+        try:
+            import json
+            cfg_path = Path("configs/capital_config.json")
+            cfg_path.parent.mkdir(exist_ok=True)
+            cfg_path.write_text(json.dumps({"per_strategy_cap": new_cap}, indent=2))
+            logger.info(f"[RiskManager] per_strategy_cap updated to ₹{new_cap:,.0f} and saved")
+        except Exception as e:
+            logger.error(f"[RiskManager] Could not save capital_config.json: {e}")
+
+    def get_per_strategy_cap(self) -> float:
+        return self._per_strategy_cap
+
     def check_capital_limit(self, order_type: str = "SELL", strategy_name: str = "") -> tuple[bool, str]:
         """
         HARDCODED CAPITAL GUARD — checks if adding one more trade
@@ -153,7 +185,7 @@ class RiskManager:
         Returns (False, reason) if limit would be breached.
         """
         margin_needed = MARGIN_PER_SELL_LOT if order_type == "SELL" else MARGIN_PER_BUY_LOT
-        PER_STRATEGY_CAP = 150000.0
+        PER_STRATEGY_CAP = self._per_strategy_cap
         strategy_deployed = self._deployed_capital.get(strategy_name, 0.0)
         projected = strategy_deployed + margin_needed
         if projected > PER_STRATEGY_CAP:
