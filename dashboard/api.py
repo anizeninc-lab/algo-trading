@@ -858,7 +858,7 @@ async def deploy_strategy(body: dict = _Body(...)):
 async def get_capital_intelligence():
     """Capital Intelligence — per-strategy pools, utilization, capacity matrix."""
     from core.risk_manager import risk_manager
-    PER_STRATEGY_CAP = 150000.0
+    PER_STRATEGY_CAP = risk_manager.get_per_strategy_cap()
     strategies = {
         "survivor":     {"name": "Nifty Survivor",    "cap": PER_STRATEGY_CAP, "lot_size": 65,  "margin_per_lot": 40000},
         "bn_survivor":  {"name": "BankNifty Survivor", "cap": PER_STRATEGY_CAP, "lot_size": 15,  "margin_per_lot": 40000},
@@ -897,10 +897,12 @@ async def get_capital_intelligence():
 
 @app.post("/api/capital/configure")
 async def configure_capital(body: dict):
-    """Manually update per-strategy capital limit."""
+    """Update per-strategy capital limit — persists to disk, takes effect immediately."""
+    from core.risk_manager import risk_manager
     new_cap = float(body.get("per_strategy_cap", 150000))
-    new_cap = max(50000, min(500000, new_cap))  # clamp 50k–500k
-    return {"success": True, "per_strategy_cap": new_cap, "message": f"Capital updated to ₹{new_cap:,.0f} (restart required to apply)"}
+    new_cap = max(50000, min(200000, new_cap))
+    risk_manager.set_per_strategy_cap(new_cap)
+    return {"success": True, "per_strategy_cap": new_cap, "message": f"Capital updated to ₹{new_cap:,.0f} — effective immediately"}
 
 @app.get("/api/capital/recommendation")
 async def get_capital_recommendation():
