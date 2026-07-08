@@ -459,6 +459,10 @@ class RiskManager:
         self._system_halted     = False
         self._halt_reason       = ""
         self._last_blocked      = {}
+        self._opp_detected      = {}
+        self._opp_executed      = {}
+        self._opp_blocked       = {}
+        self._block_reasons     = {}
         logger.info("[RiskManager] Daily counters reset")
         self._save_state()
 
