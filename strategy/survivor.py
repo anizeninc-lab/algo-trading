@@ -346,7 +346,7 @@ class SurvivorAlgo(BaseStrategy):
                 )
 
             else:
-                self._signal(f"Trade blocked: {reason}")
+                logger.debug(f"[{self.name}] Trade blocked: {reason}")
 
             # PE Reset — market reversed down after a PE sell
             if self._pe_sold_flag and (self._pe_last_value - nifty_price >= self.cfg.pe_reset_gap):

@@ -243,7 +243,7 @@ class WaveExtractor(BaseStrategy):
                 await self._place_duo_bracket()
 
             elif not can_trade and not self._bracket_active:
-                self._signal(f"Trade blocked: {reason}")
+                logger.debug(f"[{self.name}] Trade blocked: {reason}")
 
         except Exception as e:
             logger.exception(f"[wave_extractor] ERROR in on_tick: {e}")

@@ -114,7 +114,11 @@ async def run_strategies(config: dict):
     )
 
     # ── BankNifty Survivor Config (PAPER MODE always) ──────────────────────
-    bn_symbol_initials = config.get("bn_symbol_initials", "BANKNIFTY16JUN26")
+    from core.auto_config import get_nearest_monthly_expiry
+    from datetime import date as _date
+    _bn_exp = get_nearest_monthly_expiry(_date.today())
+    _bn_default = f"BANKNIFTY{_bn_exp.strftime('%d%b%y').upper()}"
+    bn_symbol_initials = config.get("bn_symbol_initials") or _bn_default
     banknifty_cfg = SurvivorConfig(
         symbol_initials      = bn_symbol_initials,
         pe_gap               = 20.0,
