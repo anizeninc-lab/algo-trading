@@ -304,6 +304,7 @@ class SurvivorAlgo(BaseStrategy):
                 if not sf_ok:
                     can_trade = False
                     reason = f"[context] {sf_reason}"
+                    risk_manager._log_blocked_once(self.name, reason)
 
             if can_trade and len(self._open_trades_data) >= 2:
                 can_trade = False
