@@ -134,11 +134,14 @@ def alert_reconcile_mismatch(trade_id: str, symbol: str) -> None:
 
 def alert_system_start(nifty_price: float, regime: str, paper: bool) -> None:
     mode = "📄 PAPER" if paper else "💰 LIVE"
+    _cap = float(os.environ.get("CAPITAL_PER_STRATEGY", 150000)) * 2
+    _pct = (total_pnl / _cap) * 100 if _cap else 0.0
     send_telegram(
-        f"*BOT STARTED* {mode}\n"
-        f"Nifty: `{nifty_price:.2f}`\n"
-        f"Regime: `{regime}`",
-        LEVEL_INFO
+        f"*{emoji} {label}*\n"
+        f"Today's P&L: `₹{total_pnl:+.2f}`\n"
+        f"Capital: `₹{_cap:,.0f}` | Return: `{_pct:+.2f}%`\n"
+        f"Trades: `{trades}`",
+        level
     )
 
 
@@ -146,9 +149,12 @@ def alert_eod_close(total_pnl: float, trades: int, reason: str = "EOD") -> None:
     level = LEVEL_PROFIT if total_pnl >= 0 else LEVEL_LOSS
     emoji = "✅" if reason == "TP" else "🕐" if reason == "EOD" else "🛑"
     label = "ALL TARGETS HIT" if reason == "TP" else "EOD — ALL POSITIONS CLOSED" if reason == "EOD" else "ALL POSITIONS CLOSED"
+    _cap = float(os.environ.get("CAPITAL_PER_STRATEGY", 150000)) * 2
+    _pct = (total_pnl / _cap) * 100 if _cap else 0.0
     send_telegram(
         f"*{emoji} {label}*\n"
         f"Today's P&L: `₹{total_pnl:+.2f}`\n"
+        f"Capital: `₹{_cap:,.0f}` | Return: `{_pct:+.2f}%`\n"
         f"Trades: `{trades}`",
         level
     )
