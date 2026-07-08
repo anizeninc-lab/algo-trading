@@ -925,11 +925,21 @@ function TradeLedger({ trades }) {
 function BankNiftyPanel() {
   const [trades,  setTrades]  = React.useState([])
   const [summary, setSummary] = React.useState(null)
+  const [opp,     setOpp]     = React.useState(null)
+  const [cap,     setCap]     = React.useState(null)
 
   React.useEffect(() => {
     function fetch() {
       axios.get(`${API}/api/banknifty/trades?limit=100`).then(r => setTrades(r.data.trades || [])).catch(() => {})
       axios.get(`${API}/api/banknifty/summary`).then(r => setSummary(r.data)).catch(() => {})
+      axios.get(`${API}/api/opportunities`).then(r => {
+        const bn = (r.data.strategies || []).find(s => s.strategy === bn_survivor)
+        setOpp(bn || null)
+      }).catch(() => {})
+      axios.get(`${API}/api/capital`).then(r => {
+        const bn = (r.data.strategies || []).find(s => s.key === bn_survivor)
+        setCap(bn || null)
+      }).catch(() => {})
     }
     fetch()
     const id = setInterval(fetch, 5000)
@@ -965,6 +975,56 @@ function BankNiftyPanel() {
               <div style={{ fontSize: 16, fontWeight: 800, color: col, fontFamily: "monospace" }}>{val}</div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Regime + Capital + Block Reasons */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ background: C.panel, borderRadius: 10, padding: 14, border: "1px solid #4a4a8a40" }}>
+          <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>REGIME / BLOCK REASONS</div>
+          {opp ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {(opp.top_reasons || []).slice(0, 3).map((r, i) => (
+                <div key={i} style={{ background: C.card, borderRadius: 6, padding: "6px 10px", border: "1px solid #ef444420" }}>
+                  <div style={{ fontSize: 10, color: "#ef4444", fontWeight: 600 }}>{r.reason}</div>
+                  <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>{r.count}x blocked</div>
+                </div>
+              ))}
+              {(!opp.top_reasons || opp.top_reasons.length === 0) && (
+                <div style={{ fontSize: 12, color: C.green, fontWeight: 700 }}>No blocks — regime compatible</div>
+              )}
+              <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+                <div style={{ fontSize: 10, color: C.muted }}>Det: <span style={{ color: C.text, fontWeight: 700 }}>{opp.detected}</span></div>
+                <div style={{ fontSize: 10, color: C.muted }}>Blk: <span style={{ color: "#ef4444", fontWeight: 700 }}>{opp.blocked}</span></div>
+                <div style={{ fontSize: 10, color: C.muted }}>Hit: <span style={{ color: C.green, fontWeight: 700 }}>{(opp.hit_rate * 100).toFixed(1)}%</span></div>
+              </div>
+            </div>
+          ) : <div style={{ color: C.muted, fontSize: 11 }}>Loading...</div>}
+        </div>
+        <div style={{ background: C.panel, borderRadius: 10, padding: 14, border: "1px solid #4a4a8a40" }}>
+          <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>CAPITAL POOL</div>
+          {cap ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ fontSize: 11, color: C.muted }}>Allocated</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: C.text, fontFamily: "monospace" }}>{"\u20b9"}{(cap.cap/1000).toFixed(0)}k</div>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ fontSize: 11, color: C.muted }}>Deployed</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: cap.deployed > 0 ? C.blue : C.muted, fontFamily: "monospace" }}>{"\u20b9"}{(cap.deployed/1000).toFixed(0)}k</div>
+              </div>
+              <div style={{ background: "#ffffff10", borderRadius: 4, height: 6, overflow: "hidden" }}>
+                <div style={{ width: `${Math.min(cap.pct, 100)}%`, height: "100%", background: cap.pct > 80 ? "#ef4444" : C.blue, borderRadius: 4 }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ fontSize: 11, color: C.muted }}>Free</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: C.green, fontFamily: "monospace" }}>{"\u20b9"}{(cap.free/1000).toFixed(0)}k</div>
+              </div>
+              <div style={{ background: cap.status === "HEALTHY" ? "#22c55e20" : "#ef444420", borderRadius: 6, padding: "4px 10px", textAlign: "center" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: cap.status === "HEALTHY" ? C.green : "#ef4444" }}>{cap.status}</div>
+              </div>
+            </div>
+          ) : <div style={{ color: C.muted, fontSize: 11 }}>Loading...</div>}
         </div>
       </div>
 

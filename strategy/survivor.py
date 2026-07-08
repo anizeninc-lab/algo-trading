@@ -1428,7 +1428,9 @@ class SurvivorAlgo(BaseStrategy):
             await self._close_trade(trade, reason, _ltp)
         self._unrealised_pnl = 0.0
         self._update_pnl(self._realised_pnl, 0.0)
-        # EOD summary alert
+        # EOD summary alert — only send for actual EOD, not regime change or manual stops
+        if reason != "EOD":
+            return
         try:
             from core.alerting import alert_eod_close
             import sqlite3, pytz
