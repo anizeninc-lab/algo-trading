@@ -1424,7 +1424,9 @@ class SurvivorAlgo(BaseStrategy):
             return
         self._signal(f"Closing all {len(self._open_trades_data)} open trade(s)...")
         for trade in list(self._open_trades_data):
-            await self._close_trade(trade, "EOD")
+            _ikey = self._ikey_cache.get(trade["symbol"], trade["symbol"])
+            _ltp = self._ltp_cache.get(_ikey, self._ltp_cache.get(trade["symbol"], 0.0))
+            await self._close_trade(trade, reason, _ltp)
         self._unrealised_pnl = 0.0
         self._update_pnl(self._realised_pnl, 0.0)
         # EOD summary alert
