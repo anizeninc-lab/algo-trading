@@ -999,7 +999,7 @@ function BankNiftyPanel() {
                 <div style={{ fontSize: 10, color: C.muted }}>Hit: <span style={{ color: C.green, fontWeight: 700 }}>{(opp.hit_rate * 100).toFixed(1)}%</span></div>
               </div>
             </div>
-          ) : <div style={{ color: C.muted, fontSize: 11 }}>Loading...</div>}
+          ) : <div style={{ color: C.muted, fontSize: 11, textAlign: "center", padding: "8px 0" }}>Warming up...</div>}
         </div>
         <div style={{ background: C.panel, borderRadius: 10, padding: 14, border: "1px solid #4a4a8a40" }}>
           <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>CAPITAL POOL</div>
@@ -1024,7 +1024,7 @@ function BankNiftyPanel() {
                 <div style={{ fontSize: 11, fontWeight: 700, color: cap.status === "HEALTHY" ? C.green : "#ef4444" }}>{cap.status}</div>
               </div>
             </div>
-          ) : <div style={{ color: C.muted, fontSize: 11 }}>Loading...</div>}
+          ) : <div style={{ color: C.muted, fontSize: 11, textAlign: "center", padding: "8px 0" }}>Warming up...</div>}
         </div>
       </div>
 
