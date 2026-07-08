@@ -902,6 +902,120 @@ async def configure_capital(body: dict):
     new_cap = max(50000, min(500000, new_cap))  # clamp 50k–500k
     return {"success": True, "per_strategy_cap": new_cap, "message": f"Capital updated to ₹{new_cap:,.0f} (restart required to apply)"}
 
+@app.get("/api/capital/recommendation")
+async def get_capital_recommendation():
+    """AI Capital Advisor — regime-aware capital recommendations per strategy."""
+    try:
+        from core.market_context import market_context
+        from core.vix_manager import vix_manager
+        from core.risk_manager import risk_manager
+        import sqlite3, pytz
+        from datetime import datetime
+
+        regime = market_context.regime
+        vix_params = vix_manager.get_params()
+        vix = vix_params.get("vix", 12.0)
+        base_cap = 150000.0
+
+        # Step 1: Regime multiplier
+        regime_multiplier = {
+            "range":           1.0,
+            "reversal_watch":  1.0,
+            "weak_bull":       0.75,
+            "weak_bear":       0.75,
+            "trending_bull":   0.33,
+            "trending_bear":   0.33,
+        }.get(regime, 0.75)
+
+        # Step 2: VIX adjustment
+        vix_multiplier = 1.0
+        if vix > 18:
+            vix_multiplier = 0.5
+        elif vix > 16:
+            vix_multiplier = 0.7
+        elif vix > 14:
+            vix_multiplier = 0.85
+
+        # Step 3: Daily P&L adjustment
+        today = datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d")
+        daily_pnl = 0.0
+        try:
+            db_path = "/home/ubuntu/trading-algo/trade_log.db"
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    "SELECT SUM(realised_pnl) as total FROM trades WHERE status='CLOSED' AND DATE(exit_time)=?",
+                    (today,)
+                ).fetchone()
+                daily_pnl = row["total"] or 0.0
+        except:
+            pass
+
+        pnl_multiplier = 1.0
+        max_loss = 3000.0
+        if daily_pnl < -max_loss * 0.75:
+            pnl_multiplier = 0.5
+        elif daily_pnl < -max_loss * 0.5:
+            pnl_multiplier = 0.75
+
+        # Step 4: Win rate adjustment
+        win_multiplier = 1.0
+        try:
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT realised_pnl FROM trades WHERE status='CLOSED' AND DATE(exit_time)=? AND notes != 'DUPLICATE_CLEANUP'",
+                    (today,)
+                ).fetchall()
+                if len(rows) >= 2:
+                    wins = sum(1 for r in rows if (r["realised_pnl"] or 0) > 0)
+                    win_rate = wins / len(rows)
+                    if win_rate >= 0.7:
+                        win_multiplier = 1.1
+                    elif win_rate < 0.3:
+                        win_multiplier = 0.8
+        except:
+            pass
+
+        final_multiplier = regime_multiplier * vix_multiplier * pnl_multiplier * win_multiplier
+        recommended_cap = round(base_cap * final_multiplier / 10000) * 10000
+        recommended_cap = max(50000, min(200000, recommended_cap))
+
+        reasons = []
+        if regime in ("trending_bull", "trending_bear"):
+            reasons.append(f"Regime {regime} — survivor not active, minimal capital")
+        elif regime in ("weak_bull", "weak_bear"):
+            reasons.append(f"Regime {regime} — partial deployment recommended")
+        else:
+            reasons.append(f"Regime {regime} — full deployment OK")
+        if vix > 14:
+            reasons.append(f"VIX {vix:.1f} elevated — reducing exposure")
+        if daily_pnl < -max_loss * 0.5:
+            reasons.append(f"Daily P&L ₹{daily_pnl:.0f} — reducing risk")
+
+        confidence = "HIGH" if final_multiplier >= 0.9 else "MEDIUM" if final_multiplier >= 0.6 else "LOW"
+
+        return {
+            "regime": regime,
+            "vix": vix,
+            "daily_pnl": daily_pnl,
+            "base_cap": base_cap,
+            "recommended_cap": recommended_cap,
+            "current_cap": 150000.0,
+            "multipliers": {
+                "regime": regime_multiplier,
+                "vix": vix_multiplier,
+                "pnl": pnl_multiplier,
+                "win_rate": win_multiplier,
+                "final": round(final_multiplier, 2),
+            },
+            "reasons": reasons,
+            "confidence": confidence,
+            "action": "INCREASE" if recommended_cap > 150000 else "REDUCE" if recommended_cap < 150000 else "HOLD",
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/opportunities")
 async def get_opportunities():
     """Opportunity meter — detected vs executed vs blocked per strategy."""
