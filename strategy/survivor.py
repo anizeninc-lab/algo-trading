@@ -173,12 +173,10 @@ class SurvivorAlgo(BaseStrategy):
                     if loop and loop.is_running():
                         import asyncio as _asyncio
                         _asyncio.run_coroutine_threadsafe(
-                            self._close_all_positions(), loop
+                            self._close_all_positions(reason="REGIME_CHANGE"), loop
                         )
                     self._pe_sold_flag      = False
                     self._ce_sold_flag      = False
-                    self._open_trades_data  = []
-                    self._open_trade_ids    = []
             market_context.register_regime_callback(_on_regime_change)
             logger.info("[survivor] Regime change callback registered")
         except Exception as e:
