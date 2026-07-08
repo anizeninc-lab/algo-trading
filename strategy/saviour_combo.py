@@ -152,12 +152,13 @@ class SaviourCombo:
 
         event_bus.unsubscribe(self._on_child_event)
         state_store.update_state(self.name, StrategyState.STOPPED)
-        # ── Generate EOD report on any stop ──────────────────────────────
-        try:
-            from core.eod_report import generate_eod_report
-            generate_eod_report(reason=reason, combo=self)
-        except Exception as _re:
-            logger.warning(f"[saviour_combo] EOD report failed: {_re}")
+        # ── Generate EOD report only on true EOD or loss limit stop ──────
+        if reason in ("AUTO_STOP", "MAX_DAILY_LOSS"):
+            try:
+                from core.eod_report import generate_eod_report
+                generate_eod_report(reason=reason, combo=self)
+            except Exception as _re:
+                logger.warning(f"[saviour_combo] EOD report failed: {_re}")
         logger.info("[saviour_combo] Stopped")
 
     # ── Monitor Loop ──────────────────────────────────────────────────────────
