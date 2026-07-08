@@ -877,6 +877,7 @@ class SurvivorAlgo(BaseStrategy):
         except Exception as e:
             logger.warning(f"[survivor] instrument key lookup failed: {e}")
         logger.warning(f"[survivor] using text fallback for {symbol}")
+        self._ikey_cache[symbol] = symbol  # cache fallback to prevent repeated lookup
         return symbol  # fallback to text symbol
 
     def _build_symbol(self, option_type: str, strike: float) -> str:
