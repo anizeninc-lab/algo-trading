@@ -1429,6 +1429,100 @@ function OpportunityMeter() {
 
 
 // ── Capital Intelligence Panel ────────────────────────────────────────────────
+function AICapitalAdvisor() {
+  const [rec, setRec] = React.useState(null)
+  const [applying, setApplying] = React.useState(false)
+  const [msg, setMsg] = React.useState(null)
+
+  React.useEffect(() => {
+    function load() {
+      axios.get(`${API}/api/capital/recommendation`).then(r => setRec(r.data)).catch(() => {})
+    }
+    load()
+    const id = setInterval(load, 15000)
+    return () => clearInterval(id)
+  }, [])
+
+  async function applyRec() {
+    if (!rec) return
+    setApplying(true)
+    try {
+      await axios.post(`${API}/api/capital/configure`, { per_strategy_cap: rec.recommended_cap })
+      setMsg(`Applied ₹${(rec.recommended_cap/1000).toFixed(0)}k — restart bot to activate`)
+    } catch { setMsg('Failed to apply') }
+    setApplying(false)
+    setTimeout(() => setMsg(null), 5000)
+  }
+
+  const actionCol = { HOLD: C.green, REDUCE: "#ef4444", INCREASE: C.blue }
+  const confCol   = { HIGH: C.green, MEDIUM: "#f59e0b", LOW: "#ef4444" }
+
+  return (
+    <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: "1px solid #a78bfa30" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#a78bfa" }}>🤖 AI CAPITAL ADVISOR</div>
+          <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>Regime-aware capital recommendation — review before applying</div>
+        </div>
+        {rec && <div style={{ background: `${actionCol[rec.action]}20`, border: `1px solid ${actionCol[rec.action]}40`, borderRadius: 6, padding: "4px 12px", fontSize: 11, fontWeight: 700, color: actionCol[rec.action] }}>{rec.action}</div>}
+      </div>
+
+      {!rec ? <div style={{ color: C.muted, fontSize: 11 }}>Loading...</div> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* Current vs Recommended */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+            {[
+              { label: "CURRENT", val: `₹${(rec.current_cap/1000).toFixed(0)}k`, col: C.text },
+              { label: "RECOMMENDED", val: `₹${(rec.recommended_cap/1000).toFixed(0)}k`, col: actionCol[rec.action] },
+              { label: "CONFIDENCE", val: rec.confidence, col: confCol[rec.confidence] },
+            ].map(({label, val, col}) => (
+              <div key={label} style={{ background: C.card, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border}`, textAlign: "center" }}>
+                <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>{label}</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: col, fontFamily: "monospace" }}>{val}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Multiplier breakdown */}
+          <div style={{ background: C.card, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>MULTIPLIER BREAKDOWN</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+              {[
+                { label: "REGIME", val: rec.multipliers.regime },
+                { label: "VIX", val: rec.multipliers.vix },
+                { label: "P&L", val: rec.multipliers.pnl },
+                { label: "WIN RATE", val: rec.multipliers.win_rate },
+              ].map(({label, val}) => (
+                <div key={label} style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 9, color: C.muted, marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: val >= 1 ? C.green : val >= 0.7 ? "#f59e0b" : "#ef4444", fontFamily: "monospace" }}>{(val * 100).toFixed(0)}%</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Reasons */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {(rec.reasons || []).map((r, i) => (
+              <div key={i} style={{ fontSize: 10, color: C.muted, padding: "4px 8px", background: C.card, borderRadius: 4, border: `1px solid ${C.border}` }}>💡 {r}</div>
+            ))}
+          </div>
+
+          {/* Apply button */}
+          {msg ? (
+            <div style={{ fontSize: 11, color: C.green, textAlign: "center", padding: "8px", background: "#22c55e15", borderRadius: 6 }}>{msg}</div>
+          ) : (
+            <button onClick={applyRec} disabled={applying || rec.action === "HOLD"}
+              style={{ background: rec.action === "HOLD" ? C.card : `${actionCol[rec.action]}20`, border: `1px solid ${actionCol[rec.action]}40`, borderRadius: 6, padding: "8px 16px", color: rec.action === "HOLD" ? C.muted : actionCol[rec.action], fontWeight: 700, fontSize: 11, cursor: rec.action === "HOLD" ? "default" : "pointer" }}>
+              {applying ? "Applying..." : rec.action === "HOLD" ? "✓ Already Optimal" : `Apply ₹${(rec.recommended_cap/1000).toFixed(0)}k Recommendation`}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function CapitalIntelligencePanel({ trades }) {
   const [capData, setCapData] = React.useState(null)
   const [showConfig, setShowConfig] = React.useState(false)
@@ -2410,7 +2504,7 @@ export default function App() {
           {tab === "execlog"   && <ExecutionLog trades={trades} />}
           {tab === "banknifty"  && <BankNiftyPanel />}
           {tab === "perf"      && <PerformancePanel trades={trades} />}
-          {tab === "risk"      && <div style={{ display: "flex", flexDirection: "column", gap: 16 }}><OpportunityMeter /><CapitalIntelligencePanel trades={trades} /><RiskPanel trades={trades} global={g} /></div>}
+          {tab === "risk"      && <div style={{ display: "flex", flexDirection: "column", gap: 16 }}><AICapitalAdvisor /><OpportunityMeter /><CapitalIntelligencePanel trades={trades} /><RiskPanel trades={trades} global={g} /></div>}
           {tab === "strategy"  && <StrategyLab nifty={market?.nifty_price || 0} vix={vix?.value || 0} />}
         </div>
       </div>
