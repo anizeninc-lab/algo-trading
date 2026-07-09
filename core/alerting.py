@@ -134,14 +134,12 @@ def alert_reconcile_mismatch(trade_id: str, symbol: str) -> None:
 
 def alert_system_start(nifty_price: float, regime: str, paper: bool) -> None:
     mode = "📄 PAPER" if paper else "💰 LIVE"
-    _cap = float(os.environ.get("CAPITAL_PER_STRATEGY", 150000)) * 2
-    _pct = (total_pnl / _cap) * 100 if _cap else 0.0
     send_telegram(
-        f"*{emoji} {label}*\n"
-        f"Today's P&L: `₹{total_pnl:+.2f}`\n"
-        f"Capital: `₹{_cap:,.0f}` | Return: `{_pct:+.2f}%`\n"
-        f"Trades: `{trades}`",
-        level
+        f"*🚀 BOT STARTED — {mode}*\n"
+        f"Nifty: `₹{nifty_price:.2f}`\n"
+        f"Regime: `{regime}`\n"
+        f"Mode: `{mode}`",
+        LEVEL_INFO
     )
 
 
