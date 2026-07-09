@@ -1,0 +1,32 @@
+module.exports = {
+  apps: [
+    {
+      name: "trading-bot",
+      script: "main.py",
+      interpreter: "python3",
+      cwd: "/home/ubuntu/trading-algo",
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: "30s",
+      restart_delay: 5000,
+      max_memory_restart: "700M",
+      out_file: "logs/pm2_trading_bot_out.log",
+      error_file: "logs/pm2_trading_bot_err.log",
+      env: { PYTHONUNBUFFERED: "1" },
+    },
+    {
+      name: "tg-commander",
+      script: "tg_commander.py",
+      interpreter: "python3",
+      cwd: "/home/ubuntu/trading-algo",
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: "30s",
+      restart_delay: 5000,
+      max_memory_restart: "200M",
+      out_file: "logs/pm2_tg_commander_out.log",
+      error_file: "logs/pm2_tg_commander_err.log",
+      env: { PYTHONUNBUFFERED: "1" },
+    },
+  ],
+};
