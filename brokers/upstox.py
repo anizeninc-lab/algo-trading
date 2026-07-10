@@ -45,6 +45,36 @@ class UpstoxAdapter(AbstractBrokerGateway):
         self._connected = False
         self._placed_order_tags: set = set()  # idempotent order gate
         self._start_time: float = __import__("time").time()  # for startup grace period
+        # ── API Rate Limiter (token bucket, 8 calls/sec max) ─────────────────
+        # Upstox limit is ~10/sec; we cap at 8 to stay safe.
+        # All broker API calls must await self._throttle() before executing.
+        self._rl_max_tokens:  float = 8.0   # max burst
+        self._rl_tokens:      float = 8.0   # current tokens
+        self._rl_refill_rate: float = 8.0   # tokens added per second
+        self._rl_last_refill: float = __import__("time").time()
+        self._rl_lock = asyncio.Lock()
+
+    async def _throttle(self) -> None:
+        """Token bucket rate limiter. Await before every broker API call.
+        Allows up to 8 calls/sec burst, refills at 8 tokens/sec.
+        Prevents 429 rate-limit errors from simultaneous multi-strategy calls.
+        """
+        import time as _time
+        async with self._rl_lock:
+            now = _time.time()
+            elapsed = now - self._rl_last_refill
+            self._rl_tokens = min(
+                self._rl_max_tokens,
+                self._rl_tokens + elapsed * self._rl_refill_rate
+            )
+            self._rl_last_refill = now
+            if self._rl_tokens < 1.0:
+                wait = (1.0 - self._rl_tokens) / self._rl_refill_rate
+                logger.debug(f"[RateLimiter] throttling {wait:.3f}s — tokens={self._rl_tokens:.2f}")
+                await asyncio.sleep(wait)
+                self._rl_tokens = 0.0
+            else:
+                self._rl_tokens -= 1.0
 
     async def login(self) -> bool:
         try:
@@ -76,6 +106,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
         if symbol in self._ltp_cache and self._ltp_cache[symbol] > 0:
             if now - self._ltp_ts.get(symbol, 0) < 5.0:
                 return float(self._ltp_cache[symbol])
+        await self._throttle()
         try:
             resp = await asyncio.to_thread(self._market_api.ltp, symbol, api_version="2.0")
             if not resp.data:
@@ -179,6 +210,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
                 is_amo=False,
                 tag=order.tag or "",
             )
+            await self._throttle()
             resp = self._order_api.place_order(body)
             order_id = resp.data.order_ids[0] if hasattr(resp.data, 'order_ids') else getattr(resp.data, 'order_id', '')
             logger.info(
@@ -200,6 +232,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
 
     async def cancel_order(self, order_id: str) -> bool:
         try:
+            await self._throttle()
             self._order_api.cancel_order(order_id)
             logger.info(f"Order cancelled: {order_id}")
             return True
@@ -214,6 +247,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
 
     async def get_positions(self) -> list:
         try:
+            await self._throttle()
             resp = self._portfolio_api.get_positions(api_version="2.0")
             positions = []
             for p in resp.data:
@@ -239,6 +273,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
     async def get_orders(self) -> list:
         try:
             try:
+                await self._throttle()
                 resp = self._order_api_v2.get_order_book(api_version="2.0")
             except Exception as inner_e:
                 logger.warning(f"get_orders primary call failed ({type(inner_e).__name__}: {str(inner_e)[:150]}) — no fallback available, returning empty")
