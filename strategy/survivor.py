@@ -47,7 +47,7 @@ class SurvivorConfig:
     strategy_name:        str   = "survivor"             # override for BankNifty: "bn_survivor" 
     hedge_enabled:        bool  = True                   # buy a protective far-OTM leg with every short (caps tail risk)
     hedge_gap:            float = 150.0                  # points further OTM than the short strike, for the hedge leg
-    use_delta_selection:  bool  = False                  # SHADOW MODE ONLY for now -- does not change live trades yet
+    use_delta_selection:  bool  = True                   # LIVE: use delta-based strike selection with premium fallback
     target_delta:         float = 0.15                   # target delta for future delta-based strike selection
     delta_tolerance:      float = 0.05                   # acceptable search window around target_delta
     expiry_weekday:       int   = 1                      # weekly expiry weekday: Nifty=1 (Tuesday), BankNifty=2 (Wednesday)
@@ -365,6 +365,77 @@ class SurvivorAlgo(BaseStrategy):
 
     # ── Option Selling ────────────────────────────────────────────────────────
 
+    async def _select_strike_by_delta(
+        self, direction: str, nifty_price: float
+    ):
+        """
+        Fetch option chain and return (strike, ikey, premium) for the strike
+        whose delta is closest to cfg.target_delta (within cfg.delta_tolerance).
+        Returns None on any failure — caller must fall back to premium-threshold method.
+        """
+        if not hasattr(self.broker, "get_option_chain"):
+            return None
+        try:
+            import pytz as _pytz
+            from datetime import datetime as _dt
+            from core.auto_config import get_nearest_monthly_expiry
+            _today = _dt.now(_pytz.timezone("Asia/Kolkata")).date()
+            expiry_date = (
+                get_nearest_monthly_expiry(_today)
+                if self.cfg.expiry_weekday == 2
+                else get_nearest_tuesday(_today)
+            )
+            expiry_str = expiry_date.strftime("%Y-%m-%d")
+            chain = await self.broker.get_option_chain(
+                self.cfg.index_instrument_key or self.cfg.nifty_instrument_key,
+                expiry_str,
+            )
+            if not chain:
+                logger.warning("[survivor] Delta selection: empty chain — falling back to premium method")
+                return None
+            target    = self.cfg.target_delta
+            tolerance = self.cfg.delta_tolerance
+            best_row  = None
+            best_diff = float("inf")
+            for row in chain:
+                raw_delta = row.get("ce_delta") if direction == "CE" else row.get("pe_delta")
+                if not raw_delta:
+                    continue
+                diff = abs(abs(raw_delta) - target)
+                if diff < best_diff:
+                    best_diff = diff
+                    best_row  = row
+            if best_row is None or best_diff > tolerance:
+                logger.warning(
+                    f"[survivor] Delta selection: no strike within tolerance "
+                    f"{tolerance} of target Δ={target} — falling back to premium method"
+                )
+                return None
+            delta_strike = best_row["strike"]
+            delta_value  = best_row.get("ce_delta") if direction == "CE" else best_row.get("pe_delta")
+            delta_ltp    = best_row.get("ce_ltp")   if direction == "CE" else best_row.get("pe_ltp")
+            ikey = await self._get_instrument_key(
+                self._build_symbol(direction, delta_strike), direction, delta_strike
+            )
+            # Verify premium meets minimum threshold
+            premium = self._ltp_cache.get(ikey, delta_ltp or 0.0)
+            if premium <= 0.0:
+                premium = await self.broker.get_ltp(ikey)
+            if premium < self.cfg.min_price_to_sell:
+                logger.warning(
+                    f"[survivor] Delta strike {delta_strike} (Δ={delta_value:.3f}) "
+                    f"premium ₹{premium:.1f} below min ₹{self.cfg.min_price_to_sell} — falling back"
+                )
+                return None
+            logger.info(
+                f"[survivor] Delta selection: {direction} {delta_strike:.0f} "
+                f"Δ={delta_value:.3f} premium=₹{premium:.1f} target_Δ={target}"
+            )
+            return (delta_strike, ikey, premium)
+        except Exception as e:
+            logger.warning(f"[survivor] Delta selection failed (non-blocking): {e} — falling back to premium method")
+            return None
+
     async def _sell_option(
         self,
         direction:   str,
@@ -372,34 +443,38 @@ class SurvivorAlgo(BaseStrategy):
         gap:         float,
         quantity:    int,
     ) -> None:
+        _is_paper    = self._is_paper
         interval     = self.cfg.strike_interval
-        base_strike  = nifty_price - gap if direction == "PE" else nifty_price + gap
-        strike       = round(base_strike / interval) * interval
         symbol       = None
-        final_strike = strike
+        final_strike = None
+        premium      = 0.0
+        _strike_method = "premium"  # for logging
 
-        # Search up to 5 strikes for one that meets min premium
-        for _ in range(5):
-            candidate = self._build_symbol(direction, final_strike)
-            _is_paper = self._is_paper
-            if _is_paper:
-                # Resolve real instrument key so paper mode uses REAL LTP (cache or
-                # live API call) instead of a synthetic distance-based guess. This
-                # was causing entry_price to diverge from the real market price,
-                # triggering immediate artificial stop-outs.
-                ikey = await self._get_instrument_key(candidate, direction, final_strike)
-                premium = self._ltp_cache.get(ikey, self._ltp_cache.get(candidate, 0.0))
-                if premium <= 0.0:
+        # ── Delta-based strike selection (with premium-threshold fallback) ──
+        if self.cfg.use_delta_selection:
+            delta_result = await self._select_strike_by_delta(direction, nifty_price)
+            if delta_result is not None:
+                final_strike, symbol, premium = delta_result
+                _strike_method = "delta"
+
+        # ── Premium-threshold fallback (original method) ──────────────────
+        if symbol is None:
+            base_strike  = nifty_price - gap if direction == "PE" else nifty_price + gap
+            final_strike = round(base_strike / interval) * interval
+            for _ in range(5):
+                candidate = self._build_symbol(direction, final_strike)
+                if _is_paper:
+                    ikey = await self._get_instrument_key(candidate, direction, final_strike)
+                    premium = self._ltp_cache.get(ikey, self._ltp_cache.get(candidate, 0.0))
+                    if premium <= 0.0:
+                        premium = await self.broker.get_ltp(ikey)
+                else:
+                    ikey = await self._get_instrument_key(candidate, direction, final_strike)
                     premium = await self.broker.get_ltp(ikey)
-            else:
-                # Resolve real instrument key before LTP fetch
-                ikey = await self._get_instrument_key(candidate, direction, final_strike)
-                premium = await self.broker.get_ltp(ikey)
-
-            if premium >= self.cfg.min_price_to_sell:
-                symbol = ikey  # Use resolved ikey for order
-                break
-            final_strike += interval if direction == "PE" else -interval
+                if premium >= self.cfg.min_price_to_sell:
+                    symbol = ikey
+                    break
+                final_strike += interval if direction == "PE" else -interval
 
         if not symbol:
             logger.warning(
@@ -408,12 +483,7 @@ class SurvivorAlgo(BaseStrategy):
             )
             return
 
-        # SHADOW MODE: log delta-based comparison in the background.
-        # Never blocks or affects the real order below.
-        if not _is_paper:
-            asyncio.create_task(
-                self._log_delta_shadow_comparison(direction, final_strike, nifty_price)
-            )
+        self._signal(f"Strike selected via [{_strike_method}] method | {direction} {int(final_strike)} premium=₹{premium:.1f}")
 
         # ── Idempotent gate ───────────────────────────────────────────────
         # Unique key = direction + strike + date + minute
