@@ -262,9 +262,11 @@ class SurvivorAlgo(BaseStrategy):
                 if reason != self._last_block_reason:
                     self._last_block_reason = reason
                     logger.info(f"[survivor] Trading blocked: {reason}")
-                    if "daily loss" in reason.lower() or "halted" in reason.lower():
+                    if "daily loss" in reason.lower():
                         await self._close_all_positions(reason="LOSS_LIMIT")
                         await self.stop(reason="MAX_DAILY_LOSS")
+                    elif "circuit breaker" in reason.lower() or "halted" in reason.lower():
+                        await self.stop(reason="API_CIRCUIT_BREAKER")
                     elif "auto-stop" in reason.lower():
                         await self._close_all_positions(reason="EOD")
                         await self.stop(reason="AUTO_STOP")
