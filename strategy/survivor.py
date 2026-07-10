@@ -314,12 +314,16 @@ class SurvivorAlgo(BaseStrategy):
                 # ── TRIGGER 1: Movement-based ─────────────────────────────
                 # PE SELL — Nifty moved up enough from last PE anchor
                 if nifty_price - self._pe_last_value >= current_pe_gap and not self._pe_sold_flag and _open_pe == 0:
-                    await self._sell_option(
-                        direction="PE",
-                        nifty_price=nifty_price,
-                        gap=pe_symbol_gap,
-                        quantity=self.cfg.pe_quantity,
-                    )
+                    _adj_qty = self._get_vix_adjusted_quantity(self.cfg.pe_quantity)
+                    if _adj_qty == 0:
+                        self._signal(f"⚠ VIX HIGH — PE trade skipped (qty=0 risk gate)")
+                    else:
+                        await self._sell_option(
+                            direction="PE",
+                            nifty_price=nifty_price,
+                            gap=pe_symbol_gap,
+                            quantity=_adj_qty,
+                        )
                     self._pe_last_value = nifty_price
                     self._pe_sold_flag  = True
                     self._time_based_pe_fired = True  # block time trigger same side
@@ -327,12 +331,16 @@ class SurvivorAlgo(BaseStrategy):
 
                 # CE SELL — Nifty moved down enough from last CE anchor
                 elif self._ce_last_value - nifty_price >= current_ce_gap and not self._ce_sold_flag and _open_ce == 0:
-                    await self._sell_option(
-                        direction="CE",
-                        nifty_price=nifty_price,
-                        gap=ce_symbol_gap,
-                        quantity=self.cfg.ce_quantity,
-                    )
+                    _adj_qty = self._get_vix_adjusted_quantity(self.cfg.ce_quantity)
+                    if _adj_qty == 0:
+                        self._signal(f"⚠ VIX HIGH — CE trade skipped (qty=0 risk gate)")
+                    else:
+                        await self._sell_option(
+                            direction="CE",
+                            nifty_price=nifty_price,
+                            gap=ce_symbol_gap,
+                            quantity=_adj_qty,
+                        )
                     self._ce_last_value = nifty_price
                     self._ce_sold_flag  = True
                     self._time_based_ce_fired = True  # block time trigger same side
@@ -435,6 +443,52 @@ class SurvivorAlgo(BaseStrategy):
         except Exception as e:
             logger.warning(f"[survivor] Delta selection failed (non-blocking): {e} — falling back to premium method")
             return None
+
+    def _get_vix_adjusted_quantity(self, base_qty: int) -> int:
+        """
+        Scale position size based on current VIX regime.
+        VERY_LOW (<12)  : 2 lots (130) — low vol, more aggressive
+        NORMAL   (12-16): 1 lot  (65)  — standard
+        ELEVATED (16-20): 1 lot  (65)  — gap widens, size holds
+        HIGH     (20-25): 0 lots       — skip trade (extra risk gate)
+        EXTREME  (25+)  : 0 lots       — halted anyway
+        Returns 0 to signal caller to skip the trade.
+        """
+        try:
+            vix = vix_manager.current_vix
+            regime = vix_manager.get_params()
+            regime_name = "UNKNOWN"
+            # Derive regime name from VIX thresholds
+            if vix < 12:
+                regime_name = "VERY_LOW"
+            elif vix < 16:
+                regime_name = "NORMAL"
+            elif vix < 20:
+                regime_name = "ELEVATED"
+            elif vix < 25:
+                regime_name = "HIGH"
+            else:
+                regime_name = "EXTREME"
+
+            LOT = 65  # Nifty lot size
+            multipliers = {
+                "VERY_LOW": 2,
+                "NORMAL":   1,
+                "ELEVATED": 1,
+                "HIGH":     0,
+                "EXTREME":  0,
+            }
+            lots = multipliers.get(regime_name, 1)
+            adjusted = lots * LOT
+            if adjusted != base_qty:
+                logger.info(
+                    f"[survivor] VIX-adjusted qty: {base_qty} -> {adjusted} "
+                    f"| VIX={vix:.1f} | Regime={regime_name} | lots={lots}"
+                )
+            return adjusted
+        except Exception as e:
+            logger.warning(f"[survivor] VIX qty adjustment failed: {e} — using base qty {base_qty}")
+            return base_qty
 
     async def _sell_option(
         self,
@@ -1627,12 +1681,16 @@ class SurvivorAlgo(BaseStrategy):
                 f"⏰ TIME TRIGGER: PE sell | PCR={pcr:.2f} | "
                 f"Nifty={nifty_price:.2f} | window=9:45-11:30"
             )
-            await self._sell_option(
-                direction="PE",
-                nifty_price=nifty_price,
-                gap=pe_symbol_gap,
-                quantity=self.cfg.pe_quantity,
-            )
+            _adj_qty = self._get_vix_adjusted_quantity(self.cfg.pe_quantity)
+            if _adj_qty == 0:
+                self._signal(f"⚠ VIX HIGH — TIME TRIGGER PE skipped (qty=0 risk gate)")
+            else:
+                await self._sell_option(
+                    direction="PE",
+                    nifty_price=nifty_price,
+                    gap=pe_symbol_gap,
+                    quantity=_adj_qty,
+                )
             self._time_based_pe_fired = True
             self._update_position(Direction.SHORT)
             return  # one trigger per tick max
@@ -1648,12 +1706,16 @@ class SurvivorAlgo(BaseStrategy):
                 f"⏰ TIME TRIGGER: CE sell | PCR={pcr:.2f} | "
                 f"Nifty={nifty_price:.2f} | window=9:45-11:30"
             )
-            await self._sell_option(
-                direction="CE",
-                nifty_price=nifty_price,
-                gap=ce_symbol_gap,
-                quantity=self.cfg.ce_quantity,
-            )
+            _adj_qty = self._get_vix_adjusted_quantity(self.cfg.ce_quantity)
+            if _adj_qty == 0:
+                self._signal(f"⚠ VIX HIGH — TIME TRIGGER CE skipped (qty=0 risk gate)")
+            else:
+                await self._sell_option(
+                    direction="CE",
+                    nifty_price=nifty_price,
+                    gap=ce_symbol_gap,
+                    quantity=_adj_qty,
+                )
             self._time_based_ce_fired = True
             self._update_position(Direction.SHORT)
 
