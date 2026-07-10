@@ -201,9 +201,11 @@ class WaveExtractor(BaseStrategy):
                 if reason != self._last_block_reason:
                     self._last_block_reason = reason
                     logger.info(f"[wave_extractor] Trading blocked: {reason}")
-                    if "daily loss" in reason.lower() or "halted" in reason.lower():
+                    if "daily loss" in reason.lower():
                         await self._close_all_positions()
                         await self.stop(reason="MAX_DAILY_LOSS")
+                    elif "circuit breaker" in reason.lower() or "halted" in reason.lower():
+                        await self.stop(reason="API_CIRCUIT_BREAKER")
                     elif "auto-stop" in reason.lower():
                         await self._close_all_positions()
                         await self.stop(reason="AUTO_STOP")
