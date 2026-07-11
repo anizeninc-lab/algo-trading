@@ -1143,6 +1143,136 @@ function ExecutionLog({ trades }) {
   )
 }
 
+
+function AnalyticsPanel() {
+  const [data, setData] = React.useState(null)
+  const [period, setPeriod] = React.useState("daily")
+  const [mode, setMode] = React.useState("live") // live or paper
+
+  React.useEffect(() => {
+    axios.get(`${API}/api/trades/analytics`).then(r => setData(r.data)).catch(() => {})
+    const id = setInterval(() => {
+      axios.get(`${API}/api/trades/analytics`).then(r => setData(r.data)).catch(() => {})
+    }, 60000)
+    return () => clearInterval(id)
+  }, [])
+
+  if (!data) return null
+
+  const periodData = data[period] || []
+  const maxAbs = Math.max(...periodData.map(d => Math.abs(d.pnl)), 1)
+
+  const liveStrategies  = data.strategy_breakdown.filter(s => s.paper_trade === 0)
+  const paperStrategies = data.strategy_breakdown.filter(s => s.paper_trade === 1)
+  const strategies = mode === "live" ? liveStrategies : paperStrategies
+
+  const periodLabel = { daily: "DAY", weekly: "WEEK", monthly: "MONTH" }
+  const periodKey   = { daily: "day", weekly: "week", monthly: "month" }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+      {/* Strategy Breakdown */}
+      <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>STRATEGY BREAKDOWN</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {["live","paper"].map(m => (
+              <button key={m} onClick={() => setMode(m)} style={{
+                fontSize: 9, fontWeight: 700, padding: "3px 10px", borderRadius: 4, cursor: "pointer", letterSpacing: 1,
+                background: mode === m ? C.cyan + "30" : "transparent",
+                color: mode === m ? C.cyan : C.muted,
+                border: `1px solid ${mode === m ? C.cyan : C.border}`
+              }}>{m.toUpperCase()}</button>
+            ))}
+          </div>
+        </div>
+        {strategies.length === 0 ? (
+          <div style={{ color: C.muted, textAlign: "center", padding: "12px 0", fontSize: 12 }}>No {mode} trades yet</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {strategies.map(s => {
+              const wr = s.total > 0 ? ((s.winners / s.total) * 100).toFixed(0) : 0
+              return (
+                <div key={s.strategy + s.paper_trade} style={{ background: C.card, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.cyan, letterSpacing: 1 }}>{s.strategy.toUpperCase()}</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: pnlC(s.total_pnl), fontFamily: "monospace" }}>{fmtRs(s.total_pnl)}</div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
+                    {[
+                      { l: "TRADES", v: s.total,    c: C.text },
+                      { l: "WIN %",  v: `${wr}%`,   c: Number(wr) >= 50 ? C.green : C.red },
+                      { l: "AVG",    v: fmtRs(s.avg_pnl), c: pnlC(s.avg_pnl) },
+                      { l: "BEST",   v: fmtRs(s.best),    c: C.green },
+                      { l: "WORST",  v: fmtRs(s.worst),   c: C.red },
+                    ].map(({ l, v, c }) => (
+                      <div key={l}>
+                        <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>{l}</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: c, fontFamily: "monospace" }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Period P&L Chart */}
+      <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>P&L BY {periodLabel[period]}</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {["daily","weekly","monthly"].map(p => (
+              <button key={p} onClick={() => setPeriod(p)} style={{
+                fontSize: 9, fontWeight: 700, padding: "3px 10px", borderRadius: 4, cursor: "pointer", letterSpacing: 1,
+                background: period === p ? C.accent + "30" : "transparent",
+                color: period === p ? C.accent : C.muted,
+                border: `1px solid ${period === p ? C.accent : C.border}`
+              }}>{p.toUpperCase()}</button>
+            ))}
+          </div>
+        </div>
+        {periodData.length === 0 ? (
+          <div style={{ color: C.muted, textAlign: "center", padding: "16px 0", fontSize: 12 }}>No live trades in this period</div>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 100, marginBottom: 8 }}>
+              {periodData.map(d => {
+                const h = Math.max(4, (Math.abs(d.pnl) / maxAbs) * 85)
+                const col = d.pnl >= 0 ? C.green : C.red
+                const key = periodKey[period]
+                const label = d[key] ? d[key].slice(-5).replace("-W", "W") : ""
+                return (
+                  <div key={d[key]} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                    <div style={{ fontSize: 8, color: col, fontWeight: 700, fontFamily: "monospace" }}>{d.pnl >= 0 ? "+" : ""}{d.pnl.toFixed(0)}</div>
+                    <div style={{ width: "100%", height: h, background: col + "50", borderRadius: 3, border: `1px solid ${col}60` }} />
+                    <div style={{ fontSize: 7, color: C.muted }}>{label}</div>
+                  </div>
+                )
+              })}
+            </div>
+            <div style={{ display: "flex", gap: 16, justifyContent: "center" }}>
+              {[
+                { l: "TOTAL P&L", v: fmtRs(periodData.reduce((s,d) => s+d.pnl, 0)), c: pnlC(periodData.reduce((s,d) => s+d.pnl, 0)) },
+                { l: "TRADES",    v: periodData.reduce((s,d) => s+d.trades, 0),       c: C.text },
+                { l: "WIN PERIODS", v: `${periodData.filter(d => d.pnl > 0).length}/${periodData.length}`, c: C.cyan },
+              ].map(({ l, v, c }) => (
+                <div key={l} style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>{l}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: c, fontFamily: "monospace" }}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function PerformancePanel({ trades }) {
   const closed = trades.filter(t => t.status === "CLOSED")
   const [perf, setPerf] = useState(null)
