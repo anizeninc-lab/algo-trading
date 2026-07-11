@@ -448,8 +448,9 @@ class UpstoxAdapter(AbstractBrokerGateway):
                     from datetime import time as dtime
                     now = datetime.now(pytz.timezone("Asia/Kolkata"))
                     market_open = dtime(9, 15) <= now.time() <= dtime(15, 15)
+                    is_weekday = now.weekday() < 5
                     uptime = _time.time() - self._start_time
-                    if market_open and uptime > 90:
+                    if market_open and is_weekday and uptime > 90:
                         from core.alerting import alert_websocket_down
                         alert_websocket_down(msg)
                 except Exception:
