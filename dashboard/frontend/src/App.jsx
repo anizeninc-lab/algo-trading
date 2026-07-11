@@ -1160,7 +1160,7 @@ function AnalyticsPanel() {
   if (!data) return null
 
   const periodData = data[period] || []
-  const maxAbs = Math.max(...periodData.map(d => Math.abs(d.pnl)), 1)
+  const maxAbs = Math.max(...periodData.map(d => Math.abs(d.pnl || 0)), 1)
 
   const liveStrategies  = data.strategy_breakdown.filter(s => s.paper_trade === 0)
   const paperStrategies = data.strategy_breakdown.filter(s => s.paper_trade === 1)
@@ -1170,7 +1170,7 @@ function AnalyticsPanel() {
   const periodKey   = { daily: "day", weekly: "week", monthly: "month" }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, position: "relative", zIndex: 10 }}>
 
       {/* Strategy Breakdown */}
       <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
@@ -1178,7 +1178,7 @@ function AnalyticsPanel() {
           <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>STRATEGY BREAKDOWN</div>
           <div style={{ display: "flex", gap: 6 }}>
             {["live","paper"].map(m => (
-              <button key={m} onClick={() => setMode(m)} style={{
+              <button type="button" key={m} onClick={() => setMode(m)} style={{
                 fontSize: 9, fontWeight: 700, padding: "3px 10px", borderRadius: 4, cursor: "pointer", letterSpacing: 1,
                 background: mode === m ? C.cyan + "30" : "transparent",
                 color: mode === m ? C.cyan : C.muted,
@@ -1224,9 +1224,9 @@ function AnalyticsPanel() {
       <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>P&L BY {periodLabel[period]}</div>
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", gap: 6, position: "relative", zIndex: 20 }}>
             {["daily","weekly","monthly"].map(p => (
-              <button key={p} onClick={() => setPeriod(p)} style={{
+              <button type="button" key={p} onClick={() => setPeriod(p)} style={{
                 fontSize: 9, fontWeight: 700, padding: "3px 10px", borderRadius: 4, cursor: "pointer", letterSpacing: 1,
                 background: period === p ? C.accent + "30" : "transparent",
                 color: period === p ? C.accent : C.muted,
@@ -1239,26 +1239,39 @@ function AnalyticsPanel() {
           <div style={{ color: C.muted, textAlign: "center", padding: "16px 0", fontSize: 12 }}>No live trades in this period</div>
         ) : (
           <>
-            <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 100, marginBottom: 8 }}>
-              {periodData.map(d => {
-                const h = Math.max(4, (Math.abs(d.pnl) / maxAbs) * 85)
-                const col = d.pnl >= 0 ? C.green : C.red
-                const key = periodKey[period]
-                const label = d[key] ? d[key].slice(-5).replace("-W", "W") : ""
+            <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 120, marginBottom: 8, overflow: "hidden" }}>
+              {periodData.map((d, i) => {
+                const pnlVal = period === "daily" ? (d.pnl || 0) : (d.pnl || 0)
+                const h = Math.max(4, (Math.abs(pnlVal) / maxAbs) * 100)
+                const col = pnlVal >= 0 ? C.green : C.red
+                const label = period === "daily"
+                  ? (d.exit_time ? d.exit_time.slice(5,10) : "")
+                  : period === "weekly"
+                  ? (d.day ? d.day.slice(5) : "")
+                  : (d.week ? d.week.replace("2026-W","W") : "")
+                const tooltip = period === "daily"
+                  ? `${d.symbol || ""} ${d.order_type || ""}`
+                  : ""
                 return (
-                  <div key={d[key]} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                    <div style={{ fontSize: 8, color: col, fontWeight: 700, fontFamily: "monospace" }}>{d.pnl >= 0 ? "+" : ""}{d.pnl.toFixed(0)}</div>
-                    <div style={{ width: "100%", height: h, background: col + "50", borderRadius: 3, border: `1px solid ${col}60` }} />
-                    <div style={{ fontSize: 7, color: C.muted }}>{label}</div>
+                  <div key={i} title={tooltip} style={{ flex: 1, minWidth: 8, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                    <div style={{ fontSize: 7, color: col, fontWeight: 700, fontFamily: "monospace", whiteSpace: "nowrap" }}>{pnlVal >= 0 ? "+" : ""}{pnlVal.toFixed(0)}</div>
+                    <div style={{ width: "100%", height: h, background: col + "60", borderRadius: 2, border: `1px solid ${col}80` }} />
+                    <div style={{ fontSize: 6, color: C.muted, whiteSpace: "nowrap" }}>{label}</div>
                   </div>
                 )
               })}
             </div>
-            <div style={{ display: "flex", gap: 16, justifyContent: "center" }}>
+            <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 4 }}>
               {[
-                { l: "TOTAL P&L", v: fmtRs(periodData.reduce((s,d) => s+d.pnl, 0)), c: pnlC(periodData.reduce((s,d) => s+d.pnl, 0)) },
-                { l: "TRADES",    v: periodData.reduce((s,d) => s+d.trades, 0),       c: C.text },
-                { l: "WIN PERIODS", v: `${periodData.filter(d => d.pnl > 0).length}/${periodData.length}`, c: C.cyan },
+                { l: "TOTAL P&L", v: fmtRs(periodData.reduce((s,d) => s+(d.pnl||0), 0)), c: pnlC(periodData.reduce((s,d) => s+(d.pnl||0), 0)) },
+                { l: period === "daily" ? "TRADES" : "TRADING DAYS",
+                  v: period === "daily" ? periodData.length : periodData.reduce((s,d) => s+(d.trades||0), 0),
+                  c: C.text },
+                { l: period === "daily" ? "WINNERS" : "WIN DAYS",
+                  v: period === "daily"
+                    ? `${periodData.filter(d => (d.pnl||0) > 0).length}/${periodData.length}`
+                    : `${periodData.filter(d => (d.pnl||0) > 0).length}/${periodData.length}`,
+                  c: C.cyan },
               ].map(({ l, v, c }) => (
                 <div key={l} style={{ textAlign: "center" }}>
                   <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>{l}</div>
@@ -1366,6 +1379,7 @@ function PerformancePanel({ trades }) {
           </div>
         )}
       </div>
+      <AnalyticsPanel />
     </div>
   )
 }
