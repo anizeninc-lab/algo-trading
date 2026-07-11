@@ -487,6 +487,69 @@ async def get_trades_performance():
 broker_ref = None
 combo_ref  = None   # reference to SaviourCombo instance for kill switch
 
+
+@app.get("/api/trades/analytics")
+async def get_trades_analytics():
+    """Strategy-wise breakdown + daily/weekly/monthly P&L buckets."""
+    import sqlite3, os, pytz
+    IST = pytz.timezone("Asia/Kolkata")
+    db_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "trade_log.db"))
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        # Strategy breakdown
+        cur.execute("""
+            SELECT strategy, paper_trade,
+                COUNT(*) as total,
+                SUM(CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END) as winners,
+                SUM(CASE WHEN realised_pnl < 0 THEN 1 ELSE 0 END) as losers,
+                ROUND(SUM(realised_pnl),2) as total_pnl,
+                ROUND(AVG(realised_pnl),2) as avg_pnl,
+                ROUND(MAX(realised_pnl),2) as best,
+                ROUND(MIN(realised_pnl),2) as worst
+            FROM trades WHERE status='CLOSED'
+            GROUP BY strategy, paper_trade ORDER BY paper_trade ASC, total_pnl DESC
+        """)
+        strategy_rows = [dict(r) for r in cur.fetchall()]
+        # Daily (last 30 days, live only)
+        cur.execute("""
+            SELECT DATE(exit_time) as day,
+                ROUND(SUM(realised_pnl),2) as pnl,
+                COUNT(*) as trades,
+                SUM(CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END) as winners
+            FROM trades WHERE status='CLOSED' AND paper_trade=0
+            AND exit_time >= DATE('now','-30 days')
+            GROUP BY DATE(exit_time) ORDER BY day ASC
+        """)
+        daily = [dict(r) for r in cur.fetchall()]
+        # Weekly (last 12 weeks, live only)
+        cur.execute("""
+            SELECT STRFTIME('%Y-W%W', exit_time) as week,
+                ROUND(SUM(realised_pnl),2) as pnl,
+                COUNT(*) as trades,
+                SUM(CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END) as winners
+            FROM trades WHERE status='CLOSED' AND paper_trade=0
+            AND exit_time >= DATE('now','-84 days')
+            GROUP BY STRFTIME('%Y-W%W', exit_time) ORDER BY week ASC
+        """)
+        weekly = [dict(r) for r in cur.fetchall()]
+        # Monthly (last 6 months, live only)
+        cur.execute("""
+            SELECT STRFTIME('%Y-%m', exit_time) as month,
+                ROUND(SUM(realised_pnl),2) as pnl,
+                COUNT(*) as trades,
+                SUM(CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END) as winners
+            FROM trades WHERE status='CLOSED' AND paper_trade=0
+            AND exit_time >= DATE('now','-180 days')
+            GROUP BY STRFTIME('%Y-%m', exit_time) ORDER BY month ASC
+        """)
+        monthly = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return {"strategy_breakdown": strategy_rows, "daily": daily, "weekly": weekly, "monthly": monthly}
+    except Exception as e:
+        return {"error": str(e), "strategy_breakdown": [], "daily": [], "weekly": [], "monthly": []}
+
 @app.get("/api/funds")
 async def get_funds():
     """Get live account balance from Upstox."""
