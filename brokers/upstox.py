@@ -524,8 +524,14 @@ class UpstoxAdapter(AbstractBrokerGateway):
                         logger.warning(f"[heartbeat] No ticks for {elapsed:.0f}s — failure #{_fail_count}")
                         if _fail_count == 3:
                             try:
-                                from core.alerting import alert_websocket_down
-                                alert_websocket_down(f"No ticks for {elapsed:.0f}s — 3 consecutive failures")
+                                import pytz as _ptz
+                                from datetime import time as _dtime
+                                _now = datetime.now(_ptz.timezone("Asia/Kolkata"))
+                                _mkt_open = _dtime(9, 15) <= _now.time() <= _dtime(15, 15)
+                                _is_weekday = _now.weekday() < 5
+                                if _mkt_open and _is_weekday:
+                                    from core.alerting import alert_websocket_down
+                                    alert_websocket_down(f"No ticks for {elapsed:.0f}s — 3 consecutive failures")
                             except Exception:
                                 pass
                         if _fail_count >= 5:
