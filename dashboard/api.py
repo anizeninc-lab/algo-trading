@@ -512,37 +512,45 @@ async def get_trades_analytics():
             GROUP BY strategy, paper_trade ORDER BY paper_trade ASC, total_pnl DESC
         """)
         strategy_rows = [dict(r) for r in cur.fetchall()]
-        # Daily (last 30 days, live only)
+        # Daily = individual trades (last 30 days, live only)
+        cur.execute("""
+            SELECT
+                id,
+                strategy,
+                symbol,
+                order_type,
+                quantity,
+                ROUND(entry_price,2) as entry_price,
+                ROUND(exit_price,2) as exit_price,
+                ROUND(realised_pnl,2) as pnl,
+                entry_time,
+                exit_time,
+                CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END as winner
+            FROM trades WHERE status='CLOSED' AND paper_trade=0
+            AND exit_time >= DATE('now','-30 days')
+            ORDER BY exit_time ASC
+        """)
+        daily = [dict(r) for r in cur.fetchall()]
+        # Weekly = daily aggregates (last 12 weeks, live only)
         cur.execute("""
             SELECT DATE(exit_time) as day,
                 ROUND(SUM(realised_pnl),2) as pnl,
                 COUNT(*) as trades,
                 SUM(CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END) as winners
             FROM trades WHERE status='CLOSED' AND paper_trade=0
-            AND exit_time >= DATE('now','-30 days')
+            AND exit_time >= DATE('now','-84 days')
             GROUP BY DATE(exit_time) ORDER BY day ASC
         """)
-        daily = [dict(r) for r in cur.fetchall()]
-        # Weekly (last 12 weeks, live only)
+        weekly = [dict(r) for r in cur.fetchall()]
+        # Monthly = weekly aggregates (last 6 months, live only)
         cur.execute("""
             SELECT STRFTIME('%Y-W%W', exit_time) as week,
                 ROUND(SUM(realised_pnl),2) as pnl,
                 COUNT(*) as trades,
                 SUM(CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END) as winners
             FROM trades WHERE status='CLOSED' AND paper_trade=0
-            AND exit_time >= DATE('now','-84 days')
-            GROUP BY STRFTIME('%Y-W%W', exit_time) ORDER BY week ASC
-        """)
-        weekly = [dict(r) for r in cur.fetchall()]
-        # Monthly (last 6 months, live only)
-        cur.execute("""
-            SELECT STRFTIME('%Y-%m', exit_time) as month,
-                ROUND(SUM(realised_pnl),2) as pnl,
-                COUNT(*) as trades,
-                SUM(CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END) as winners
-            FROM trades WHERE status='CLOSED' AND paper_trade=0
             AND exit_time >= DATE('now','-180 days')
-            GROUP BY STRFTIME('%Y-%m', exit_time) ORDER BY month ASC
+            GROUP BY STRFTIME('%Y-W%W', exit_time) ORDER BY week ASC
         """)
         monthly = [dict(r) for r in cur.fetchall()]
         conn.close()
