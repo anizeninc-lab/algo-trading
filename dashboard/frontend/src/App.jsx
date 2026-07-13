@@ -907,7 +907,7 @@ function TradeLedger({ trades }) {
                     <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10 }}>{fmtTime(t.exit_time)}</td>
                     <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace" }}>{fmtRs(t.exit_price)}</td>
                     <td style={{ padding: "8px 12px", color: C.orange, fontFamily: "monospace" }}>{fmtRs(premium)}</td>
-                    <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10 }}>{t.notes ? t.notes.replace(/_/g," ") : "—"}</td>
+                    <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10, whiteSpace: "nowrap" }}>{t.notes ? t.notes.replace(/_/g," ") : "—"}</td>
                     <td style={{ padding: "8px 12px", color: pnlC(t.realised_pnl), fontFamily: "monospace", fontWeight: 700 }}>{premium > 0 ? ((t.realised_pnl||0)/premium*100).toFixed(1)+"%" : "—"}</td>
                     <td style={{ padding: "8px 12px" }}><Pill label={t.status} colour={statusCol} size={9} /></td>
                     <td style={{ padding: "8px 12px", fontWeight: 700, color: pnlC(t.realised_pnl), fontFamily: "monospace" }}>{fmtRs(t.realised_pnl)}</td>
