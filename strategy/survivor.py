@@ -166,17 +166,38 @@ class SurvivorAlgo(BaseStrategy):
                 if new_regime in ("trending_bull", "trending_bear") and self._open_trades_data:
                     logger.warning(
                         f"[survivor] Regime flipped {old_regime} → {new_regime} "
-                        f"with {len(self._open_trades_data)} open trades — closing all"
+                        f"— starting 60s confirmation timer before exit"
                     )
-                    self._signal(f"⚠ REGIME CHANGE: {old_regime} → {new_regime} — closing all positions")
-                    loop = self._loop
-                    if loop and loop.is_running():
-                        import asyncio as _asyncio
-                        _asyncio.run_coroutine_threadsafe(
-                            self._close_all_positions(reason="REGIME_CHANGE"), loop
-                        )
-                    self._pe_sold_flag      = False
-                    self._ce_sold_flag      = False
+                    self._signal(f"⚠ REGIME CHANGE: {old_regime} → {new_regime} — waiting 60s to confirm")
+                    import threading, time as _time
+                    def _confirm_and_exit():
+                        _time.sleep(60)
+                        try:
+                            from core.market_context import market_context as _mc
+                            current = _mc._regime
+                        except Exception:
+                            current = new_regime
+                        if current == new_regime and self._open_trades_data:
+                            logger.warning(
+                                f"[survivor] Regime {new_regime} confirmed after 60s "
+                                f"— closing {len(self._open_trades_data)} trades"
+                            )
+                            self._signal(f"⚠ REGIME CHANGE CONFIRMED: {old_regime} → {new_regime} — closing all")
+                            loop = self._loop
+                            if loop and loop.is_running():
+                                import asyncio as _asyncio
+                                _asyncio.run_coroutine_threadsafe(
+                                    self._close_all_positions(reason="REGIME_CHANGE"), loop
+                                )
+                            self._pe_sold_flag = False
+                            self._ce_sold_flag = False
+                        else:
+                            logger.info(
+                                f"[survivor] Regime reverted from {new_regime} within 60s "
+                                f"— staying in trades (current={current})"
+                            )
+                            self._signal(f"✅ Regime reverted {new_regime} → {current} — trades kept open")
+                    threading.Thread(target=_confirm_and_exit, daemon=True).start()
             market_context.register_regime_callback(_on_regime_change)
             logger.info("[survivor] Regime change callback registered")
         except Exception as e:
