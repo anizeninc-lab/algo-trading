@@ -543,7 +543,7 @@ class RiskManager:
                     with _sq.connect(_tl2.db_path) as _conn:
                         _row = _conn.execute(
                             "SELECT SUM(realised_pnl) as total FROM trades "
-                            "WHERE status='CLOSED' AND DATE(exit_time)=? AND paper_trade=0",
+                            "WHERE status='CLOSED' AND DATE(exit_time)=?",
                             (_today,)
                         ).fetchone()
                     _today_pnl = _row[0] if _row and _row[0] is not None else 0.0
