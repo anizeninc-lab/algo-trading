@@ -22,11 +22,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class WaveConfig:
     option_symbol:        str   = ""
-    sell_gap:             float = 20.0
-    buy_gap:              float = 20.0
+    sell_gap:             float = 15.0
+    buy_gap:              float = 15.0
     quantity:             int   = 65
     cool_off_time:        float = 5.0
-    order_timeout:        float = 60.0  # seconds before unfilled bracket is cancelled
+    order_timeout:        float = 120.0  # seconds before unfilled bracket is cancelled
     multiplier_scale:     list  = field(default_factory=lambda: [1.0, 1.3, 1.7, 2.2, 2.8])
     max_net_position:     int   = 2
     delta_limit:          float = 200.0
