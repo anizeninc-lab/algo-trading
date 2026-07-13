@@ -69,7 +69,25 @@ class StateStore:
     # --- Strategy State -------------------------------------------------------
 
     def register_strategy(self, name: str, broker: str = "") -> None:
-        self._states[name] = StrategyStatus(name=name, broker=broker)
+        # Seed today's realised P&L from DB so daily loss limit survives restarts
+        seeded_pnl = 0.0
+        try:
+            import sqlite3 as _sq, pytz as _pytz
+            from datetime import datetime as _dt
+            from core.trade_log import trade_logger as _tl
+            _today = _dt.now(_pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d")
+            with _sq.connect(_tl.db_path) as _conn:
+                _row = _conn.execute(
+                    "SELECT SUM(realised_pnl) FROM trades "
+                    "WHERE strategy=? AND status='CLOSED' AND DATE(exit_time)=?",
+                    (name, _today)
+                ).fetchone()
+            seeded_pnl = float(_row[0]) if _row and _row[0] is not None else 0.0
+            if seeded_pnl != 0.0:
+                logger.info(f"StateStore: seeded today P&L for '{name}': ₹{seeded_pnl:.2f}")
+        except Exception as _e:
+            logger.warning(f"StateStore: could not seed P&L for '{name}': {_e}")
+        self._states[name] = StrategyStatus(name=name, broker=broker, realised_pnl=seeded_pnl)
         logger.info(f"StateStore: registered strategy '{name}'")
 
     def get_strategy(self, name: str) -> Optional[StrategyStatus]:
