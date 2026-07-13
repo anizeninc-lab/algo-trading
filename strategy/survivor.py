@@ -1014,8 +1014,9 @@ class SurvivorAlgo(BaseStrategy):
             )
             # Ensure strike is reasonable (not full symbol number)
             clean_strike = int(strike) if strike < 100000 else int(str(int(strike))[-5:])
+            _underlying = "BANKNIFTY" if self.cfg.expiry_weekday == 2 else "NIFTY"
             ikey = find_symbol_from_instruments(
-                self._instruments, expiry, clean_strike, direction
+                self._instruments, expiry, clean_strike, direction, underlying=_underlying
             )
             if ikey:
                 self._ikey_cache[symbol] = ikey
