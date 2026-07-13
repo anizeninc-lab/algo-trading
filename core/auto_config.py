@@ -113,13 +113,15 @@ def fetch_instruments() -> list:
         return []
 
 
-def find_symbol_from_instruments(instruments: list, expiry: date, strike: int, option_type: str) -> str:
+def find_symbol_from_instruments(instruments: list, expiry: date, strike: int, option_type: str, underlying: str = "NIFTY") -> str:
     """Find instrument key from downloaded instruments list."""
     expiry_str = expiry.strftime("%Y-%m-%d")
+    is_banknifty = underlying.upper() == "BANKNIFTY"
 
     # Try exact strike first, then nearby
     strikes_to_try = [strike]
-    for offset in [50, 100, 150, 200, 250]:
+    offsets = [100, 200, 300, 400, 500] if is_banknifty else [50, 100, 150, 200, 250]
+    for offset in offsets:
         strikes_to_try.append(strike + offset)
         strikes_to_try.append(strike - offset)
 
@@ -128,17 +130,26 @@ def find_symbol_from_instruments(instruments: list, expiry: date, strike: int, o
             name = row.get("tradingsymbol", "")
             ikey = row.get("instrument_key", "")
             exp  = row.get("expiry", "")
-            if (
-                "NIFTY" in name
-                and "BANKNIFTY" not in name
-                and "FINNIFTY" not in name
-                and "MIDCPNIFTY" not in name
-                and "NIFTYNXT" not in name
-                and exp == expiry_str
-                and name.endswith(f"{s}{option_type}")
-            ):
-                logger.info(f"[AutoConfig] Found {option_type}: {ikey} | {name} | expiry: {exp}")
-                return ikey
+            if is_banknifty:
+                if (
+                    "BANKNIFTY" in name
+                    and exp == expiry_str
+                    and name.endswith(f"{s}{option_type}")
+                ):
+                    logger.info(f"[AutoConfig] Found {option_type}: {ikey} | {name} | expiry: {exp}")
+                    return ikey
+            else:
+                if (
+                    "NIFTY" in name
+                    and "BANKNIFTY" not in name
+                    and "FINNIFTY" not in name
+                    and "MIDCPNIFTY" not in name
+                    and "NIFTYNXT" not in name
+                    and exp == expiry_str
+                    and name.endswith(f"{s}{option_type}")
+                ):
+                    logger.info(f"[AutoConfig] Found {option_type}: {ikey} | {name} | expiry: {exp}")
+                    return ikey
 
     return ""
 
