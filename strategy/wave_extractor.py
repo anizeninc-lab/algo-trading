@@ -463,7 +463,7 @@ class WaveExtractor(BaseStrategy):
         self._buy_price  = buy_price
 
         from core.market_context import market_context as _mc
-        _regime = getattr(_mc, "current_regime", "unknown") if _mc else "unknown"
+        _regime = getattr(_mc, "regime", "unknown") if _mc else "unknown"
         self._signal(
             f"Bracket placed | spot={self._current_price:.1f} | "
             f"SELL={sell_price} (+{self.cfg.sell_gap}) | BUY={buy_price} (-{self.cfg.buy_gap}) | "
