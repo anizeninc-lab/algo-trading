@@ -171,7 +171,7 @@ class SurvivorAlgo(BaseStrategy):
                     self._signal(f"⚠ REGIME CHANGE: {old_regime} → {new_regime} — waiting 60s to confirm")
                     import threading, time as _time
                     def _confirm_and_exit():
-                        _time.sleep(60)
+                        _time.sleep(90)
                         try:
                             from core.market_context import market_context as _mc
                             current = _mc._regime
@@ -179,7 +179,7 @@ class SurvivorAlgo(BaseStrategy):
                             current = new_regime
                         if current == new_regime and self._open_trades_data:
                             logger.warning(
-                                f"[survivor] Regime {new_regime} confirmed after 60s "
+                                f"[survivor] Regime {new_regime} confirmed after 90s "
                                 f"— closing {len(self._open_trades_data)} trades"
                             )
                             self._signal(f"⚠ REGIME CHANGE CONFIRMED: {old_regime} → {new_regime} — closing all")
@@ -193,7 +193,7 @@ class SurvivorAlgo(BaseStrategy):
                             self._ce_sold_flag = False
                         else:
                             logger.info(
-                                f"[survivor] Regime reverted from {new_regime} within 60s "
+                                f"[survivor] Regime reverted from {new_regime} within 90s "
                                 f"— staying in trades (current={current})"
                             )
                             self._signal(f"✅ Regime reverted {new_regime} → {current} — trades kept open")
