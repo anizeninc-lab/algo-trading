@@ -815,16 +815,16 @@ function TradeLedger({ trades }) {
   const [selected, setSelected] = useState(null)
   const [filter, setFilter] = useState("ALL")
   const filtered = trades.filter(t => filter === "ALL" ? true : t.status === filter)
-  const cols = ["TRADE ID", "STRATEGY", "INSTRUMENT", "DIR", "QTY", "ENTRY TIME", "ENTRY ₹", "EXIT TIME", "EXIT ₹", "PREMIUM", "CAP USED", "% RETURN", "STATUS", "P&L"]
+  const cols = ["TRADE ID", "STRATEGY", "INSTRUMENT", "DIR", "ENTRY TIME", "ENTRY ₹", "EXIT TIME", "EXIT ₹", "PREMIUM", "% RETURN", "EXIT REASON", "STATUS", "P&L"]
 
   const exportCSV = () => {
     const rows = [cols.join(",")]
     trades.forEach(t => {
       const premium = (t.entry_price || 0) * (t.quantity || 0)
       rows.push([
-        t.id, t.strategy, t.symbol, t.order_type, t.quantity,
+        t.id, t.strategy, t.symbol, t.order_type,
         t.entry_time, t.entry_price, t.exit_time, t.exit_price,
-        premium.toFixed(2), 40000, premium > 0 ? ((t.realised_pnl||0)/premium*100).toFixed(1)+"%" : "0%", t.status, t.realised_pnl
+        premium.toFixed(2), premium > 0 ? ((t.realised_pnl||0)/premium*100).toFixed(1)+"%" : "0%", t.notes||"", t.status, t.realised_pnl
       ].join(","))
     })
     const blob = new Blob([rows.join("\n")], { type: "text/csv" })
@@ -901,13 +901,13 @@ function TradeLedger({ trades }) {
                     <td style={{ padding: "8px 12px", color: C.text }}>{t.strategy}</td>
                     <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace", fontSize: 10 }}>{t.symbol}</td>
                     <td style={{ padding: "8px 12px", fontWeight: 700, color: t.order_type === "SELL" ? C.red : C.green }}>{t.order_type}</td>
-                    <td style={{ padding: "8px 12px", color: C.text }}>{t.quantity}</td>
+
                     <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10 }}>{fmtTime(t.entry_time)}</td>
                     <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace" }}>{fmtRs(t.entry_price)}</td>
                     <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10 }}>{fmtTime(t.exit_time)}</td>
                     <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace" }}>{fmtRs(t.exit_price)}</td>
                     <td style={{ padding: "8px 12px", color: C.orange, fontFamily: "monospace" }}>{fmtRs(premium)}</td>
-                    <td style={{ padding: "8px 12px", color: C.cyan, fontFamily: "monospace" }}>₹40,000</td>
+                    <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10 }}>{t.notes ? t.notes.replace(/_/g," ") : "—"}</td>
                     <td style={{ padding: "8px 12px", color: pnlC(t.realised_pnl), fontFamily: "monospace", fontWeight: 700 }}>{premium > 0 ? ((t.realised_pnl||0)/premium*100).toFixed(1)+"%" : "—"}</td>
                     <td style={{ padding: "8px 12px" }}><Pill label={t.status} colour={statusCol} size={9} /></td>
                     <td style={{ padding: "8px 12px", fontWeight: 700, color: pnlC(t.realised_pnl), fontFamily: "monospace" }}>{fmtRs(t.realised_pnl)}</td>
