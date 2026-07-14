@@ -207,11 +207,20 @@ async def main():
     logger.info("📊 Dashboard: http://92.4.90.188:8081")  # ✅ PUBLIC URL
     logger.info("Press Ctrl+C to stop all strategies")
 
-    await asyncio.gather(
-        run_dashboard(),
-        run_strategies(config),
-        return_exceptions=True,
-    )
+    # Run dashboard and strategies independently so dashboard crash
+    # does not cancel the trading strategies
+    dashboard_task = asyncio.create_task(run_dashboard())
+    strategies_task = asyncio.create_task(run_strategies(config))
+    try:
+        await strategies_task
+    except Exception as e:
+        logger.error(f"[main] Strategies task ended: {e}")
+    finally:
+        dashboard_task.cancel()
+        try:
+            await dashboard_task
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     # Auto-free port 8081 (Windows only — on Linux PM2 handles this)
