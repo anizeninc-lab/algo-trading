@@ -214,8 +214,10 @@ async def main():
     )
 
 if __name__ == "__main__":
-    # Auto-free port 8081 (Windows + Linux)
-    free_port(8081)
+    # Auto-free port 8081 (Windows only — on Linux PM2 handles this)
+    import platform as _platform
+    if _platform.system() == "Windows":
+        free_port(8081)
 
     def _handle_sigterm(signum, frame):
         logger.info("SIGTERM received")
