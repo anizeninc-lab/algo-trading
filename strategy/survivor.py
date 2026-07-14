@@ -170,8 +170,16 @@ class SurvivorAlgo(BaseStrategy):
                     )
                     self._signal(f"⚠ REGIME CHANGE: {old_regime} → {new_regime} — waiting 60s to confirm")
                     import threading, time as _time
+                    _timer_start = _time.time()
                     def _confirm_and_exit():
                         _time.sleep(90)
+                        # Guard: abort if strategy stopped or restarted during sleep
+                        if self._stop_flag:
+                            logger.info(f"[survivor] Regime timer aborted — strategy stopped")
+                            return
+                        if _time.time() - _timer_start > 120:
+                            logger.info(f"[survivor] Regime timer aborted — too stale")
+                            return
                         try:
                             from core.market_context import market_context as _mc
                             current = _mc._regime
