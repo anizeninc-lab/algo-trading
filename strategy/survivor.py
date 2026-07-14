@@ -1397,8 +1397,10 @@ class SurvivorAlgo(BaseStrategy):
                     continue  # trade closed, move to next
 
                 # ── Profit target ─────────────────────────────────────────
+                _fixed_tp = 800.0 if "BANKNIFTY" in self.cfg.instrument_name.upper() else 0.0
                 if risk_manager.check_trailing_profit(
-                    trade["entry"], curr_price, trade["order_type"], trade["quantity"]
+                    trade["entry"], curr_price, trade["order_type"], trade["quantity"],
+                    fixed_target=_fixed_tp
                 ):
                     self._signal(
                         f"✅ PROFIT TARGET hit | {trade['symbol']} | "

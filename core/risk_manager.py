@@ -608,14 +608,19 @@ class RiskManager:
         current_price: float,
         order_type:    str = "SELL",
         quantity:      int = 65,
+        fixed_target:  float = 0.0,
     ) -> bool:
         """
-        Close when profit >= 40% of premium collected.
+        Close when profit >= 40% of premium collected (default).
+        Or when profit >= fixed_target if provided (used for BankNifty).
         e.g. entry Rs20 x 65 qty = Rs1300 collected -> TP at Rs520 (40%)
         """
         if entry_price <= 0:
             return False
-        profit_target = round(entry_price * quantity * 0.40, 2)
+        if fixed_target > 0:
+            profit_target = fixed_target
+        else:
+            profit_target = round(entry_price * quantity * 0.40, 2)
         if order_type == "SELL":
             pnl = (entry_price - current_price) * quantity
         else:
