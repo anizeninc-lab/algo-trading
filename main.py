@@ -210,6 +210,7 @@ async def main():
     await asyncio.gather(
         run_dashboard(),
         run_strategies(config),
+        return_exceptions=True,
     )
 
 if __name__ == "__main__":
