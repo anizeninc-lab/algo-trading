@@ -597,6 +597,19 @@ class SurvivorAlgo(BaseStrategy):
             logger.warning(f"[survivor] MUTEX LOCK: Already holding {symbol} in paper/live mode. Order blocked.")
             self._pending_orders.discard(_order_key)
             return
+        # ── Quantity sanity check — guards against wrong lot size on live trades ──
+        expected_qty = self.cfg.lot_size
+        if quantity != expected_qty:
+            logger.critical(
+                f"[survivor] QUANTITY MISMATCH — expected {expected_qty} (cfg.lot_size) "
+                f"but got {quantity} for {symbol}. ORDER ABORTED to prevent oversized position."
+            )
+            self._signal(
+                f"🚨 QUANTITY MISMATCH ABORT | {symbol} | "
+                f"Expected: {expected_qty} | Got: {quantity} | Order cancelled for safety"
+            )
+            self._pending_orders.discard(_order_key)
+            return
         try:
             if _is_paper:
                 sell_price  = round(premium * 0.98, 1)
@@ -1400,7 +1413,7 @@ class SurvivorAlgo(BaseStrategy):
                 _fixed_tp = 800.0 if "BANKNIFTY" in self.cfg.instrument_name.upper() else 0.0
                 if risk_manager.check_trailing_profit(
                     trade["entry"], curr_price, trade["order_type"], trade["quantity"],
-                    fixed_target=_fixed_tp
+                    fixed_target=_fixed_tp, trade_id=trade.get("id", "")
                 ):
                     self._signal(
                         f"✅ PROFIT TARGET hit | {trade['symbol']} | "

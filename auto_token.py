@@ -29,7 +29,7 @@ API_SECRET     = os.getenv("UPSTOX_API_SECRET", "")
 REDIRECT_URI   = os.getenv("UPSTOX_REDIRECT_URI", "http://127.0.0.1:8080/callback")
 TELEGRAM_TOKEN = "8830735820:AAFxqjPAtRHcgK3Zcwotfm9szFGONYWXYpE"
 TELEGRAM_CHAT  = "1196604785"
-POLL_TIMEOUT   = 300   # seconds to wait for code reply (5 min)
+POLL_TIMEOUT   = 1200  # seconds to wait for code reply (20 min)
 POLL_INTERVAL  = 5     # seconds between Telegram poll attempts
 
 # ── Telegram helpers ──────────────────────────────────────────────────────────
@@ -81,7 +81,7 @@ def wait_for_code() -> str:
                     return code
         time.sleep(POLL_INTERVAL)
 
-    raise TimeoutError("No /token reply received within 5 minutes")
+    raise TimeoutError("No /token reply received within 20 minutes")
 
 
 # ── Token exchange ────────────────────────────────────────────────────────────

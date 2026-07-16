@@ -36,6 +36,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
         self._market_api = None
         self._ws_thread      = None
         self._last_tick_time = 0.0   # epoch time of last received tick
+        self._last_index_tick_time = 0.0  # epoch time of last index tick (Nifty/BankNifty)
         self._ws_healthy     = False # True when ticks flowing normally
         self._ws_loop = None   # asyncio event loop running the WS connection (own thread)
         self._ws_conn = None   # active `websockets` connection object
@@ -426,6 +427,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
                         if ltp:
                             self._ltp_cache[sym] = ltp
                             if "Nifty 50" in sym or "NIFTY" in str(sym):
+                                self._last_index_tick_time = _time.time()
                                 from core.state_store import state_store
                                 state_store.update_nifty_price(float(ltp))
 
@@ -518,9 +520,9 @@ class UpstoxAdapter(AbstractBrokerGateway):
                     if not market_open:
                         _fail_count = 0
                         current_time = datetime.now()
-                    if self._last_tick_time == 0:
+                    if self._last_index_tick_time == 0:
                         continue
-                    elapsed = time.time() - self._last_tick_time
+                    elapsed = time.time() - self._last_index_tick_time
                     if elapsed > 60:
                         _fail_count += 1
                         self._ws_healthy = False

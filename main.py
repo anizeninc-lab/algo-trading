@@ -49,17 +49,30 @@ def load_config() -> dict:
     logger.warning("No config file found. Using defaults.")
     return {}
 
-async def run_dashboard():
-    config = uvicorn.Config(
-        app="dashboard.api:app",
-        host="0.0.0.0",  # ✅ PUBLIC ACCESS (was 127.0.0.1)
-        port=8081,
-        log_level="warning",
-        reload=False,
-    )
-    server = uvicorn.Server(config)
-    logger.info("🚀 Dashboard LIVE: http://92.4.90.188:8081")  # ✅ PUBLIC URL
-    await server.serve()
+def run_dashboard_thread():
+    """Run dashboard in a separate thread with its own event loop — fully isolated from strategies."""
+    import threading
+    import asyncio as _aio
+
+    def _run():
+        loop = _aio.new_event_loop()
+        _aio.set_event_loop(loop)
+        config = uvicorn.Config(
+            app="dashboard.api:app",
+            host="0.0.0.0",
+            port=8081,
+            log_level="warning",
+            reload=False,
+        )
+        server = uvicorn.Server(config)
+        server.install_signal_handlers = lambda: None
+        loop.run_until_complete(server.serve())
+        loop.close()
+
+    logger.info("🚀 Dashboard LIVE: http://92.4.90.188:8081")
+    t = threading.Thread(target=_run, daemon=True, name="dashboard")
+    t.start()
+    return t
 
 async def run_strategies(config: dict):
     from brokers import get_broker
@@ -209,18 +222,11 @@ async def main():
 
     # Run dashboard and strategies independently so dashboard crash
     # does not cancel the trading strategies
-    dashboard_task = asyncio.create_task(run_dashboard())
-    strategies_task = asyncio.create_task(run_strategies(config))
+    run_dashboard_thread()
     try:
-        await strategies_task
+        await run_strategies(config)
     except Exception as e:
         logger.error(f"[main] Strategies task ended: {e}")
-    finally:
-        dashboard_task.cancel()
-        try:
-            await dashboard_task
-        except Exception:
-            pass
 
 if __name__ == "__main__":
     # Auto-free port 8081 (Windows only — on Linux PM2 handles this)
@@ -237,5 +243,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("🛑 System stopped by user.")
-# main.py
-import asyncio
