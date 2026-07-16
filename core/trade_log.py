@@ -280,7 +280,7 @@ class TradeLogger:
         limit: int = 100,
     ) -> list[dict]:
         """Fetch historical trades table entries for dashboard visualisations."""
-        query = "SELECT * FROM trades WHERE 1=1"
+        query = "SELECT * FROM trades WHERE notes NOT LIKE 'ORPHANED%'"
         params = []
 
         if strategy:
@@ -301,7 +301,7 @@ class TradeLogger:
         """Calculate total realized dashboard P&L metrics.
         today_only=True scopes to the current calendar day only — use this
         for session-end / EOD reporting so alerts don't show lifetime totals."""
-        query = "SELECT * FROM trades WHERE status = 'CLOSED'"
+        query = "SELECT * FROM trades WHERE status = 'CLOSED' AND notes NOT LIKE 'ORPHANED%'"
         params = []
 
         if strategy:

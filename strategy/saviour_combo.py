@@ -212,9 +212,12 @@ class SaviourCombo:
                     asyncio.create_task(self._broker_parity_check())
 
             except asyncio.CancelledError:
+                import traceback
+                logger.warning(f"[saviour_combo] Monitor loop CancelledError:\n{traceback.format_exc()}")
                 break
             except Exception as e:
-                logger.error(f"[saviour_combo] Monitor loop error: {e}")
+                import traceback
+                logger.error(f"[saviour_combo] Monitor loop error: {e}\n{traceback.format_exc()}")
 
         logger.info("[saviour_combo] Monitor loop ended")
 
@@ -315,6 +318,18 @@ class SaviourCombo:
         # If BankNifty ever goes live, audit both limits for consistency.
         return round(wave_pnl + survivor_pnl + bn_pnl, 2)
 
+    def _get_combined_realised_pnl(self) -> float:
+        """Realised P&L only — excludes unrealised from open positions."""
+        wave_s     = state_store.get_strategy("wave_extractor")
+        survivor_s = state_store.get_strategy("survivor")
+        bn_s       = state_store.get_strategy("bn_survivor") if self.bn_survivor else None
+        return round(
+            (wave_s.realised_pnl     if wave_s     else 0.0) +
+            (survivor_s.realised_pnl if survivor_s else 0.0) +
+            (bn_s.realised_pnl       if bn_s       else 0.0),
+            2
+        )
+
     def _update_combo_status(self, combined_pnl: float) -> None:
         wave_s     = state_store.get_strategy("wave_extractor")
         survivor_s = state_store.get_strategy("survivor")
@@ -330,7 +345,7 @@ class SaviourCombo:
                 open_trades  += getattr(s, "open_trades",  0)
                 open_orders  += getattr(s, "open_orders",  0)
 
-        state_store.update_pnl(self.name, realised=combined_pnl, unrealised=0.0)
+        state_store.update_pnl(self.name, realised=self._get_combined_realised_pnl(), unrealised=combined_pnl)
         state_store.update_trades(
             name=self.name,
             total=total_trades,

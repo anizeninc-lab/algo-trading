@@ -66,8 +66,9 @@ def alert_trade_opened(symbol: str, direction: str, entry: float, qty: int, stri
 
 def alert_trade_closed(symbol: str, entry: float, exit_price: float, qty: int, pnl: float, reason: str) -> None:
     level = LEVEL_PROFIT if pnl >= 0 else LEVEL_LOSS
+    safe_reason = reason.replace("_", "\_").replace("*", "\*").replace("`", "\`")
     send_telegram(
-        f"{level} *TRADE CLOSED* — {reason}\n"
+        f"{level} *TRADE CLOSED* — {safe_reason}\n"
         f"Entry: `₹{entry:.2f}` → Exit: `₹{exit_price:.2f}`\n"
         f"Qty: `{qty}`\n"
         f"P&L: `₹{pnl:+.2f}`",
@@ -118,6 +119,16 @@ def alert_vix_stale(minutes_stale: float, last_known_vix: float) -> None:
         f"No successful VIX fetch (broker or NSE) in {minutes_stale:.1f} min\n"
         f"Last known VIX: {last_known_vix:.2f}\n"
         f"🚨 Forcing EXTREME regime (trading halted) until feed recovers",
+        LEVEL_WARNING
+    )
+
+
+def alert_pcr_stale(minutes_stale: float) -> None:
+    send_telegram(
+        f"*PCR FEED STALE*\n"
+        f"No successful Option Chain OI fetch in {minutes_stale:.1f} min\n"
+        f"Using last known PCR value — strike selection and regime filters may be using stale data\n"
+        f"Check Upstox option chain API status",
         LEVEL_WARNING
     )
 

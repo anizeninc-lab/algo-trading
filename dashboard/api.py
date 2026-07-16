@@ -508,7 +508,7 @@ async def get_trades_analytics():
                 ROUND(AVG(realised_pnl),2) as avg_pnl,
                 ROUND(MAX(realised_pnl),2) as best,
                 ROUND(MIN(realised_pnl),2) as worst
-            FROM trades WHERE status='CLOSED'
+            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%'
             GROUP BY strategy, paper_trade ORDER BY paper_trade ASC, total_pnl DESC
         """)
         strategy_rows = [dict(r) for r in cur.fetchall()]
@@ -526,7 +526,7 @@ async def get_trades_analytics():
                 entry_time,
                 exit_time,
                 CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END as winner
-            FROM trades WHERE status='CLOSED' AND paper_trade=0
+            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND paper_trade=0
             AND exit_time >= DATE('now','-30 days')
             ORDER BY exit_time ASC
         """)
@@ -537,7 +537,7 @@ async def get_trades_analytics():
                 ROUND(SUM(realised_pnl),2) as pnl,
                 COUNT(*) as trades,
                 SUM(CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END) as winners
-            FROM trades WHERE status='CLOSED' AND paper_trade=0
+            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND paper_trade=0
             AND exit_time >= DATE('now','-84 days')
             GROUP BY DATE(exit_time) ORDER BY day ASC
         """)
@@ -548,7 +548,7 @@ async def get_trades_analytics():
                 ROUND(SUM(realised_pnl),2) as pnl,
                 COUNT(*) as trades,
                 SUM(CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END) as winners
-            FROM trades WHERE status='CLOSED' AND paper_trade=0
+            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND paper_trade=0
             AND exit_time >= DATE('now','-180 days')
             GROUP BY STRFTIME('%Y-W%W', exit_time) ORDER BY week ASC
         """)
@@ -763,7 +763,7 @@ async def startup():
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT strategy, SUM(realised_pnl) as total FROM trades "
-                "WHERE status='CLOSED' AND DATE(exit_time)=? AND paper_trade=0 "
+                "WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND DATE(exit_time)=? AND paper_trade=0 "
                 "GROUP BY strategy",
                 (today,)
             ).fetchall()
@@ -1017,7 +1017,7 @@ async def get_capital_recommendation():
             with sqlite3.connect(db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 row = conn.execute(
-                    "SELECT SUM(realised_pnl) as total FROM trades WHERE status='CLOSED' AND DATE(exit_time)=?",
+                    "SELECT SUM(realised_pnl) as total FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND DATE(exit_time)=?",
                     (today,)
                 ).fetchone()
                 daily_pnl = row["total"] or 0.0
@@ -1037,7 +1037,7 @@ async def get_capital_recommendation():
             with sqlite3.connect(db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 rows = conn.execute(
-                    "SELECT realised_pnl FROM trades WHERE status='CLOSED' AND DATE(exit_time)=? AND notes != 'DUPLICATE_CLEANUP'",
+                    "SELECT realised_pnl FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND DATE(exit_time)=?",
                     (today,)
                 ).fetchall()
                 if len(rows) >= 2:

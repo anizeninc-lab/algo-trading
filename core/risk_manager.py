@@ -63,6 +63,7 @@ class RiskManager:
 
         # Per-strategy trade counters (reset each day)
         self._trade_counts:   dict[str, int]   = {}
+        self._pnl_watermarks: dict[str, float] = {}
         self._daily_pnl:      dict[str, float] = {}
         self._system_halted:  bool             = False
         self._halt_reason:    str              = ""
@@ -194,7 +195,7 @@ class RiskManager:
                 f"new: ₹{margin_needed:,.0f} = ₹{projected:,.0f} "
                 f"exceeds per-strategy cap of ₹{PER_STRATEGY_CAP:,.0f}"
             )
-            logger.debug(f"[RiskManager] CAPITAL GUARD: {reason}")
+            logger.info(f"[RiskManager] CAPITAL GUARD: {reason}")
             return False, reason
 
         return True, ""
@@ -206,7 +207,7 @@ class RiskManager:
             self._deployed_capital.get(strategy_name, 0.0) + margin
         )
         total = self.get_total_deployed_capital()
-        logger.info(
+        logger.debug(
             f"[RiskManager] Capital deployed | {strategy_name}: "
             f"+₹{margin:,.0f} | Total: ₹{total:,.0f} / ₹{MAX_CAPITAL_DEPLOYED:,.0f}"
         )
@@ -217,7 +218,7 @@ class RiskManager:
         current = self._deployed_capital.get(strategy_name, 0.0)
         self._deployed_capital[strategy_name] = max(0.0, current - margin)
         total = self.get_total_deployed_capital()
-        logger.info(
+        logger.debug(
             f"[RiskManager] Capital released | {strategy_name}: "
             f"-₹{margin:,.0f} | Total: ₹{total:,.0f} / ₹{MAX_CAPITAL_DEPLOYED:,.0f}"
         )
@@ -244,7 +245,7 @@ class RiskManager:
                     )
                 return effective
         except Exception as e:
-            logger.debug(f"[RiskManager] Could not read session plan daily loss limit: {e}")
+            logger.info(f"[RiskManager] Could not read session plan daily loss limit: {e}")
         return self.max_daily_loss
 
     def _get_effective_max_capital(self) -> float:
@@ -265,7 +266,7 @@ class RiskManager:
                     )
                 return effective
         except Exception as e:
-            logger.debug(f"[RiskManager] Could not read session plan max capital: {e}")
+            logger.info(f"[RiskManager] Could not read session plan max capital: {e}")
         return MAX_CAPITAL_DEPLOYED
 
     # ─── System-level checks ─────────────────────────────────────────────────
@@ -473,7 +474,7 @@ class RiskManager:
         )
         self.register_capital(strategy_name, order_type)
         self._last_blocked.pop(strategy_name, None)
-        logger.info(
+        logger.debug(
             f"[RiskManager] {strategy_name} trade count: "
             f"{self._trade_counts[strategy_name]}/{self.max_trades_per_day}"
         )
@@ -556,7 +557,7 @@ class RiskManager:
             self._system_halted    = persisted_halt and not weekly_override
             self._halt_reason      = "" if weekly_override else persisted_reason
             self._deployed_capital = state.get("deployed_capital", {})
-            logger.info(
+            logger.debug(
                 f"[RiskManager] State restored from disk | "
                 f"trades={self._trade_counts} | halted={self._system_halted}"
             )
@@ -609,30 +610,68 @@ class RiskManager:
         order_type:    str = "SELL",
         quantity:      int = 65,
         fixed_target:  float = 0.0,
+        trade_id:      str = "",
     ) -> bool:
         """
-        Close when profit >= 40% of premium collected (default).
-        Or when profit >= fixed_target if provided (used for BankNifty).
-        e.g. entry Rs20 x 65 qty = Rs1300 collected -> TP at Rs520 (40%)
+        Two-stage exit logic:
+        1. FIXED TARGET: exit when P&L >= 40% of premium collected
+        2. HIGH WATERMARK TRAILING STOP: once P&L exceeds 20% of premium,
+           track peak P&L and exit if it retraces 50% from peak.
+           This locks in profits if trade moves in favour then reverses.
+        e.g. entry Rs193 x 65 qty = Rs12,545 premium
+             Activate trailing at Rs2,509 (20%)
+             If peak P&L = Rs4,400, exit floor = Rs2,200 (50% of peak)
         """
         if entry_price <= 0:
             return False
-        if fixed_target > 0:
-            profit_target = fixed_target
-        else:
-            profit_target = round(entry_price * quantity * 0.40, 2)
         if order_type == "SELL":
             pnl = (entry_price - current_price) * quantity
         else:
             pnl = (current_price - entry_price) * quantity
+
+        premium_collected = entry_price * quantity
+        if fixed_target > 0:
+            profit_target = fixed_target
+        else:
+            profit_target = round(premium_collected * 0.40, 2)
+
+        # ── Stage 1: Fixed target ─────────────────────────────────────────
         if pnl >= profit_target:
-            logger.info(
-                f"[RiskManager] Profit target hit | "
+            if trade_id and trade_id in self._pnl_watermarks:
+                del self._pnl_watermarks[trade_id]
+            logger.debug(
+                f"[RiskManager] Fixed profit target hit | "
                 f"Entry: {entry_price} | Current: {current_price} | "
                 f"P&L: Rs{pnl:.2f} | Target: Rs{profit_target}"
             )
             return True
+
+        # ── Stage 2: High watermark trailing stop ─────────────────────────
+        activation_threshold = round(premium_collected * 0.20, 2)
+        if pnl >= activation_threshold and trade_id:
+            prev_peak = self._pnl_watermarks.get(trade_id, 0.0)
+            if pnl > prev_peak:
+                self._pnl_watermarks[trade_id] = pnl
+                logger.debug(
+                    f"[RiskManager] Watermark updated | trade={trade_id} | "
+                    f"peak=Rs{pnl:.2f}"
+                )
+            peak = self._pnl_watermarks.get(trade_id, pnl)
+            floor = round(peak * 0.50, 2)
+            if pnl < floor:
+                logger.debug(
+                    f"[RiskManager] Trailing stop triggered | trade={trade_id} | "
+                    f"peak=Rs{peak:.2f} | floor=Rs{floor:.2f} | current=Rs{pnl:.2f}"
+                )
+                if trade_id in self._pnl_watermarks:
+                    del self._pnl_watermarks[trade_id]
+                return True
+
         return False
+
+    def clear_watermark(self, trade_id: str) -> None:
+        """Call on trade close to clean up watermark state."""
+        self._pnl_watermarks.pop(trade_id, None)
 
 
 # ─── Global singleton ─────────────────────────────────────────────────────────

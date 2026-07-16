@@ -31,6 +31,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 IST = pytz.timezone("Asia/Kolkata")
+MAX_PCR_STALENESS_MINUTES = 15.0  # alert if no successful OI fetch in this window during market hours
+
 
 # ─────────────────────────────────────────────
 # Config — edit these to match your Upstox setup
@@ -130,6 +132,9 @@ class MarketContextEngine:
         self._oi_snapshot = OISnapshot()
         self._prev_pcr: Optional[float] = None
         self._pcr_spike_time: Optional[datetime] = None
+        self._last_successful_oi_fetch: Optional[datetime] = None
+        self._pcr_is_stale: bool = False
+        self._pcr_stale_alert_fired: bool = False
         self._prev_day_levels = PreviousDayLevels()
 
         # OI migration tracking — rolling history of support/resistance strikes
@@ -379,9 +384,37 @@ class MarketContextEngine:
             strike_oi[strike] = {"ce": ce_oi, "pe": pe_oi}
 
         if total_ce_oi == 0:
-            logger.warning("Zero CE OI returned — skipping PCR calc")
+            minutes_stale = (
+                999.0 if self._last_successful_oi_fetch is None
+                else (datetime.now(IST) - self._last_successful_oi_fetch).total_seconds() / 60.0
+            )
+            logger.warning(
+                f"Zero CE OI returned — using last known PCR ({self._oi_snapshot.pcr}) | "
+                f"Minutes since last success: {minutes_stale:.1f}"
+            )
+            now_time = datetime.now(IST).time()
+            in_market_hours = dtime(9, 15) <= now_time <= dtime(15, 30)
+            if in_market_hours and minutes_stale >= MAX_PCR_STALENESS_MINUTES:
+                if not self._pcr_is_stale:
+                    logger.critical(
+                        f"PCR FEED STALE for {minutes_stale:.1f} min during market hours — "
+                        f"strike selection and regime filters using stale data"
+                    )
+                self._pcr_is_stale = True
+                if not self._pcr_stale_alert_fired:
+                    try:
+                        from core.alerting import alert_pcr_stale
+                        alert_pcr_stale(minutes_stale)
+                    except Exception as e:
+                        logger.error(f"Failed to send PCR stale alert: {e}")
+                    self._pcr_stale_alert_fired = True
             return
-
+        # Successful fetch — reset staleness tracking
+        if self._pcr_is_stale:
+            logger.warning("PCR feed recovered — fresh OI data received")
+        self._last_successful_oi_fetch = datetime.now(IST)
+        self._pcr_is_stale = False
+        self._pcr_stale_alert_fired = False
         new_pcr = round(total_pe_oi / total_ce_oi, 3)
         max_pain = self._compute_max_pain(strike_oi)
 

@@ -35,6 +35,7 @@ BEAR_SCORE_THRESHOLD       = -60   # strong bear trend
 WEAK_BULL_SCORE_THRESHOLD  =  30   # weak bull (above range, below strong trend)
 WEAK_BEAR_SCORE_THRESHOLD  = -30   # weak bear
 TREND_CONFIRM_COUNT        =  2    # consecutive hits before regime flips
+REGIME_STABILITY_CONFIRM   =  2    # consecutive identical readings required before clearing the transition-block
 ADX_TREND_THRESHOLD        =  20
 ADX_RANGE_THRESHOLD        =  18
 OR_BREAKOUT_POINTS         =  30   # fallback if ATR unavailable
@@ -110,6 +111,7 @@ class RegimeEngine:
         self._OI_SMOOTH_PERIODS = 3
         self._regime_history:  List[dict]  = []  # last 10 regime classifications
         self._HISTORY_MAX      = 10
+        self._stable_since_count: int = 0  # consecutive classify() calls with unchanged regime since last flip
 
     # ── Public ─────────────────────────────────────────────────────────────
 
@@ -294,7 +296,16 @@ class RegimeEngine:
         # regime stays as-is — reversal_risk is surfaced via RegimeSignals.reversal_risk
 
         # ── Regime Transition Detection (for entry-blocking during flips) ──
-        regime_transitioning = (regime != previous_regime)
+        # A bare "changed since last reading" check flaps constantly when the
+        # score hovers near a threshold (e.g. trending_bull <-> weak_bull),
+        # blocking entries almost permanently. Instead, require the regime to
+        # be observed as unchanged for REGIME_STABILITY_CONFIRM consecutive
+        # classify() calls before considering it settled again.
+        if regime == previous_regime:
+            self._stable_since_count += 1
+        else:
+            self._stable_since_count = 0
+        regime_transitioning = self._stable_since_count < REGIME_STABILITY_CONFIRM
 
         self._last_regime = regime
 

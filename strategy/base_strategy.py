@@ -47,10 +47,44 @@ class BaseStrategy(ABC):
             )
             logger.critical(f"[{self.name}] {msg}")
             self._signal(f"⚠️ {msg}")
+            recovered = False
             try:
                 await self._on_recover_trade(dict(row))
+                recovered = True
             except Exception as e:
                 logger.error(f"[{self.name}] _on_recover_trade failed for {row.get('id')}: {e}")
+            if not recovered:
+                await self._force_close_orphan(dict(row))
+
+    async def _force_close_orphan(self, row: dict) -> None:
+        """Force-close an orphaned open trade at current LTP via REST and mark it in DB."""
+        trade_id = row.get("id")
+        symbol   = row.get("symbol", "")
+        qty      = row.get("quantity", 0)
+        entry    = row.get("entry_price", 0)
+        try:
+            ltp = await self.broker.get_ltp(symbol)
+        except Exception as e:
+            logger.error(f"[{self.name}] _force_close_orphan: get_ltp failed for {symbol}: {e}")
+            ltp = entry  # fallback to entry price — P&L = 0, at least closes cleanly
+        pnl = round((entry - ltp) * qty, 2)  # SELL position: profit if price fell
+        try:
+            trade_logger.close_trade(
+                trade_id=trade_id,
+                exit_price=ltp,
+                exit_time=datetime.now(pytz.timezone("Asia/Kolkata")).isoformat(),
+                realised_pnl=pnl,
+                notes="ORPHANED|FORCE_CLOSED",
+            )
+            logger.warning(
+                f"[{self.name}] FORCE CLOSED orphan {trade_id} | {symbol} | "
+                f"entry={entry} exit={ltp} pnl=₹{pnl}"
+            )
+            self._signal(
+                f"🔴 ORPHAN FORCE CLOSED | {symbol} | entry={entry} exit={ltp} | P&L: ₹{pnl}"
+            )
+        except Exception as e:
+            logger.error(f"[{self.name}] _force_close_orphan: close_trade failed for {trade_id}: {e}")
 
     async def _on_recover_trade(self, row: dict) -> None:
         """

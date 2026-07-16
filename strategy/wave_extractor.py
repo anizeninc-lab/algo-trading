@@ -429,7 +429,7 @@ class WaveExtractor(BaseStrategy):
                 )
                 await self._close_trade(trade, "STOP_LOSS")
 
-            elif risk_manager.check_trailing_profit(entry, price, otype):
+            elif risk_manager.check_trailing_profit(entry, price, otype, qty, trade_id=trade.get("id", "")):
                 _tp_pnl = (entry - price) * qty if otype == "SELL" else (price - entry) * qty
                 self._signal(
                     f"TRAILING PROFIT hit | {otype} | Entry: {entry:.2f} | Current: {price:.2f} | "
