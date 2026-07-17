@@ -75,7 +75,7 @@ class RiskManager:
         self._per_strategy_cap: float = self._load_capital_config()
 
         # Per-strategy spam prevention
-        self._last_blocked: dict[str, str] = {}
+        self._last_blocked: dict[str, tuple] = {}  # (reason, timestamp)
         # Opportunity tracking
         self._opp_detected:  dict[str, int] = {}  # signals that passed all filters
         self._opp_blocked:   dict[str, int] = {}  # signals blocked (any reason)
@@ -455,9 +455,12 @@ class RiskManager:
 
     def _log_blocked_once(self, strategy_name: str, reason: str) -> None:
         """Only logs 'trade blocked' if reason changed — prevents tick spam."""
-        if self._last_blocked.get(strategy_name) != reason:
+        import time as _time
+        last_reason, last_ts = self._last_blocked.get(strategy_name, (None, 0))
+        now = _time.monotonic()
+        if last_reason != reason or (now - last_ts) > 60:
             logger.info(f"[RiskManager] {strategy_name} blocked: {reason}")
-            self._last_blocked[strategy_name] = reason
+            self._last_blocked[strategy_name] = (reason, now)
         # Always count block (deduplicated by reason change for logging, but count every tick)
         self._opp_blocked[strategy_name] = self._opp_blocked.get(strategy_name, 0) + 1
         # Track reason breakdown
