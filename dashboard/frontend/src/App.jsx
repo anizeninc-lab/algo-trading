@@ -2388,7 +2388,7 @@ function BotStatusBar() {
   const capPct = status.capital_pct || 0
   const capCol = capPct > 80 ? C.red : capPct > 50 ? C.orange : C.green
   const pnlPct = Math.abs(status.pnl_pct_of_limit || 0)
-  const pnlCol = pnlPct > 80 ? C.red : pnlPct > 50 ? C.orange : C.green
+  const pnlCol = (status.daily_pnl || 0) >= 0 ? C.green : pnlPct > 80 ? C.red : pnlPct > 50 ? C.orange : C.red
 
   return (
     <div style={{ background: C.card, borderRadius: 10, padding: "10px 16px", border: `1px solid ${col}40`, marginBottom: 12, display: "flex", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
@@ -2428,7 +2428,7 @@ function BotStatusBar() {
       {/* Daily P&L vs Limit */}
       <div style={{ minWidth: 160 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-          <span style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>DAILY LOSS USED</span>
+          <span style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>DAILY P&L</span>
           <span style={{ fontSize: 8, color: pnlCol, fontWeight: 800 }}>{pnlPct.toFixed(1)}%</span>
         </div>
         <div style={{ height: 5, background: C.border, borderRadius: 3, marginBottom: 3 }}>
