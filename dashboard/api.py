@@ -56,7 +56,12 @@ async def websocket_updates(ws: WebSocket):
             payload = _build_payload()
             await ws.send_text(json.dumps(payload))
     except WebSocketDisconnect:
-        _ws_clients.remove(ws)
+        pass
+    except Exception:
+        pass
+    finally:
+        if ws in _ws_clients:
+            _ws_clients.remove(ws)
         logger.info("Dashboard client disconnected")
 
 
