@@ -447,8 +447,6 @@ class RiskManager:
             self._log_blocked_once(strategy_name, capital_reason)
             return False, capital_reason
 
-        # Clear last blocked if now allowed
-        self._last_blocked.pop(strategy_name, None)
         # Count as detected opportunity
         self._opp_detected[strategy_name] = self._opp_detected.get(strategy_name, 0) + 1
         return True, ""
