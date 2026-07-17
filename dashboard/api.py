@@ -526,7 +526,7 @@ async def get_trades_analytics():
                 entry_time,
                 exit_time,
                 CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END as winner
-            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND paper_trade=0
+            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND paper_trade=1
             AND exit_time >= DATE('now','-30 days')
             ORDER BY exit_time ASC
         """)
@@ -537,7 +537,7 @@ async def get_trades_analytics():
                 ROUND(SUM(realised_pnl),2) as pnl,
                 COUNT(*) as trades,
                 SUM(CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END) as winners
-            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND paper_trade=0
+            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND paper_trade=1
             AND exit_time >= DATE('now','-84 days')
             GROUP BY DATE(exit_time) ORDER BY day ASC
         """)
@@ -548,7 +548,7 @@ async def get_trades_analytics():
                 ROUND(SUM(realised_pnl),2) as pnl,
                 COUNT(*) as trades,
                 SUM(CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END) as winners
-            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND paper_trade=0
+            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND paper_trade=1
             AND exit_time >= DATE('now','-180 days')
             GROUP BY STRFTIME('%Y-W%W', exit_time) ORDER BY week ASC
         """)
@@ -763,7 +763,7 @@ async def startup():
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT strategy, SUM(realised_pnl) as total FROM trades "
-                "WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND DATE(exit_time)=? AND paper_trade=0 "
+                "WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND DATE(exit_time)=? AND paper_trade=1 "
                 "GROUP BY strategy",
                 (today,)
             ).fetchall()
