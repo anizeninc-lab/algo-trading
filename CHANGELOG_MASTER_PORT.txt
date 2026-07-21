@@ -1,0 +1,50 @@
+# Master Strategy Port — Change Log
+# Each entry marks a point-in-time change for before/after performance comparison.
+# Cross-reference with trade_log.db -> strategy_markers table (same timestamps).
+
+[2026-07-21 14:28:08 IST] MASTER_PORT_PHASE2_WAVE_GAP_SCALING
+  - Ported master's _get_scaled_gaps() / _generate_multiplier_scale() into wave_extractor.py
+  - wave_extractor's SELL/BUY bracket gap is no longer a static 15.0/15.0 —
+    now scales with current position imbalance (self._net_position), same
+    mechanism as master's WaveStrategy, reusing existing (previously unused)
+    cfg.multiplier_scale = [1.0, 1.3, 1.7, 2.2, 2.8]
+  - At flat position (net_position == 0): NO behavior change, gaps stay 15.0/15.0
+  - Also fixed: core/alerting.py had a hardcoded, stale Telegram token —
+    now reads TELEGRAM_TOKEN from .env like the rest of the codebase
+  - Files backed up: strategy/wave_extractor.py.bak_20260721_141114,
+    core/alerting.py.bak_20260721_<timestamp>
+  - Still pending: Phase 1 (survivor overshoot-proportional quantity scaling),
+    Phase 3 (wave portfolio delta gating — deferred decision)
+
+[2026-07-21 15:00:xx IST] MASTER_PORT_PHASE1_SURVIVOR_OVERSHOOT_SCALING
+  - Ported master's overshoot-proportional quantity scaling into survivor.py
+    (applies to both survivor and bn_survivor instances)
+  - sell_multiplier_threshold = 2 (master's default is 5 — reduced to fit
+    within existing ₹150k/250k capital ceiling; see chat for ₹ breakdown)
+  - PE/CE anchor reset changed from "jump to current spot" to "step forward
+    by gap * multiplier" — matches master's gradual drift-controlled behavior
+  - core/risk_manager.py made quantity-aware: check_capital_limit(),
+    register_capital(), release_capital(), register_trade(), release_trade()
+    all gained an optional multiplier param (default=1, fully backward
+    compatible — every other caller in the codebase unaffected)
+  - New pre-trade capital gate: overshoot trades now explicitly check
+    check_capital_limit() with the real multiplier before firing, so a
+    multi-lot trade can never silently push past the capital ceiling
+  - Quantity sanity check in _sell_option updated: was exact-equality only
+    (would have rejected every multi-lot trade), now allows clean multiples
+    of lot_size up to sell_multiplier_threshold, still rejects anything else
+  - Files backed up: core/risk_manager.py.bak_20260721_<ts>,
+    strategy/survivor.py.bak_20260721_<ts>
+  - Sanity-checked math: 15-29pt overshoot = 1x (₹40k, no change from today),
+    30-44pt = 2x (₹80k), 45pt+ correctly capped at 2x (₹80k max per trade)
+
+[2026-07-21 15:xx IST] MASTER_PORT_PHASE3_DEFERRED (decision, not implementation)
+  - Portfolio delta gating deliberately deferred, not abandoned
+  - Requires: mibian dependency, live options-chain Greeks pipeline,
+    real redesign since survivor/bn_survivor have no natural buy-side
+    restriction the way master's wave strategy did
+  - Revisit later as a standalone upgrade once Phase 1 + Phase 2 have
+    had time to prove out in paper mode
+  - See chat log same date for full discussion of why this needs its
+    own design pass rather than a straight port
+

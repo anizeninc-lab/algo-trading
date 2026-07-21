@@ -439,6 +439,36 @@ class WaveExtractor(BaseStrategy):
 
     # ── Order Placement ───────────────────────────────────────────────────────
 
+    def _generate_multiplier_scale(self) -> dict:
+        """Build imbalance-level -> [buy_mult, sell_mult] map from cfg.multiplier_scale.
+        Positive net_position (long) widens the buy gap (discourage adding longs) and
+        keeps sell gap tight (encourage flattening). Negative does the reverse.
+        Ported from master WaveStrategy._generate_multiplier_scale, adapted to
+        reuse the existing (previously unused) cfg.multiplier_scale list."""
+        scale = self.cfg.multiplier_scale
+        levels = len(scale)
+        m = {"0": [1.0, 1.0]}
+        for i in range(1, levels + 1):
+            m[str(i)]  = [scale[i - 1], 1.0]   # long imbalance -> widen buy, sell stays tight
+            m[str(-i)] = [1.0, scale[i - 1]]   # short imbalance -> widen sell, buy stays tight
+        return m
+
+    def _get_scaled_gaps(self, current_diff_scale: int) -> tuple:
+        """Scale sell_gap/buy_gap based on current position imbalance.
+        Ported from master WaveStrategy._get_scaled_gaps."""
+        scale_map = self._generate_multiplier_scale()
+        key = str(current_diff_scale)
+        if key not in scale_map:
+            mult = (
+                [self.cfg.multiplier_scale[-1], 1.0] if current_diff_scale > 0
+                else [1.0, self.cfg.multiplier_scale[-1]]
+            )
+        else:
+            mult = scale_map[key]
+        scaled_buy_gap  = round(self.cfg.buy_gap * mult[0], 1)
+        scaled_sell_gap = round(self.cfg.sell_gap * mult[1], 1)
+        return scaled_buy_gap, scaled_sell_gap
+
     async def _place_duo_bracket(self) -> None:
         if self._current_price == 0:
             return
@@ -452,8 +482,9 @@ class WaveExtractor(BaseStrategy):
         self._bracket_placed_at = time.time()
         asyncio.create_task(self._order_timeout_watchdog())
 
-        sell_price = round(self._current_price + self.cfg.sell_gap, 2)
-        buy_price  = round(self._current_price - self.cfg.buy_gap, 2)
+        scaled_buy_gap, scaled_sell_gap = self._get_scaled_gaps(self._net_position)
+        sell_price = round(self._current_price + scaled_sell_gap, 2)
+        buy_price  = round(self._current_price - scaled_buy_gap, 2)
 
         if buy_price <= 0:
             self._bracket_active = False
@@ -465,8 +496,8 @@ class WaveExtractor(BaseStrategy):
         from core.market_context import market_context as _mc
         _regime = getattr(_mc, "regime", "unknown") if _mc else "unknown"
         self._signal(
-            f"Bracket placed | spot={self._current_price:.1f} | "
-            f"SELL={sell_price} (+{self.cfg.sell_gap}) | BUY={buy_price} (-{self.cfg.buy_gap}) | "
+            f"Bracket placed | spot={self._current_price:.1f} | imbalance={self._net_position} | "
+            f"SELL={sell_price} (+{scaled_sell_gap}) | BUY={buy_price} (-{scaled_buy_gap}) | "
             f"regime={_regime}"
         )
 

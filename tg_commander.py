@@ -16,8 +16,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TELEGRAM_TOKEN = "8830735820:AAFxqjPAtRHcgK3Zcwotfm9szFGONYWXYpE"
-TELEGRAM_CHAT  = "1196604785"
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT  = os.getenv("TELEGRAM_CHAT")
 DASHBOARD_URL  = "http://localhost:8081"
 POLL_INTERVAL  = 3   # seconds
 

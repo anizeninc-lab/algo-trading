@@ -25,6 +25,7 @@ REPORT_DIR = Path("/home/ubuntu/trading-algo/reports")
 def generate_daily_report(target_date: date = None) -> dict:
     """Generate post-trade report for a given date (default: today)."""
     from core.trade_log import trade_logger
+    
 
     if target_date is None:
         target_date = datetime.now(IST).date()

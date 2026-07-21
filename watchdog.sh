@@ -1,38 +1,43 @@
 #!/bin/bash
-# watchdog.sh — runs every 5 min via cron. Restarts trading-bot if PM2
-# reports it as down. Dashboard health is logged but does NOT trigger restart.
 cd /home/ubuntu/trading-algo || exit 1
-TELEGRAM_TOKEN="8830735820:AAFxqjPAtRHcgK3Zcwotfm9szFGONYWXYpE"
-TELEGRAM_CHAT_ID="1196604785"
+TELEGRAM_TOKEN=$(grep TELEGRAM_TOKEN .env | cut -d '=' -f2)
+TELEGRAM_CHAT_ID=$(grep TELEGRAM_CHAT .env | cut -d '=' -f2)
+STATE_FILE="/tmp/trading_bot_last_restarts.txt"
+
 send_alert() {
-  local msg="$1"
   curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
-    -d chat_id="${TELEGRAM_CHAT_ID}" \
-    -d text="🐕 WATCHDOG: ${msg}" > /dev/null
+    -d chat_id="${TELEGRAM_CHAT_ID}" -d text="🐕 WATCHDOG: $1" > /dev/null
 }
+
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
-# Check dashboard health — log only, never restart on this alone
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 http://127.0.0.1:8081/)
-if [ "$HTTP_CODE" != "200" ]; then
-    echo "[$TIMESTAMP] Dashboard not responding (HTTP $HTTP_CODE) — noted but NOT restarting."
-fi
-# Only restart if PM2 reports trading-bot as not online
-PM2_STATUS=$(pm2 jlist | python3 -c "
+PM2_JSON=$(pm2 jlist)
+STATUS=$(echo "$PM2_JSON" | python3 -c "
 import json,sys
-try:
-    data = json.load(sys.stdin)
-    for p in data:
-        if p['name'] == 'trading-bot':
-            print(p['pm2_env']['status'])
-            sys.exit(0)
-    print('not_found')
-except Exception:
-    print('error')
+data=json.load(sys.stdin)
+for p in data:
+    if p['name']=='trading-bot': print(p['pm2_env']['status'])
 ")
-if [ "$PM2_STATUS" != "online" ]; then
-    echo "[$TIMESTAMP] trading-bot PM2 status is '$PM2_STATUS'. Restarting."
+RESTARTS=$(echo "$PM2_JSON" | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+for p in data:
+    if p['name']=='trading-bot': print(p['pm2_env']['restart_time'])
+")
+
+LAST_RESTARTS=$(cat "$STATE_FILE" 2>/dev/null || echo "$RESTARTS")
+DIFF=$((RESTARTS - LAST_RESTARTS))
+echo "$RESTARTS" > "$STATE_FILE"
+
+if [ "$STATUS" != "online" ]; then
+    echo "[$TIMESTAMP] trading-bot status '$STATUS'. Restarting."
     pm2 restart trading-bot --update-env
-    send_alert "trading-bot PM2 status was '${PM2_STATUS}' — auto-restarted by watchdog."
+    send_alert "trading-bot was '${STATUS}' — auto-restarted."
     exit 0
 fi
-echo "[$TIMESTAMP] OK — PM2 status: $PM2_STATUS | Dashboard: HTTP $HTTP_CODE"
+
+if [ "$DIFF" -ge 2 ]; then
+    send_alert "⚠️ trading-bot restarted ${DIFF}x since last check (total: ${RESTARTS}). Possible crash loop — check memory/logs."
+    echo "[$TIMESTAMP] ALERT: ${DIFF} restarts since last check."
+fi
+
+echo "[$TIMESTAMP] OK — status: $STATUS | restarts: $RESTARTS (+$DIFF)"

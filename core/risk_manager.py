@@ -119,10 +119,15 @@ class RiskManager:
             for trade in active_trades:
                 strat = trade["strategy"]
                 otype = trade["order_type"]
-                margin = MARGIN_PER_SELL_LOT if otype == "SELL" else MARGIN_PER_BUY_LOT
+                # Derive lot multiplier from quantity so overshoot-scaled trades
+                # reconcile to the correct margin after a restart, not just 1x.
+                _lot_size = 15 if strat == "bn_survivor" else 65
+                _qty = trade.get("quantity", _lot_size) or _lot_size
+                _multiplier = max(1, int(_qty // _lot_size))
+                margin = (MARGIN_PER_SELL_LOT if otype == "SELL" else MARGIN_PER_BUY_LOT) * _multiplier
                 
                 reconciled_capital[strat] = reconciled_capital.get(strat, 0.0) + margin
-                logger.info(f"[RiskManager] Reconstructed open seat: Strategy={strat} | Symbol={trade['symbol']} | Reserved=₹{margin:,.0f}")
+                logger.info(f"[RiskManager] Reconstructed open seat: Strategy={strat} | Symbol={trade['symbol']} | Multiplier={_multiplier}x | Reserved=₹{margin:,.0f}")
 
             # Atomically re-anchor volatile trackers with the source-of-truth database snapshot
             self._deployed_capital = reconciled_capital
@@ -178,14 +183,17 @@ class RiskManager:
     def get_per_strategy_cap(self) -> float:
         return self._per_strategy_cap
 
-    def check_capital_limit(self, order_type: str = "SELL", strategy_name: str = "") -> tuple[bool, str]:
+    def check_capital_limit(self, order_type: str = "SELL", strategy_name: str = "", multiplier: int = 1) -> tuple[bool, str]:
         """
         HARDCODED CAPITAL GUARD — checks if adding one more trade
         would exceed the ₹1,50,000 capital limit.
+        multiplier: number of lots this trade represents (e.g. overshoot scaling
+        in survivor.py). Default 1 preserves existing behavior for all callers
+        that don't pass it explicitly.
         Returns (True, "") if capital is available.
         Returns (False, reason) if limit would be breached.
         """
-        margin_needed = MARGIN_PER_SELL_LOT if order_type == "SELL" else MARGIN_PER_BUY_LOT
+        margin_needed = (MARGIN_PER_SELL_LOT if order_type == "SELL" else MARGIN_PER_BUY_LOT) * multiplier
         PER_STRATEGY_CAP = self._per_strategy_cap
         strategy_deployed = self._deployed_capital.get(strategy_name, 0.0)
         projected = strategy_deployed + margin_needed
@@ -200,9 +208,9 @@ class RiskManager:
 
         return True, ""
 
-    def register_capital(self, strategy_name: str, order_type: str = "SELL") -> None:
-        """Reserve capital when a new trade is opened."""
-        margin = MARGIN_PER_SELL_LOT if order_type == "SELL" else MARGIN_PER_BUY_LOT
+    def register_capital(self, strategy_name: str, order_type: str = "SELL", multiplier: int = 1) -> None:
+        """Reserve capital when a new trade is opened. multiplier = lots this trade represents."""
+        margin = (MARGIN_PER_SELL_LOT if order_type == "SELL" else MARGIN_PER_BUY_LOT) * multiplier
         self._deployed_capital[strategy_name] = (
             self._deployed_capital.get(strategy_name, 0.0) + margin
         )
@@ -212,9 +220,9 @@ class RiskManager:
             f"+₹{margin:,.0f} | Total: ₹{total:,.0f} / ₹{MAX_CAPITAL_DEPLOYED:,.0f}"
         )
 
-    def release_capital(self, strategy_name: str, order_type: str = "SELL") -> None:
-        """Release capital when a trade is closed."""
-        margin  = MARGIN_PER_SELL_LOT if order_type == "SELL" else MARGIN_PER_BUY_LOT
+    def release_capital(self, strategy_name: str, order_type: str = "SELL", multiplier: int = 1) -> None:
+        """Release capital when a trade is closed. multiplier = lots this trade represented."""
+        margin  = (MARGIN_PER_SELL_LOT if order_type == "SELL" else MARGIN_PER_BUY_LOT) * multiplier
         current = self._deployed_capital.get(strategy_name, 0.0)
         self._deployed_capital[strategy_name] = max(0.0, current - margin)
         total = self.get_total_deployed_capital()
@@ -467,13 +475,13 @@ class RiskManager:
         short = reason.split("—")[0].split(":")[0].strip()[:40]
         self._block_reasons[strategy_name][short] = self._block_reasons[strategy_name].get(short, 0) + 1
 
-    def register_trade(self, strategy_name: str, order_type: str = "SELL") -> None:
+    def register_trade(self, strategy_name: str, order_type: str = "SELL", multiplier: int = 1) -> None:
         self._opp_executed[strategy_name] = self._opp_executed.get(strategy_name, 0) + 1
-        """Call this when a new trade is opened."""
+        """Call this when a new trade is opened. multiplier = lots this trade represents."""
         self._trade_counts[strategy_name] = (
             self._trade_counts.get(strategy_name, 0) + 1
         )
-        self.register_capital(strategy_name, order_type)
+        self.register_capital(strategy_name, order_type, multiplier)
         self._last_blocked.pop(strategy_name, None)
         logger.debug(
             f"[RiskManager] {strategy_name} trade count: "
@@ -481,9 +489,9 @@ class RiskManager:
         )
         self._save_state()  # Persist after every trade
 
-    def release_trade(self, strategy_name: str, order_type: str = "SELL") -> None:
-        """Call this when a trade is closed to free up capital."""
-        self.release_capital(strategy_name, order_type)
+    def release_trade(self, strategy_name: str, order_type: str = "SELL", multiplier: int = 1) -> None:
+        """Call this when a trade is closed to free up capital. multiplier = lots this trade represented."""
+        self.release_capital(strategy_name, order_type, multiplier)
 
     def reset_daily_counts(self) -> None:
         """Call this at market open each day to reset counters."""
