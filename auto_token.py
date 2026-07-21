@@ -27,8 +27,8 @@ ENV_PATH       = Path(__file__).parent / ".env"
 API_KEY        = os.getenv("UPSTOX_API_KEY", "REDACTED")
 API_SECRET     = os.getenv("UPSTOX_API_SECRET", "")
 REDIRECT_URI   = os.getenv("UPSTOX_REDIRECT_URI", "http://127.0.0.1:8080/callback")
-TELEGRAM_TOKEN = "8830735820:AAFxqjPAtRHcgK3Zcwotfm9szFGONYWXYpE"
-TELEGRAM_CHAT  = "1196604785"
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT  = os.getenv("TELEGRAM_CHAT")
 POLL_TIMEOUT   = 1200  # seconds to wait for code reply (20 min)
 POLL_INTERVAL  = 5     # seconds between Telegram poll attempts
 

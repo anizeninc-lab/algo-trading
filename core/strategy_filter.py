@@ -102,10 +102,13 @@ class StrategyFilter:
             if strategy_name == "survivor" and not getattr(plan, "survivor_active", True):
                 # Override if live regime has shifted to range intraday
                 if regime in (REGIME_RANGE, REGIME_REVERSAL_WATCH):
-                    logger.info(
-                        f"[strategy_filter] survivor: session plan says BLOCKED "
-                        f"but live regime={regime} — OVERRIDING to ALLOW"
-                    )
+                    override_key = f"survivor_override_{regime}"
+                    if self._last_state_logged.get("survivor_override") != override_key:
+                        logger.info(
+                            f"[strategy_filter] survivor: session plan says BLOCKED "
+                            f"but live regime={regime} — OVERRIDING to ALLOW"
+                        )
+                        self._last_state_logged["survivor_override"] = override_key
                 else:
                     return False, (
                         f"[context] regime={regime} not suitable for survivor (needs: range)"
@@ -114,10 +117,13 @@ class StrategyFilter:
             if strategy_name == "wave_extractor" and not getattr(plan, "wave_active", True):
                 # Override session plan if live regime is now trending
                 if regime in (REGIME_TRENDING_BULL, REGIME_TRENDING_BEAR):
-                    logger.info(
-                        f"[strategy_filter] wave_extractor: session plan says BLOCKED "
-                        f"but live regime={regime} — OVERRIDING to ALLOW"
-                    )
+                    override_key = f"wave_extractor_override_{regime}"
+                    if self._last_state_logged.get("wave_extractor_override") != override_key:
+                        logger.info(
+                            f"[strategy_filter] wave_extractor: session plan says BLOCKED "
+                            f"but live regime={regime} — OVERRIDING to ALLOW"
+                        )
+                        self._last_state_logged["wave_extractor_override"] = override_key
                 else:
                     return False, (
                         f"session plan: Wave Extractor BLOCKED "

@@ -13,7 +13,7 @@ import pytz
 logger = logging.getLogger(__name__)
 
 # ── Telegram config ────────────────────────────────────────────────────────────
-TELEGRAM_TOKEN   = "8830735820:AAFxqjPAtRHcgK3Zcwotfm9szFGONYWXYpE"
+TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = "1196604785"
 TELEGRAM_URL     = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
