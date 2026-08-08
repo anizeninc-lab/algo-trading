@@ -97,6 +97,42 @@ class TradeLogger:
                 except Exception as e:
                     logger.error(f"Migration error while adding client_order_id: {e}")
 
+            # readable_symbol: human-readable descriptor (underlying+expiry+strike+type),
+            # stored alongside the real broker symbol/instrument_key purely so future
+            # trades can be matched against Upstox's Expired Historical Candle API for
+            # backtesting. Never used for order placement -- display/backtest only.
+            if "readable_symbol" not in columns:
+                try:
+                    conn.execute("ALTER TABLE trades ADD COLUMN readable_symbol TEXT DEFAULT '';")
+                    logger.info("Database Migration applied: Added readable_symbol column to trades table.")
+                except Exception as e:
+                    logger.error(f"Migration error while adding readable_symbol: {e}")
+
+            # peak_pnl: the true peak net P&L (Rs) reached at any point during
+            # the trade, recorded unconditionally every tick via
+            # RiskManager.get_mfe() -- independent of whether trailing ever
+            # armed. Purely for future trailing-threshold tuning (Phase 3);
+            # never read by any exit decision. NULL means not yet recorded
+            # (trade closed before this migration, or MFE tracking wasn't
+            # wired in for that call site yet).
+            if "peak_pnl" not in columns:
+                try:
+                    conn.execute("ALTER TABLE trades ADD COLUMN peak_pnl REAL DEFAULT NULL;")
+                    logger.info("Database Migration applied: Added peak_pnl column to trades table.")
+                except Exception as e:
+                    logger.error(f"Migration error while adding peak_pnl: {e}")
+            # trough_pnl: the true trough net P&L (Rs) reached at any point during
+            # the trade, recorded unconditionally every tick via
+            # RiskManager.get_mae() -- mirrors peak_pnl/MFE but for max adverse
+            # excursion. Purely for future stop-loss tuning (Phase 3); never read
+            # by any exit decision. NULL means not yet recorded.
+            if "trough_pnl" not in columns:
+                try:
+                    conn.execute("ALTER TABLE trades ADD COLUMN trough_pnl REAL DEFAULT NULL;")
+                    logger.info("Database Migration applied: Added trough_pnl column to trades table.")
+                except Exception as e:
+                    logger.error(f"Migration error while adding trough_pnl: {e}")
+
     def _connect(self) -> sqlite3.Connection:
         """Open a clean database thread connection."""
         conn = sqlite3.connect(self.db_path)
@@ -127,6 +163,7 @@ class TradeLogger:
         notes: str = "",
         parent_trade_id: str = "",
         paper_trade: bool = False,
+        readable_symbol: str = "",
     ) -> str:
         """
         Record a new trade when an order fills. 
@@ -160,8 +197,8 @@ class TradeLogger:
                 """
                 INSERT INTO trades
                     (id, strategy, broker, symbol, order_type, quantity,
-                     entry_price, entry_time, status, broker_order_id, client_order_id, notes, parent_trade_id, paper_trade)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?)
+                     entry_price, entry_time, status, broker_order_id, client_order_id, notes, parent_trade_id, paper_trade, readable_symbol)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?)
             """,
                 (
                     trade_id,
@@ -177,6 +214,7 @@ class TradeLogger:
                     notes,
                     parent_trade_id,
                     1 if paper_trade else 0,
+                    readable_symbol,
                 ),
             )
 
@@ -206,12 +244,22 @@ class TradeLogger:
         net_pnl: Optional[float] = None,
         gross_pnl: Optional[float] = None,
         total_costs: Optional[float] = None,
+        peak_pnl: Optional[float] = None,
+        trough_pnl: Optional[float] = None,
     ) -> float:
         """Mark a trade as closed and calculate realised P&L metrics.
 
         If net_pnl/gross_pnl/total_costs are provided (e.g. from wave_extractor
         which computes transaction costs externally), they are stored directly.
         Otherwise P&L is calculated from entry/exit price (legacy path).
+
+        peak_pnl (optional): the true MFE (max favourable excursion, Rs) for
+        this trade, typically from RiskManager.get_mfe(trade_id). Purely for
+        future trailing-threshold tuning -- omit to leave the column NULL,
+        same as before this param existed.
+        trough_pnl (optional): the true MAE (max adverse excursion, Rs) for
+        this trade, typically from RiskManager.get_mae(trade_id). Purely for
+        future stop-loss tuning -- omit to leave the column NULL.
         """
         exit_time = datetime.now().isoformat()
 
@@ -245,19 +293,26 @@ class TradeLogger:
                 _gross_pnl   = pnl
                 _total_costs = 0.0
 
+            set_clauses = [
+                "exit_price   = ?",
+                "exit_time    = ?",
+                "realised_pnl = ?",
+                "gross_pnl    = ?",
+                "total_costs  = ?",
+                "status       = 'CLOSED'",
+                "notes        = ?",
+            ]
+            sql_params = [exit_price, exit_time, pnl, _gross_pnl, _total_costs, notes]
+            if peak_pnl is not None:
+                set_clauses.append("peak_pnl = ?")
+                sql_params.append(round(peak_pnl, 2))
+            if trough_pnl is not None:
+                set_clauses.append("trough_pnl = ?")
+                sql_params.append(round(trough_pnl, 2))
+            sql_params.append(trade_id)
             conn.execute(
-                """
-                UPDATE trades
-                SET exit_price   = ?,
-                    exit_time    = ?,
-                    realised_pnl = ?,
-                    gross_pnl    = ?,
-                    total_costs  = ?,
-                    status       = 'CLOSED',
-                    notes        = ?
-                WHERE id = ?
-            """,
-                (exit_price, exit_time, pnl, _gross_pnl, _total_costs, notes, trade_id),
+                f"UPDATE trades SET {', '.join(set_clauses)} WHERE id = ?",
+                sql_params,
             )
 
         logger.info(f"TradeLogger: closed trade {trade_id} | Gross: {_gross_pnl} | Costs: {_total_costs} | Net P&L: {pnl}")

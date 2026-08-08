@@ -32,6 +32,8 @@ IST = pytz.timezone("Asia/Kolkata")
 STRATEGY_ALLOWED_REGIMES = {
     # Survivor trades range AND weak states (mild trend = still safe to sell premium)
     "survivor":       {REGIME_RANGE, "weak_bull", "weak_bear"},
+    # BankNifty survivor — same regime profile as survivor, tuned independently
+    "bn_survivor":    {REGIME_RANGE, "weak_bull", "weak_bear"},
     # Wave extractor trades strong trends only
     "wave_extractor": {REGIME_TRENDING_BULL, REGIME_TRENDING_BEAR},
     # Saviour combo allows all except closed/opening

@@ -32,6 +32,15 @@ IST_OFFSET = 19800  # seconds
 # ── Thresholds ─────────────────────────────────────────────────────────────
 BULL_SCORE_THRESHOLD       =  60   # strong bull trend
 BEAR_SCORE_THRESHOLD       = -60   # strong bear trend
+# ── Hysteresis exit thresholds ──────────────────────────────────────────
+# Entering trending_bull/bear requires score to reach the entry threshold
+# above (with TREND_CONFIRM_COUNT persistence). But exiting requires a
+# deeper retracement than the entry line — otherwise a score oscillating
+# just above/below the entry threshold (e.g. 58 <-> 62) flips the regime
+# on every other reading, since a single dip below entry previously reset
+# the trend counters to 0 with no persistence required on the way down.
+BULL_EXIT_THRESHOLD        =  45   # must fall below this to exit trending_bull
+BEAR_EXIT_THRESHOLD        = -45   # must rise above this to exit trending_bear
 WEAK_BULL_SCORE_THRESHOLD  =  30   # weak bull (above range, below strong trend)
 WEAK_BEAR_SCORE_THRESHOLD  = -30   # weak bear
 TREND_CONFIRM_COUNT        =  2    # consecutive hits before regime flips
@@ -109,9 +118,63 @@ class RegimeEngine:
         self._ce_oi_history:   List[float] = []  # rolling OI deltas for smoothing
         self._pe_oi_history:   List[float] = []
         self._OI_SMOOTH_PERIODS = 3
-        self._regime_history:  List[dict]  = []  # last 10 regime classifications
-        self._HISTORY_MAX      = 10
+        self._regime_history: List[dict] = []  # last 10 regime classifications
+        self._HISTORY_MAX = 10
         self._stable_since_count: int = 0  # consecutive classify() calls with unchanged regime since last flip
+        self._load_state()
+
+    def _save_state(self) -> None:
+        """Persist trend-confirmation counters so a restart doesn't erase
+        hysteresis progress mid-session (mirrors risk_manager.py's pattern)."""
+        try:
+            import json, os
+            from pathlib import Path
+            from datetime import datetime
+            import pytz
+            state_file = Path("configs/regime_state.json")
+            now = datetime.now(pytz.timezone("Asia/Kolkata"))
+            state = {
+                "date":        now.strftime("%Y-%m-%d"),
+                "bull_count":  self._bull_count,
+                "bear_count":  self._bear_count,
+                "last_regime": self._last_regime,
+            }
+            state_file.parent.mkdir(exist_ok=True)
+            tmp_path = state_file.with_suffix(".json.tmp")
+            with open(tmp_path, "w") as f:
+                json.dump(state, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, state_file)
+        except Exception as e:
+            logger.warning(f"[regime_engine] Failed to save state: {e}")
+
+    def _load_state(self) -> None:
+        """Reload persisted trend-confirmation counters on startup, if from today."""
+        try:
+            import json
+            from pathlib import Path
+            from datetime import datetime
+            import pytz
+            state_file = Path("configs/regime_state.json")
+            if not state_file.exists():
+                return
+            with open(state_file) as f:
+                state = json.load(f)
+            now = datetime.now(pytz.timezone("Asia/Kolkata"))
+            today = now.strftime("%Y-%m-%d")
+            if state.get("date") != today:
+                logger.info("[regime_engine] State file is from previous day — ignoring")
+                return
+            self._bull_count  = state.get("bull_count", 0)
+            self._bear_count  = state.get("bear_count", 0)
+            self._last_regime = state.get("last_regime", "range")
+            logger.info(
+                f"[regime_engine] Restored state — bull_count={self._bull_count} "
+                f"bear_count={self._bear_count} last_regime={self._last_regime}"
+            )
+        except Exception as e:
+            logger.warning(f"[regime_engine] Failed to load state: {e}")
 
     # ── Public ─────────────────────────────────────────────────────────────
 
@@ -264,20 +327,33 @@ class RegimeEngine:
         adx_weak_after_trend = adx_trending and adx < 25  # was trending, now weakening
         trend_exhaustion = price_extended or adx_weak_after_trend
 
-        # ── Persistence gate ──────────────────────────────────────────
-        # Only strong scores increment the trend counters
+        # ── Persistence gate (with hysteresis) ─────────────────────────
+        # Entry: score must reach the strong threshold to start counting.
+        # Once already trending, stay counted-in until score falls past
+        # the more lenient EXIT threshold — not the entry line — so a
+        # score wobbling just above/below entry doesn't flap the regime.
+        already_trending_bull = previous_regime == "trending_bull"
+        already_trending_bear = previous_regime == "trending_bear"
+
         if score >= BULL_SCORE_THRESHOLD:
             self._bull_count += 1
             self._bear_count  = 0
+        elif already_trending_bull and score >= BULL_EXIT_THRESHOLD:
+            # Still above exit floor — hold the existing trend count, don't reset
+            self._bear_count = 0
         elif score <= BEAR_SCORE_THRESHOLD:
             self._bear_count += 1
             self._bull_count  = 0
+        elif already_trending_bear and score <= BEAR_EXIT_THRESHOLD:
+            # Still below exit ceiling — hold the existing trend count, don't reset
+            self._bull_count = 0
         else:
-            # Weak signals reset counters — prevents false trending_bull/bear
+            # Genuinely weak signal — below exit floor/ceiling, safe to reset
             self._bull_count  = 0
             self._bear_count  = 0
 
         # ── Regime decision ───────────────────────────────────────────
+        self._save_state()
         if self._bull_count >= TREND_CONFIRM_COUNT:
             regime = "trending_bull"
         elif self._bear_count >= TREND_CONFIRM_COUNT:

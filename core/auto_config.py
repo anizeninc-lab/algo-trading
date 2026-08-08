@@ -113,8 +113,11 @@ def fetch_instruments() -> list:
         return []
 
 
-def find_symbol_from_instruments(instruments: list, expiry: date, strike: int, option_type: str, underlying: str = "NIFTY") -> str:
-    """Find instrument key from downloaded instruments list."""
+def find_symbol_from_instruments(instruments: list, expiry: date, strike: int, option_type: str, underlying: str = "NIFTY", name_out: dict = None) -> str:
+    """Find instrument key from downloaded instruments list.
+    If name_out (a dict) is provided, populates name_out['tradingsymbol'] with
+    the matched contract human-readable name -- purely for backtesting
+    lookups later. Never affects the returned instrument_key or trading."""
     expiry_str = expiry.strftime("%Y-%m-%d")
     is_banknifty = underlying.upper() == "BANKNIFTY"
 
@@ -137,6 +140,8 @@ def find_symbol_from_instruments(instruments: list, expiry: date, strike: int, o
                     and name.endswith(f"{s}{option_type}")
                 ):
                     logger.info(f"[AutoConfig] Found {option_type}: {ikey} | {name} | expiry: {exp}")
+                    if name_out is not None:
+                        name_out["tradingsymbol"] = name
                     return ikey
             else:
                 if (
@@ -149,6 +154,8 @@ def find_symbol_from_instruments(instruments: list, expiry: date, strike: int, o
                     and name.endswith(f"{s}{option_type}")
                 ):
                     logger.info(f"[AutoConfig] Found {option_type}: {ikey} | {name} | expiry: {exp}")
+                    if name_out is not None:
+                        name_out["tradingsymbol"] = name
                     return ikey
 
     return ""
@@ -195,19 +202,22 @@ def auto_select_symbols(access_token: str = None) -> dict:
             return {}
 
         # Find ATM symbols for weekly expiry
-        ce_symbol = find_symbol_from_instruments(instruments, weekly_expiry, atm_strike, "CE")
-        pe_symbol = find_symbol_from_instruments(instruments, weekly_expiry, atm_strike, "PE")
+        ce_name_out: dict = {}
+        pe_name_out: dict = {}
+        ce_symbol = find_symbol_from_instruments(instruments, weekly_expiry, atm_strike, "CE", name_out=ce_name_out)
+        pe_symbol = find_symbol_from_instruments(instruments, weekly_expiry, atm_strike, "PE", name_out=pe_name_out)
 
         # Fallback to monthly
         if not ce_symbol:
-            ce_symbol = find_symbol_from_instruments(instruments, monthly_expiry, atm_strike, "CE")
+            ce_symbol = find_symbol_from_instruments(instruments, monthly_expiry, atm_strike, "CE", name_out=ce_name_out)
         if not pe_symbol:
-            pe_symbol = find_symbol_from_instruments(instruments, monthly_expiry, atm_strike, "PE")
+            pe_symbol = find_symbol_from_instruments(instruments, monthly_expiry, atm_strike, "PE", name_out=pe_name_out)
 
         symbol_initials = f"NIFTY{weekly_expiry.strftime('%d%b%y').upper()}"
 
         result = {
             "option_symbol":   ce_symbol or pe_symbol,
+            "readable_symbol": ce_name_out.get("tradingsymbol") or pe_name_out.get("tradingsymbol") or "",
             "symbol_initials": symbol_initials,
             "nifty_price":     nifty_price,
             "atm_strike":      atm_strike,

@@ -1,8 +1,16 @@
 {
-  "date": "2026-07-21",
-  "trade_counts": {},
+  "date": "2026-08-07",
+  "trade_counts": {
+    "survivor": 1,
+    "bn_survivor": 1,
+    "wave_extractor": 3
+  },
   "daily_pnl": {},
   "system_halted": false,
   "halt_reason": "",
-  "deployed_capital": {}
+  "deployed_capital": {
+    "survivor": 0.0,
+    "bn_survivor": 0.0,
+    "wave_extractor": 0.0
+  }
 }

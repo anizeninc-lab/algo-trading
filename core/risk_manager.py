@@ -5,6 +5,7 @@
 # UPGRADED: Absolute SQLite state reconciliation for crash protection.
 # HARDCODED: Max capital deployed at any time = ₹1,50,000
 
+import asyncio
 import json
 import logging
 import os
@@ -15,6 +16,7 @@ import pytz
 
 from core.state_store import StrategyState, state_store
 from core.trade_log import trade_logger
+from core.transaction_costs import calculate_order_cost
 
 RISK_STATE_FILE = Path("configs/risk_state.json")
 
@@ -29,6 +31,25 @@ MAX_CAPITAL_DEPLOYED = 250000.0  # ₹2,50,000 — raised for paper trading (Nif
 MARGIN_PER_SELL_LOT  = 40000.0  # ₹40,000 per SELL lot
 MARGIN_PER_BUY_LOT   = 15000.0  # ₹15,000 per BUY lot (premium only)
 LOT_SIZE             = 65       # Nifty lot size
+
+# ─── P&L-linked capital base (dynamic, trailing-window) ────────────────────────
+# capital_base shrinks after losing days and grows back after profitable days,
+# recomputed fresh each day from trailing realised P&L (never carried forward
+# incrementally, to avoid the kind of silent drift found in the 31-Jul
+# capital-tracking investigation). Bounded by the same floor/ceiling already
+# used for the manually-configured per_strategy_cap. Includes paper trades in
+# the P&L calc so the mechanism is active and visible during paper testing.
+CAPITAL_BASE_DEFAULT       = 150000.0
+CAPITAL_BASE_FLOOR         = 50000.0
+CAPITAL_BASE_CEILING       = 200000.0
+CAPITAL_BASE_LOOKBACK_DAYS = 7   # trailing calendar days (matches weekly-drawdown window)
+
+# Periodic ground-truth capital drift check -- catches bugs like the
+# wave_extractor release-on-close gap (31-Jul) automatically instead of
+# requiring a manual log-grep investigation. Matches survivor's existing
+# mid-session broker reconcile cadence (5 minutes).
+CAPITAL_DRIFT_TOLERANCE          = 500.0  # ₹ -- ignore rounding-scale noise, catch real drift
+CAPITAL_RECONCILE_INTERVAL_SECONDS = 300  # 5 minutes
 
 
 class RiskManager:
@@ -45,25 +66,39 @@ class RiskManager:
 
     def __init__(
         self,
-        max_daily_loss:      float = -3000.0,
-        per_trade_loss:      float = -800.0,
-        trailing_profit_pct: float = 25.0,
-        max_trades_per_day:  int   = 3,
-        auto_stop_hour:      int   = 15,
-        auto_stop_minute:    int   = 10,
-        max_weekly_loss:     float = -10000.0,
+        max_daily_loss:          float = -3000.0,
+        per_trade_loss:          float = -800.0,
+        trailing_profit_pct:     float = 25.0,
+        trailing_activation_pct: float = 8.0,
+        max_trades_per_day:      int   = 3,
+        auto_stop_hour:          int   = 15,
+        auto_stop_minute:        int   = 10,
+        max_weekly_loss:         float = -10000.0,
     ):
-        self.max_daily_loss      = max_daily_loss
-        self.per_trade_loss      = per_trade_loss
-        self.trailing_profit_pct = trailing_profit_pct
-        self.max_trades_per_day  = max_trades_per_day
-        self.auto_stop_hour      = auto_stop_hour
-        self.auto_stop_minute    = auto_stop_minute
-        self.max_weekly_loss     = max_weekly_loss
+        self.max_daily_loss          = max_daily_loss
+        self.per_trade_loss          = per_trade_loss
+        self.trailing_profit_pct     = trailing_profit_pct       # giveback % once armed
+        self.trailing_activation_pct = trailing_activation_pct   # % of premium (+ cost) to arm trailing
+        self.max_trades_per_day      = max_trades_per_day
+        self.auto_stop_hour          = auto_stop_hour
+        self.auto_stop_minute        = auto_stop_minute
+        self.max_weekly_loss         = max_weekly_loss
 
         # Per-strategy trade counters (reset each day)
         self._trade_counts:   dict[str, int]   = {}
         self._pnl_watermarks: dict[str, float] = {}
+        # Unconditional MFE (max favourable excursion) tracker -- unlike
+        # _pnl_watermarks, this records the peak net P&L for every trade on
+        # every tick regardless of whether trailing has armed yet. Read-only
+        # bookkeeping for future trailing-threshold tuning; never affects
+        # any exit decision. See get_mfe().
+        self._mfe_watermarks: dict[str, float] = {}
+        # Unconditional MAE (max adverse excursion) tracker -- mirrors
+        # _mfe_watermarks but records the trough (most negative net P&L)
+        # reached at any point in the trade. Read-only bookkeeping for
+        # future stop-loss tuning; never affects any exit decision. See
+        # get_mae().
+        self._mae_watermarks: dict[str, float] = {}
         self._daily_pnl:      dict[str, float] = {}
         self._system_halted:  bool             = False
         self._halt_reason:    str              = ""
@@ -72,7 +107,14 @@ class RiskManager:
         # Capital tracking — tracks deployed capital per strategy
         self._deployed_capital: dict[str, float] = {}
         # Per-strategy capital cap — configurable, persisted to configs/capital_config.json
-        self._per_strategy_cap: float = self._load_capital_config()
+        # capital_base — P&L-linked dynamic ceiling, persisted alongside per_strategy_cap
+        self._per_strategy_cap: float
+        self._capital_base: float
+        self._per_strategy_cap, self._capital_base = self._load_capital_config()
+
+        # Periodic ground-truth capital drift reconciliation (background loop)
+        self._capital_reconcile_task    = None
+        self._capital_reconcile_running = False
 
         # Per-strategy spam prevention
         self._last_blocked: dict[str, tuple] = {}  # (reason, timestamp)
@@ -94,6 +136,10 @@ class RiskManager:
         
         # CRITICAL ADDITION: Run Database Position Reconciliation for absolute safety
         self.reconcile_active_state_from_db()
+
+        # Ensure capital_base reflects latest trailing P&L on every startup,
+        # not just at the next scheduled daily reset
+        self._recompute_capital_base()
 
     # ─── Crash & Database Reconciliation ──────────────────────────────────────
 
@@ -153,35 +199,160 @@ class RiskManager:
         """Returns total capital currently deployed across all strategies."""
         return sum(self._deployed_capital.values())
 
-    def _load_capital_config(self) -> float:
-        """Load per-strategy capital cap from configs/capital_config.json."""
+    def _compute_ground_truth_deployed_capital(self) -> dict:
+        """Ground truth: rebuilds deployed capital per strategy directly from
+        the database's actual active positions, independent of the
+        incrementally-tracked counter. Used by the periodic drift-check loop
+        (does not touch reconcile_active_state_from_db, which remains the
+        startup-only crash-recovery path)."""
+        active_trades = trade_logger.get_active_positions()
+        reconciled: dict[str, float] = {}
+        for trade in active_trades:
+            strat = trade["strategy"]
+            otype = trade["order_type"]
+            _lot_size = 15 if strat == "bn_survivor" else 65
+            _qty = trade.get("quantity", _lot_size) or _lot_size
+            _multiplier = max(1, int(_qty // _lot_size))
+            margin = (MARGIN_PER_SELL_LOT if otype == "SELL" else MARGIN_PER_BUY_LOT) * _multiplier
+            reconciled[strat] = reconciled.get(strat, 0.0) + margin
+        return reconciled
+
+    def _reconcile_deployed_capital_drift(self) -> None:
+        """Periodic drift check: compares the incrementally-tracked
+        _deployed_capital against ground truth computed fresh from active DB
+        positions. Self-heals any drift found and logs it loudly, so bugs
+        like the wave_extractor release-on-close gap (31-Jul) surface
+        automatically instead of requiring a manual log-grep investigation."""
+        try:
+            ground_truth = self._compute_ground_truth_deployed_capital()
+            all_strategies = set(self._deployed_capital) | set(ground_truth)
+            drifted = False
+            for strat in all_strategies:
+                tracked = self._deployed_capital.get(strat, 0.0)
+                truth   = ground_truth.get(strat, 0.0)
+                if abs(tracked - truth) > CAPITAL_DRIFT_TOLERANCE:
+                    drifted = True
+                    logger.warning(
+                        f"[RiskManager] CAPITAL DRIFT DETECTED | {strat}: "
+                        f"tracked=\u20b9{tracked:,.0f} vs ground-truth=\u20b9{truth:,.0f} "
+                        f"(diff \u20b9{tracked - truth:,.0f}) -- self-healing to ground truth"
+                    )
+            if drifted:
+                self._deployed_capital = ground_truth
+                self._save_state()
+            else:
+                logger.debug("[RiskManager] Capital reconcile: no drift detected")
+        except Exception as e:
+            logger.error(f"[RiskManager] Capital drift reconcile failed: {e}")
+
+    async def start_capital_reconcile_loop(self) -> None:
+        self._capital_reconcile_running = True
+        self._capital_reconcile_task = asyncio.create_task(self._capital_reconcile_loop())
+        logger.info(
+            f"[RiskManager] Capital drift reconcile loop started "
+            f"(every {CAPITAL_RECONCILE_INTERVAL_SECONDS}s)"
+        )
+
+    async def stop_capital_reconcile_loop(self) -> None:
+        self._capital_reconcile_running = False
+        if self._capital_reconcile_task:
+            self._capital_reconcile_task.cancel()
+            try:
+                await self._capital_reconcile_task
+            except asyncio.CancelledError:
+                pass
+        logger.info("[RiskManager] Capital drift reconcile loop stopped")
+
+    async def _capital_reconcile_loop(self) -> None:
+        while self._capital_reconcile_running:
+            try:
+                await asyncio.sleep(CAPITAL_RECONCILE_INTERVAL_SECONDS)
+                if self._capital_reconcile_running:
+                    self._reconcile_deployed_capital_drift()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"[RiskManager] Capital reconcile loop error: {e}")
+
+    def _load_capital_config(self) -> tuple[float, float]:
+        """Load per-strategy capital cap and P&L-linked capital_base from
+        configs/capital_config.json. Returns (per_strategy_cap, capital_base)."""
+        cap = 150000.0
+        base = CAPITAL_BASE_DEFAULT
         try:
             import json
             cfg_path = Path("configs/capital_config.json")
             if cfg_path.exists():
                 data = json.loads(cfg_path.read_text())
                 cap = float(data.get("per_strategy_cap", 150000.0))
-                logger.info(f"[RiskManager] Loaded per_strategy_cap: ₹{cap:,.0f}")
-                return cap
+                base = float(data.get("capital_base", CAPITAL_BASE_DEFAULT))
+                logger.info(f"[RiskManager] Loaded per_strategy_cap: ₹{cap:,.0f} | capital_base: ₹{base:,.0f}")
         except Exception as e:
             logger.warning(f"[RiskManager] Could not load capital_config.json: {e}")
-        return 150000.0
+        return cap, base
+
+    def _save_capital_config(self) -> None:
+        """Persist both per_strategy_cap and capital_base together, so setting
+        one via the dashboard never clobbers the other."""
+        try:
+            import json
+            cfg_path = Path("configs/capital_config.json")
+            cfg_path.parent.mkdir(exist_ok=True)
+            cfg_path.write_text(json.dumps({
+                "per_strategy_cap": self._per_strategy_cap,
+                "capital_base":     self._capital_base,
+            }, indent=2))
+        except Exception as e:
+            logger.error(f"[RiskManager] Could not save capital_config.json: {e}")
 
     def set_per_strategy_cap(self, new_cap: float) -> None:
         """Update per-strategy capital cap and persist to disk."""
         new_cap = max(50000.0, min(200000.0, float(new_cap)))
         self._per_strategy_cap = new_cap
-        try:
-            import json
-            cfg_path = Path("configs/capital_config.json")
-            cfg_path.parent.mkdir(exist_ok=True)
-            cfg_path.write_text(json.dumps({"per_strategy_cap": new_cap}, indent=2))
-            logger.info(f"[RiskManager] per_strategy_cap updated to ₹{new_cap:,.0f} and saved")
-        except Exception as e:
-            logger.error(f"[RiskManager] Could not save capital_config.json: {e}")
+        self._save_capital_config()
+        logger.info(f"[RiskManager] per_strategy_cap updated to ₹{new_cap:,.0f} and saved")
 
     def get_per_strategy_cap(self) -> float:
         return self._per_strategy_cap
+
+    def get_capital_base(self) -> float:
+        return self._capital_base
+
+    def get_effective_per_strategy_cap(self) -> float:
+        """The actual limit used by check_capital_limit — the more conservative
+        of the manually-configured per_strategy_cap and the P&L-linked capital_base.
+        A manual dashboard cap always acts as a hard ceiling; capital_base can only
+        pull it tighter after losses or restore it back up toward that ceiling
+        after profits, never past it."""
+        return min(self._per_strategy_cap, self._capital_base)
+
+    def _recompute_capital_base(self) -> None:
+        """Recompute capital_base fresh from trailing realised P&L (live + paper).
+        Deliberately recomputed from the database each time, not carried forward
+        incrementally, so it can't silently drift the way _deployed_capital did
+        (see 31-Jul capital-tracking investigation)."""
+        try:
+            import sqlite3
+            from datetime import timedelta
+            cutoff = (datetime.now(pytz.timezone("Asia/Kolkata")).date()
+                      - timedelta(days=CAPITAL_BASE_LOOKBACK_DAYS)).isoformat()
+            with sqlite3.connect(trade_logger.db_path) as conn:
+                row = conn.execute(
+                    "SELECT SUM(realised_pnl) as total FROM trades "
+                    "WHERE status='CLOSED' AND exit_time >= ?",
+                    (cutoff,)
+                ).fetchone()
+            trailing_pnl = row[0] if row and row[0] is not None else 0.0
+            new_base = max(CAPITAL_BASE_FLOOR, min(CAPITAL_BASE_CEILING, CAPITAL_BASE_DEFAULT + trailing_pnl))
+            old_base = self._capital_base
+            self._capital_base = new_base
+            self._save_capital_config()
+            logger.info(
+                f"[RiskManager] capital_base recomputed | trailing {CAPITAL_BASE_LOOKBACK_DAYS}d P&L: ₹{trailing_pnl:,.0f} "
+                f"| ₹{old_base:,.0f} -> ₹{new_base:,.0f}"
+            )
+        except Exception as e:
+            logger.warning(f"[RiskManager] Could not recompute capital_base: {e}")
 
     def check_capital_limit(self, order_type: str = "SELL", strategy_name: str = "", multiplier: int = 1) -> tuple[bool, str]:
         """
@@ -194,7 +365,7 @@ class RiskManager:
         Returns (False, reason) if limit would be breached.
         """
         margin_needed = (MARGIN_PER_SELL_LOT if order_type == "SELL" else MARGIN_PER_BUY_LOT) * multiplier
-        PER_STRATEGY_CAP = self._per_strategy_cap
+        PER_STRATEGY_CAP = self.get_effective_per_strategy_cap()
         strategy_deployed = self._deployed_capital.get(strategy_name, 0.0)
         projected = strategy_deployed + margin_needed
         if projected > PER_STRATEGY_CAP:
@@ -230,6 +401,7 @@ class RiskManager:
             f"[RiskManager] Capital released | {strategy_name}: "
             f"-₹{margin:,.0f} | Total: ₹{total:,.0f} / ₹{MAX_CAPITAL_DEPLOYED:,.0f}"
         )
+        self._save_state()
 
     # ─── Dynamic risk wiring (session_planner) ──────────────────────────────
     # Session planner can only TIGHTEN these limits, never loosen them beyond
@@ -505,6 +677,7 @@ class RiskManager:
         self._opp_executed      = {}
         self._opp_blocked       = {}
         self._block_reasons     = {}
+        self._recompute_capital_base()
         logger.info("[RiskManager] Daily counters reset")
         self._save_state()
 
@@ -521,8 +694,17 @@ class RiskManager:
                 "deployed_capital": self._deployed_capital,
             }
             RISK_STATE_FILE.parent.mkdir(exist_ok=True)
-            with open(RISK_STATE_FILE, "w") as f:
+            # Atomic write: write to a temp file first, then rename over the
+            # real file. os.replace() is atomic on POSIX, so a process kill
+            # mid-write (e.g. PM2 restart/SIGKILL) can never leave risk_state.json
+            # truncated or corrupted -- readers always see either the old
+            # complete file or the new complete file, never a partial one.
+            tmp_path = RISK_STATE_FILE.with_suffix(".json.tmp")
+            with open(tmp_path, "w") as f:
                 json.dump(state, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, RISK_STATE_FILE)
         except Exception as e:
             logger.warning(f"[RiskManager] Failed to save state: {e}")
 
@@ -577,11 +759,14 @@ class RiskManager:
 
     def check_trade_stop_loss(
         self,
-        entry_price:   float,
-        current_price: float,
-        quantity:      int,
-        order_type:    str   = "SELL",
-        sl_multiplier: float = 1.5,
+        entry_price:         float,
+        current_price:       float,
+        quantity:            int,
+        order_type:          str   = "SELL",
+        sl_multiplier:       float = 1.5,
+        hedge_entry_price:   float = 0.0,
+        hedge_current_price: float = 0.0,
+        hedge_quantity:      int   = 0,
     ) -> bool:
         """
         Returns True if this trade has hit the per-trade stop loss.
@@ -592,21 +777,36 @@ class RiskManager:
 
         For SELL trades: loss occurs when price goes UP.
         For BUY trades: loss occurs when price goes DOWN.
+
+        If hedge_entry_price/hedge_current_price are provided (hedge is always
+        a BUY leg), the hedge's P&L is netted against the main leg before
+        comparing to the SL floor -- so a hedge that fails to offset the main
+        leg's loss (e.g. deep-OTM hedge decaying on expiry day) triggers an
+        exit at the intended net-loss cap, instead of only checking the main
+        leg in isolation.
         """
         if order_type == "SELL":
             pnl = (entry_price - current_price) * quantity
         else:
             pnl = (current_price - entry_price) * quantity
 
+        hedge_pnl = 0.0
+        if hedge_entry_price > 0.0 and hedge_current_price > 0.0:
+            hq = hedge_quantity or quantity
+            hedge_pnl = (hedge_current_price - hedge_entry_price) * hq
+
+        net_pnl = pnl + hedge_pnl
+
         # Dynamic SL: proportional to premium collected, bounded by floor/cap
         dynamic_sl  = -(entry_price * sl_multiplier * quantity)
         effective_sl = max(self.per_trade_loss, min(dynamic_sl, -2500.0))
 
-        if pnl <= effective_sl:
+        if net_pnl <= effective_sl:
             logger.warning(
                 f"[RiskManager] Stop loss hit | "
                 f"Entry: {entry_price} | Current: {current_price} | "
-                f"P&L: ₹{pnl:.2f} | Effective SL: ₹{effective_sl:.2f} "
+                f"Main P&L: ₹{pnl:.2f} | Hedge P&L: ₹{hedge_pnl:.2f} | "
+                f"Net P&L: ₹{net_pnl:.2f} | Effective SL: ₹{effective_sl:.2f} "
                 f"(dynamic={dynamic_sl:.0f}, floor={self.per_trade_loss})"
             )
             return True
@@ -614,22 +814,35 @@ class RiskManager:
 
     def check_trailing_profit(
         self,
-        entry_price:   float,
-        current_price: float,
-        order_type:    str = "SELL",
-        quantity:      int = 65,
-        fixed_target:  float = 0.0,
-        trade_id:      str = "",
+        entry_price:          float,
+        current_price:        float,
+        order_type:            str   = "SELL",
+        quantity:              int   = 65,
+        fixed_target:          float = 0.0,
+        trade_id:              str   = "",
+        hedge_entry_price:     float = 0.0,
+        hedge_current_price:   float = 0.0,
+        hedge_quantity:        int   = 0,
+        hedge_entry_cost:      float = 0.0,
     ) -> bool:
         """
-        Two-stage exit logic:
-        1. FIXED TARGET: exit when P&L >= 40% of premium collected
-        2. HIGH WATERMARK TRAILING STOP: once P&L exceeds 20% of premium,
-           track peak P&L and exit if it retraces 50% from peak.
-           This locks in profits if trade moves in favour then reverses.
-        e.g. entry Rs193 x 65 qty = Rs12,545 premium
-             Activate trailing at Rs2,509 (20%)
-             If peak P&L = Rs4,400, exit floor = Rs2,200 (50% of peak)
+        Two-stage exit logic, cost-aware and hedge-aware:
+        1. FIXED TARGET: exit when net P&L >= 40% of premium collected
+        2. HIGH WATERMARK TRAILING STOP: once net P&L exceeds
+           (trailing_activation_pct% of premium + cost_of_trade), track peak
+           P&L and exit if it retraces below max(cost_of_trade, giveback%
+           of peak). The floor can never sit below cost_of_trade -- once
+           trailing is armed, the trade is guaranteed to close at worst
+           breakeven on real cost, never a manufactured loss from giveback
+           alone eating into a gain that hadn't even covered its own costs.
+
+        Hedge-aware: if hedge_entry_price/hedge_current_price/hedge_quantity
+        are provided, hedge P&L is netted into pnl before any comparison --
+        matching check_trade_stop_loss's existing behaviour. cost_of_trade
+        also includes the hedge leg: hedge_entry_cost is reused from what
+        was already computed once at trade open (avoids recomputing against
+        a possibly-stale current hedge premium), plus an estimated hedge
+        exit cost (hedge is always BUY-to-open, SELL-to-close).
         """
         if entry_price <= 0:
             return False
@@ -638,6 +851,37 @@ class RiskManager:
         else:
             pnl = (current_price - entry_price) * quantity
 
+        hedge_pnl = 0.0
+        if hedge_entry_price > 0.0 and hedge_current_price > 0.0:
+            hq = hedge_quantity or quantity
+            hedge_pnl = (hedge_current_price - hedge_entry_price) * hq
+
+        net_pnl = pnl + hedge_pnl
+
+        # ── Unconditional MFE tracking (bookkeeping only, no effect on the
+        # exit decision below) -- records the true peak net P&L reached at
+        # any point in the trade, even before trailing has armed. This is
+        # what future trailing-threshold tuning should read, since
+        # _pnl_watermarks only starts once the activation threshold is hit.
+        if trade_id:
+            prev_mfe = self._mfe_watermarks.get(trade_id, float("-inf"))
+            if net_pnl > prev_mfe:
+                self._mfe_watermarks[trade_id] = net_pnl
+            prev_mae = self._mae_watermarks.get(trade_id, float("inf"))
+            if net_pnl < prev_mae:
+                self._mae_watermarks[trade_id] = net_pnl
+
+        # ── Real round-trip cost of trade: main leg + hedge leg ────────────
+        entry_side = order_type
+        exit_side  = "BUY" if order_type == "SELL" else "SELL"
+        cost_of_trade = (
+            calculate_order_cost(entry_price, quantity, entry_side) +
+            calculate_order_cost(current_price, quantity, exit_side)
+        )
+        if hedge_quantity > 0:
+            hedge_exit_cost = calculate_order_cost(hedge_current_price, hedge_quantity, "SELL")
+            cost_of_trade += hedge_entry_cost + hedge_exit_cost
+
         premium_collected = entry_price * quantity
         if fixed_target > 0:
             profit_target = fixed_target
@@ -645,32 +889,38 @@ class RiskManager:
             profit_target = round(premium_collected * 0.40, 2)
 
         # ── Stage 1: Fixed target ─────────────────────────────────────────
-        if pnl >= profit_target:
+        if net_pnl >= profit_target:
             if trade_id and trade_id in self._pnl_watermarks:
                 del self._pnl_watermarks[trade_id]
             logger.debug(
                 f"[RiskManager] Fixed profit target hit | "
                 f"Entry: {entry_price} | Current: {current_price} | "
-                f"P&L: Rs{pnl:.2f} | Target: Rs{profit_target}"
+                f"Net P&L: Rs{net_pnl:.2f} | Target: Rs{profit_target}"
             )
             return True
 
-        # ── Stage 2: High watermark trailing stop ─────────────────────────
-        activation_threshold = round(premium_collected * 0.20, 2)
-        if pnl >= activation_threshold and trade_id:
+        # ── Stage 2: High watermark trailing stop (cost-aware) ─────────────
+        activation_threshold = round(
+            premium_collected * (self.trailing_activation_pct / 100.0) + cost_of_trade, 2
+        )
+        if net_pnl >= activation_threshold and trade_id:
             prev_peak = self._pnl_watermarks.get(trade_id, 0.0)
-            if pnl > prev_peak:
-                self._pnl_watermarks[trade_id] = pnl
+            if net_pnl > prev_peak:
+                self._pnl_watermarks[trade_id] = net_pnl
                 logger.debug(
                     f"[RiskManager] Watermark updated | trade={trade_id} | "
-                    f"peak=Rs{pnl:.2f}"
+                    f"peak=Rs{net_pnl:.2f} | cost_of_trade=Rs{cost_of_trade:.2f} | "
+                    f"activation_threshold=Rs{activation_threshold:.2f}"
                 )
-            peak = self._pnl_watermarks.get(trade_id, pnl)
-            floor = round(peak * 0.50, 2)
-            if pnl < floor:
+            peak = self._pnl_watermarks.get(trade_id, net_pnl)
+            giveback_floor = round(peak * (self.trailing_profit_pct / 100.0), 2)
+            floor = max(cost_of_trade, giveback_floor)
+            if net_pnl < floor:
                 logger.debug(
                     f"[RiskManager] Trailing stop triggered | trade={trade_id} | "
-                    f"peak=Rs{peak:.2f} | floor=Rs{floor:.2f} | current=Rs{pnl:.2f}"
+                    f"peak=Rs{peak:.2f} | floor=Rs{floor:.2f} "
+                    f"(giveback=Rs{giveback_floor:.2f}, cost_floor=Rs{cost_of_trade:.2f}) | "
+                    f"current=Rs{net_pnl:.2f}"
                 )
                 if trade_id in self._pnl_watermarks:
                     del self._pnl_watermarks[trade_id]
@@ -678,18 +928,124 @@ class RiskManager:
 
         return False
 
+    def get_watermark(self, trade_id: str) -> float:
+        """Returns current peak net P&L for a trade, or 0.0 if trailing
+        hasn't armed yet. Exposed so callers can persist peak_pnl to the DB
+        on trade close, for future MFE-based backtesting."""
+        return self._pnl_watermarks.get(trade_id, 0.0)
+
+    def get_trailing_status(
+        self,
+        entry_price:          float,
+        current_price:        float,
+        order_type:            str   = "SELL",
+        quantity:              int   = 65,
+        trade_id:              str   = "",
+        hedge_entry_price:     float = 0.0,
+        hedge_current_price:   float = 0.0,
+        hedge_quantity:        int   = 0,
+        hedge_entry_cost:      float = 0.0,
+    ) -> dict:
+        """
+        Read-only snapshot of trailing state for a trade, for dashboard
+        display. Mirrors the exact cost/hedge/activation/floor math used in
+        check_trailing_profit -- so the dashboard can never show numbers
+        that disagree with what the live trading logic is actually doing --
+        but never mutates _pnl_watermarks. Safe to call every tick.
+        """
+        empty = {
+            "net_pnl": 0.0, "cost_of_trade": 0.0, "peak_pnl": 0.0,
+            "trailing_armed": False, "trailing_floor": 0.0,
+            "activation_threshold": 0.0,
+        }
+        if entry_price <= 0:
+            return empty
+
+        if order_type == "SELL":
+            pnl = (entry_price - current_price) * quantity
+        else:
+            pnl = (current_price - entry_price) * quantity
+
+        hedge_pnl = 0.0
+        if hedge_entry_price > 0.0 and hedge_current_price > 0.0:
+            hq = hedge_quantity or quantity
+            hedge_pnl = (hedge_current_price - hedge_entry_price) * hq
+
+        net_pnl = pnl + hedge_pnl
+
+        entry_side = order_type
+        exit_side  = "BUY" if order_type == "SELL" else "SELL"
+        cost_of_trade = (
+            calculate_order_cost(entry_price, quantity, entry_side) +
+            calculate_order_cost(current_price, quantity, exit_side)
+        )
+        if hedge_quantity > 0:
+            hedge_exit_cost = calculate_order_cost(hedge_current_price, hedge_quantity, "SELL")
+            cost_of_trade += hedge_entry_cost + hedge_exit_cost
+
+        premium_collected = entry_price * quantity
+        activation_threshold = round(
+            premium_collected * (self.trailing_activation_pct / 100.0) + cost_of_trade, 2
+        )
+
+        peak  = self._pnl_watermarks.get(trade_id, 0.0)
+        armed = trade_id in self._pnl_watermarks
+        if armed:
+            giveback_floor = round(peak * (self.trailing_profit_pct / 100.0), 2)
+            trailing_floor = max(cost_of_trade, giveback_floor)
+        else:
+            # Not armed yet -- this is what the floor WOULD be if it armed
+            # right now, informative only.
+            trailing_floor = cost_of_trade
+
+        return {
+            "net_pnl":              round(net_pnl, 2),
+            "cost_of_trade":        round(cost_of_trade, 2),
+            "peak_pnl":             round(peak, 2),
+            "trailing_armed":       armed,
+            "trailing_floor":       round(trailing_floor, 2),
+            "activation_threshold": activation_threshold,
+        }
+
+    def get_mfe(self, trade_id: str) -> float:
+        """Returns the peak net P&L (Rs) ever reached by this trade, tracked
+        unconditionally on every tick regardless of trailing-armed state.
+        Call this at trade close, before clear_watermark(), to persist the
+        real MFE for future trailing-threshold tuning. Returns 0.0 if the
+        trade_id was never seen (e.g. trailing wasn't called for it)."""
+        mfe = self._mfe_watermarks.get(trade_id, float("-inf"))
+        return mfe if mfe != float("-inf") else 0.0
+
+    def get_mae(self, trade_id: str) -> float:
+        """Returns the trough net P&L (Rs) ever reached by this trade (most
+        negative point), tracked unconditionally on every tick regardless of
+        trailing-armed state. Call this at trade close, before
+        clear_watermark(), to persist the real MAE for future stop-loss
+        tuning. Returns 0.0 if the trade_id was never seen."""
+        mae = self._mae_watermarks.get(trade_id, float("inf"))
+        return mae if mae != float("inf") else 0.0
+
     def clear_watermark(self, trade_id: str) -> None:
-        """Call on trade close to clean up watermark state."""
+        """Call on trade close to clean up watermark state. Read get_mfe()
+        and get_mae() BEFORE calling this, since it also clears both
+        trackers."""
         self._pnl_watermarks.pop(trade_id, None)
+        self._mfe_watermarks.pop(trade_id, None)
+        self._mae_watermarks.pop(trade_id, None)
 
 
 # ─── Global singleton ─────────────────────────────────────────────────────────
 risk_manager = RiskManager(
-    max_daily_loss      = -3000.0,
-    per_trade_loss      = -800.0,
-    trailing_profit_pct = 50.0,
-    max_trades_per_day  = 3,
-    auto_stop_hour      = 15,
-    auto_stop_minute    = 10,
+    max_daily_loss          = -3000.0,
+    per_trade_loss          = -800.0,
+    trailing_profit_pct     = 50.0,   # giveback % once trailing is armed
+    trailing_activation_pct = 8.0,    # % of premium (+ cost_of_trade) to arm trailing
+    max_trades_per_day      = 3,
+    auto_stop_hour          = 15,
+    auto_stop_minute        = 10,
 )
 # TP now 40% of premium collected — see check_trailing_profit()
+# trailing_activation_pct=8.0 is a starting estimate from the one real MFE
+# data point available (Aug 3 wave_extractor trade peaked at ~8.4% before
+# reversing to a stop-loss). Revisit once peak_pnl is persisted and a real
+# backtest across many trades is possible.

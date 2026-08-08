@@ -1,5 +1,13 @@
 #!/bin/bash
 cd /home/ubuntu/trading-algo || exit 1
+
+# ── Weekend guard ────────────────────────────────────────────────────────
+# Markets are closed Sat/Sun — don't check or auto-restart trading-bot on
+# these days, even if it's intentionally stopped. date +%u gives 1=Mon..7=Sun.
+DOW=$(date +%u)
+if [ "$DOW" -ge 6 ]; then
+    exit 0
+fi
 TELEGRAM_TOKEN=$(grep TELEGRAM_TOKEN .env | cut -d '=' -f2)
 TELEGRAM_CHAT_ID=$(grep TELEGRAM_CHAT .env | cut -d '=' -f2)
 STATE_FILE="/tmp/trading_bot_last_restarts.txt"

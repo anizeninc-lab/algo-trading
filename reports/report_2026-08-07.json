@@ -1,0 +1,118 @@
+{
+  "date": "2026-08-07",
+  "total_trades": 8,
+  "closed_trades": 8,
+  "open_trades": 0,
+  "winners": 3,
+  "losers": 5,
+  "total_pnl": -1819.52,
+  "win_rate": 37.5,
+  "avg_win": 418.73,
+  "avg_loss": -615.14,
+  "best_trade": 632.65,
+  "worst_trade": -1023.83,
+  "exit_reasons": {
+    "TRAILING_PROFIT": 2,
+    "STOP_LOSS": 2,
+    "HEDGE_EXIT_REGIME_CHANGE": 2,
+    "REGIME_CHANGE": 2
+  },
+  "trades": [
+    {
+      "id": "793ddadc",
+      "symbol": "NSE_FO|41017",
+      "direction": "PE",
+      "entry_price": 97.3,
+      "exit_price": 86.7,
+      "pnl": 632.65,
+      "status": "CLOSED",
+      "entry_time": "2026-08-07T14:06",
+      "exit_time": "2026-08-07T14:47",
+      "notes": "TRAILING_PROFIT"
+    },
+    {
+      "id": "0c9624de",
+      "symbol": "NSE_FO|41017",
+      "direction": "PE",
+      "entry_price": 91.0,
+      "exit_price": 77.8,
+      "pnl": -913.15,
+      "status": "CLOSED",
+      "entry_time": "2026-08-07T14:06",
+      "exit_time": "2026-08-07T14:06",
+      "notes": "STOP_LOSS"
+    },
+    {
+      "id": "09968bba",
+      "symbol": "NSE_FO|41017",
+      "direction": "PE",
+      "entry_price": 94.1,
+      "exit_price": 79.2,
+      "pnl": -1023.83,
+      "status": "CLOSED",
+      "entry_time": "2026-08-07T14:06",
+      "exit_time": "2026-08-07T14:06",
+      "notes": "STOP_LOSS"
+    },
+    {
+      "id": "3e61a5e5",
+      "symbol": "NSE_FO|BANKNIFTY25AUG2660000CE",
+      "direction": "CE",
+      "entry_price": 1.0,
+      "exit_price": 0.5,
+      "pnl": -7.5,
+      "status": "CLOSED",
+      "entry_time": "2026-08-07T13:54",
+      "exit_time": "2026-08-07T14:07",
+      "notes": "HEDGE_EXIT_REGIME_CHANGE"
+    },
+    {
+      "id": "65c1a72e",
+      "symbol": "NSE_FO|59161",
+      "direction": "PE",
+      "entry_price": 121.0,
+      "exit_price": 111.0,
+      "pnl": 45.43,
+      "status": "CLOSED",
+      "entry_time": "2026-08-07T13:54",
+      "exit_time": "2026-08-07T14:07",
+      "notes": "REGIME_CHANGE"
+    },
+    {
+      "id": "e9878c5e",
+      "symbol": "NSE_FO|NIFTY11AUG2624150PE",
+      "direction": "PE",
+      "entry_price": 6.9,
+      "exit_price": 3.5,
+      "pnl": -221.0,
+      "status": "CLOSED",
+      "entry_time": "2026-08-07T13:51",
+      "exit_time": "2026-08-07T14:07",
+      "notes": "HEDGE_EXIT_REGIME_CHANGE"
+    },
+    {
+      "id": "40cf3791",
+      "symbol": "NSE_FO|41004",
+      "direction": "PE",
+      "entry_price": 26.9,
+      "exit_price": 36.0,
+      "pnl": -910.22,
+      "status": "CLOSED",
+      "entry_time": "2026-08-07T13:51",
+      "exit_time": "2026-08-07T14:07",
+      "notes": "REGIME_CHANGE"
+    },
+    {
+      "id": "b46313f0",
+      "symbol": "NSE_FO|41017",
+      "direction": "PE",
+      "entry_price": 123.4,
+      "exit_price": 113.6,
+      "pnl": 578.1,
+      "status": "CLOSED",
+      "entry_time": "2026-08-07T09:50",
+      "exit_time": "2026-08-07T13:55",
+      "notes": "TRAILING_PROFIT"
+    }
+  ]
+}
