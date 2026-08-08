@@ -79,7 +79,7 @@ class StateStore:
             with _sq.connect(_tl.db_path) as _conn:
                 _row = _conn.execute(
                     "SELECT SUM(realised_pnl) FROM trades "
-                    "WHERE strategy=? AND status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND DATE(exit_time)=?",
+                    "WHERE strategy=? AND status='CLOSED' AND DATE(exit_time)=?",  # ORPHANED% no longer excluded -- real losses must count toward halt (see enhancement #2)
                     (name, _today)
                 ).fetchone()
             seeded_pnl = float(_row[0]) if _row and _row[0] is not None else 0.0
@@ -157,7 +157,10 @@ class StateStore:
         active_count = 0
         health       = "OK"
         for status in self._states.values():
-            total_pnl += status.realised_pnl
+            # saviour_combo is a derived rollup of wave_extractor/survivor/bn_survivor,
+            # not independent capital — exclude it from the sum to avoid double-counting.
+            if status.name != "saviour_combo":
+                total_pnl += status.realised_pnl
             if status.state == StrategyState.RUNNING:
                 active_count += 1
             if status.state == StrategyState.ERROR:

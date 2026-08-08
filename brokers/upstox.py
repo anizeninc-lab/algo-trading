@@ -542,14 +542,20 @@ class UpstoxAdapter(AbstractBrokerGateway):
                         if _fail_count >= 5:
                             logger.warning("[heartbeat] CRITICAL — forcing WebSocket reconnect")
                             try:
-                                from core.alerting import send_telegram, LEVEL_CRITICAL
-                                send_telegram(
-                                    f"🚨 WEBSOCKET CRITICAL\n"
-                                    f"No ticks for {elapsed:.0f}s\n"
-                                    f"{_fail_count} consecutive failures\n"
-                                    f"Forcing reconnect now",
-                                    LEVEL_CRITICAL
-                                )
+                                import pytz as _ptz2
+                                from datetime import time as _dtime2
+                                _now2 = datetime.now(_ptz2.timezone("Asia/Kolkata"))
+                                _mkt_open2 = _dtime2(9, 15) <= _now2.time() <= _dtime2(15, 15)
+                                _is_weekday2 = _now2.weekday() < 5
+                                if _mkt_open2 and _is_weekday2:
+                                    from core.alerting import send_telegram, LEVEL_CRITICAL
+                                    send_telegram(
+                                        f"🚨 WEBSOCKET CRITICAL\n"
+                                        f"No ticks for {elapsed:.0f}s\n"
+                                        f"{_fail_count} consecutive failures\n"
+                                        f"Forcing reconnect now",
+                                        LEVEL_CRITICAL
+                                    )
                             except Exception:
                                 pass
                             self._close_ws_connection()

@@ -77,6 +77,7 @@ def run_dashboard_thread():
 async def run_strategies(config: dict):
     from brokers import get_broker
     from core.vix_manager import vix_manager
+    from core.risk_manager import risk_manager
     from strategy.saviour_combo import SaviourCombo, SaviourComboConfig
     from strategy.survivor import SurvivorConfig
     from strategy.wave_extractor import WaveConfig
@@ -85,6 +86,12 @@ async def run_strategies(config: dict):
     # Share broker with dashboard API for funds endpoint
     import dashboard.api as dashboard_api
     dashboard_api.broker_ref = broker
+    # Wire market_context to the broker directly here rather than relying on
+    # dashboard's startup() event, which can fire before broker_ref is set
+    # (uvicorn server setup happens earlier than this line) — calling it
+    # twice is harmless since subscribe_ticks() dedupes callbacks.
+    from core.market_context import market_context
+    market_context.set_broker(broker)
 
     from core.session_planner import session_planner
     session_planner.start()
@@ -101,9 +108,14 @@ async def run_strategies(config: dict):
     logger.info(
         f"VIX Manager started | VIX: {vix_manager.current_vix:.2f} | Regime: {vix_manager.regime_name}"
     )
+    # Periodic ground-truth capital drift check -- self-heals and loudly logs
+    # any mismatch between tracked and actual deployed capital (see 31-Jul
+    # capital-tracking investigation)
+    await risk_manager.start_capital_reconcile_loop()
 
     wave_cfg = WaveConfig(
         option_symbol=config.get("option_symbol", ""),
+        readable_symbol=config.get("readable_symbol", ""),
         sell_gap=config.get("sell_gap", 20.0),
         buy_gap=config.get("buy_gap", 20.0),
         quantity=config.get("wave_quantity", 65),
@@ -178,6 +190,7 @@ async def run_strategies(config: dict):
         logger.info("Strategy runner cancelled. Stopping...")
         await combo.stop(reason="MANUAL")
         await vix_manager.stop()
+        await risk_manager.stop_capital_reconcile_loop()
 
 async def main():
     # ── Time sync check ───────────────────────────────────────────────────

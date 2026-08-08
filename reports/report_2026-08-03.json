@@ -1,0 +1,31 @@
+{
+  "date": "2026-08-03",
+  "total_trades": 1,
+  "closed_trades": 1,
+  "open_trades": 0,
+  "winners": 0,
+  "losers": 1,
+  "total_pnl": -1045.89,
+  "win_rate": 0.0,
+  "avg_win": 0,
+  "avg_loss": -1045.89,
+  "best_trade": -1045.89,
+  "worst_trade": -1045.89,
+  "exit_reasons": {
+    "STOP_LOSS": 1
+  },
+  "trades": [
+    {
+      "id": "6eba716c",
+      "symbol": "NSE_FO|65854",
+      "direction": "PE",
+      "entry_price": 187.4,
+      "exit_price": 172.3,
+      "pnl": -1045.89,
+      "status": "CLOSED",
+      "entry_time": "2026-08-03T10:01",
+      "exit_time": "2026-08-03T15:09",
+      "notes": "STOP_LOSS"
+    }
+  ]
+}

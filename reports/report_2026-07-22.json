@@ -1,0 +1,56 @@
+{
+  "date": "2026-07-22",
+  "total_trades": 3,
+  "closed_trades": 3,
+  "open_trades": 0,
+  "winners": 2,
+  "losers": 1,
+  "total_pnl": 83.14,
+  "win_rate": 66.7,
+  "avg_win": 60.24,
+  "avg_loss": -37.35,
+  "best_trade": 99.05,
+  "worst_trade": -37.35,
+  "exit_reasons": {
+    "REGIME_CHANGE": 1,
+    "REGIME_CHANGE_RECONCILED_MANUAL": 2
+  },
+  "trades": [
+    {
+      "id": "12006657",
+      "symbol": "NSE_FO|63918",
+      "direction": "PE",
+      "entry_price": 34.2,
+      "exit_price": 31.9,
+      "pnl": 99.05,
+      "status": "CLOSED",
+      "entry_time": "2026-07-22T12:47",
+      "exit_time": "2026-07-22T12:59",
+      "notes": "REGIME_CHANGE"
+    },
+    {
+      "id": "c8ff7c53",
+      "symbol": "NSE_FO|63918",
+      "direction": "PE",
+      "entry_price": 29.8,
+      "exit_price": 28.7,
+      "pnl": 21.44,
+      "status": "CLOSED",
+      "entry_time": "2026-07-22T10:49",
+      "exit_time": "2026-07-22T11:20",
+      "notes": "REGIME_CHANGE_RECONCILED_MANUAL"
+    },
+    {
+      "id": "816a5a12",
+      "symbol": "NSE_FO|61838",
+      "direction": "PE",
+      "entry_price": 96.2,
+      "exit_price": 95.4,
+      "pnl": -37.35,
+      "status": "CLOSED",
+      "entry_time": "2026-07-22T10:49",
+      "exit_time": "2026-07-22T11:20",
+      "notes": "REGIME_CHANGE_RECONCILED_MANUAL"
+    }
+  ]
+}

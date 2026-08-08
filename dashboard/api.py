@@ -244,6 +244,13 @@ async def get_trades(
             t["unrealised_pnl"] = cached_pnl if cached_pnl is not None else 0.0
             t["current_ltp"]    = cached_ltp if cached_ltp is not None else 0.0
             t["ltp_fresh"]      = cached_ltp is not None and cached_ltp > 0
+            trailing = trailing_registry.get(t["id"])
+            if trailing:
+                t["cost_of_trade"]        = trailing.get("cost_of_trade", 0.0)
+                t["peak_pnl"]             = trailing.get("peak_pnl", 0.0)
+                t["trailing_armed"]       = trailing.get("trailing_armed", False)
+                t["trailing_floor"]       = trailing.get("trailing_floor", 0.0)
+                t["activation_threshold"] = trailing.get("activation_threshold", 0.0)
     return {"trades": trades, "count": len(trades)}
 @app.get("/api/trades/summary")
 async def get_trades_summary(strategy: str = None):
@@ -258,6 +265,13 @@ async def get_banknifty_trades(status: str = None, limit: int = 200):
             t["unrealised_pnl"] = pnl_registry.get(t["id"], 0.0)
             t["current_ltp"]    = ltp_registry.get(t["id"], 0.0)
             t["ltp_fresh"]      = ltp_registry.get(t["id"], 0.0) > 0
+            trailing = trailing_registry.get(t["id"])
+            if trailing:
+                t["cost_of_trade"]        = trailing.get("cost_of_trade", 0.0)
+                t["peak_pnl"]             = trailing.get("peak_pnl", 0.0)
+                t["trailing_armed"]       = trailing.get("trailing_armed", False)
+                t["trailing_floor"]       = trailing.get("trailing_floor", 0.0)
+                t["activation_threshold"] = trailing.get("activation_threshold", 0.0)
     return {"trades": trades, "count": len(trades)}
 
 @app.get("/api/banknifty/summary")
@@ -513,7 +527,7 @@ async def get_trades_analytics():
                 ROUND(AVG(realised_pnl),2) as avg_pnl,
                 ROUND(MAX(realised_pnl),2) as best,
                 ROUND(MIN(realised_pnl),2) as worst
-            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%'
+            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND notes NOT LIKE '%PNL_SIGN_BUG_IGNORE%' AND notes NOT LIKE '%PNL_SIGN_BUG_IGNORE%'
             GROUP BY strategy, paper_trade ORDER BY paper_trade ASC, total_pnl DESC
         """)
         strategy_rows = [dict(r) for r in cur.fetchall()]
@@ -531,7 +545,7 @@ async def get_trades_analytics():
                 entry_time,
                 exit_time,
                 CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END as winner
-            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND paper_trade=1
+            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND notes NOT LIKE '%PNL_SIGN_BUG_IGNORE%' AND notes NOT LIKE '%PNL_SIGN_BUG_IGNORE%' AND paper_trade=1
             AND exit_time >= DATE('now','-30 days')
             ORDER BY exit_time ASC
         """)
@@ -542,7 +556,7 @@ async def get_trades_analytics():
                 ROUND(SUM(realised_pnl),2) as pnl,
                 COUNT(*) as trades,
                 SUM(CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END) as winners
-            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND paper_trade=1
+            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND notes NOT LIKE '%PNL_SIGN_BUG_IGNORE%' AND notes NOT LIKE '%PNL_SIGN_BUG_IGNORE%' AND paper_trade=1
             AND exit_time >= DATE('now','-84 days')
             GROUP BY DATE(exit_time) ORDER BY day ASC
         """)
@@ -553,7 +567,7 @@ async def get_trades_analytics():
                 ROUND(SUM(realised_pnl),2) as pnl,
                 COUNT(*) as trades,
                 SUM(CASE WHEN realised_pnl > 0 THEN 1 ELSE 0 END) as winners
-            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND paper_trade=1
+            FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND notes NOT LIKE '%PNL_SIGN_BUG_IGNORE%' AND notes NOT LIKE '%PNL_SIGN_BUG_IGNORE%' AND paper_trade=1
             AND exit_time >= DATE('now','-180 days')
             GROUP BY STRFTIME('%Y-W%W', exit_time) ORDER BY week ASC
         """)
@@ -768,7 +782,7 @@ async def startup():
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT strategy, SUM(realised_pnl) as total FROM trades "
-                "WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND DATE(exit_time)=? AND paper_trade=1 "
+                "WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND notes NOT LIKE '%PNL_SIGN_BUG_IGNORE%' AND notes NOT LIKE '%PNL_SIGN_BUG_IGNORE%' AND DATE(exit_time)=? AND paper_trade=1 "
                 "GROUP BY strategy",
                 (today,)
             ).fetchall()
@@ -786,6 +800,7 @@ async def startup():
 # ── Unrealised PnL Registry ───────────────────────────────────────────────────
 pnl_registry: dict = {}
 ltp_registry: dict = {}
+trailing_registry: dict = {}  # per-trade: cost_of_trade, peak_pnl, trailing_armed, trailing_floor, activation_threshold
 
 # In-memory alert store — last 50 critical alerts
 from collections import deque
@@ -1022,7 +1037,7 @@ async def get_capital_recommendation():
             with sqlite3.connect(db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 row = conn.execute(
-                    "SELECT SUM(realised_pnl) as total FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND DATE(exit_time)=?",
+                    "SELECT SUM(realised_pnl) as total FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND notes NOT LIKE '%PNL_SIGN_BUG_IGNORE%' AND notes NOT LIKE '%PNL_SIGN_BUG_IGNORE%' AND DATE(exit_time)=?",
                     (today,)
                 ).fetchone()
                 daily_pnl = row["total"] or 0.0
@@ -1042,7 +1057,7 @@ async def get_capital_recommendation():
             with sqlite3.connect(db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 rows = conn.execute(
-                    "SELECT realised_pnl FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND DATE(exit_time)=?",
+                    "SELECT realised_pnl FROM trades WHERE status='CLOSED' AND notes NOT LIKE 'ORPHANED%' AND notes NOT LIKE '%PNL_SIGN_BUG_IGNORE%' AND notes NOT LIKE '%PNL_SIGN_BUG_IGNORE%' AND DATE(exit_time)=?",
                     (today,)
                 ).fetchall()
                 if len(rows) >= 2:

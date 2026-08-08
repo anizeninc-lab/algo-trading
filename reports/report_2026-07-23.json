@@ -1,0 +1,68 @@
+{
+  "date": "2026-07-23",
+  "total_trades": 4,
+  "closed_trades": 4,
+  "open_trades": 0,
+  "winners": 0,
+  "losers": 4,
+  "total_pnl": -2117.27,
+  "win_rate": 0.0,
+  "avg_win": 0,
+  "avg_loss": -529.32,
+  "best_trade": -23.61,
+  "worst_trade": -1012.2,
+  "exit_reasons": {
+    "EOD": 2,
+    "STOP_LOSS": 2
+  },
+  "trades": [
+    {
+      "id": "cf7a9a15",
+      "symbol": "NSE_FO|63916",
+      "direction": "PE",
+      "entry_price": 24.9,
+      "exit_price": 24.5,
+      "pnl": -23.61,
+      "status": "CLOSED",
+      "entry_time": "2026-07-23T15:07",
+      "exit_time": "2026-07-23T15:10",
+      "notes": "EOD"
+    },
+    {
+      "id": "60eac37e",
+      "symbol": "NSE_FO|61883",
+      "direction": "PE",
+      "entry_price": 74.3,
+      "exit_price": 76.0,
+      "pnl": -74.37,
+      "status": "CLOSED",
+      "entry_time": "2026-07-23T15:04",
+      "exit_time": "2026-07-23T15:10",
+      "notes": "EOD"
+    },
+    {
+      "id": "bc36138c",
+      "symbol": "NSE_FO|63937",
+      "direction": "PE",
+      "entry_price": 108.0,
+      "exit_price": 93.3,
+      "pnl": -1012.2,
+      "status": "CLOSED",
+      "entry_time": "2026-07-23T12:30",
+      "exit_time": "2026-07-23T12:36",
+      "notes": "STOP_LOSS"
+    },
+    {
+      "id": "e7e890aa",
+      "symbol": "NSE_FO|63937",
+      "direction": "PE",
+      "entry_price": 122.2,
+      "exit_price": 107.6,
+      "pnl": -1007.09,
+      "status": "CLOSED",
+      "entry_time": "2026-07-23T11:57",
+      "exit_time": "2026-07-23T12:27",
+      "notes": "STOP_LOSS"
+    }
+  ]
+}

@@ -721,17 +721,26 @@ function VixBox({ vix }) {
   )
 }
 
-function StratCard({ name, data, onStop, onReset, trades }) {
+function StratCard({ name, data, onStop, onReset, trades, stratCapital }) {
   const title = name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
   const myTrades = trades.filter(t => t.strategy === name)
   const openTrades = myTrades.filter(t => t.status === "OPEN")
   const closedTrades = myTrades.filter(t => t.status === "CLOSED")
   const winCount = closedTrades.filter(t => (t.realised_pnl || 0) > 0).length
   const winRate = closedTrades.length > 0 ? ((winCount / closedTrades.length) * 100).toFixed(0) : "—"
-  const capitalUsed = openTrades.reduce((s, t) => s + (t.entry_price || 0) * (t.quantity || 0), 0)
-  const capitalLimit = 40000
-  const capPct = Math.min(100, (capitalUsed / capitalLimit) * 100)
+  // Capital numbers now come from risk_manager via /api/capital -- the same
+  // source of truth used by the actual capital guard that blocks trades,
+  // instead of this card's own disconnected local calc (see 31-Jul
+  // capital-tracking investigation). saviour_combo's BankNifty trades
+  // register capital under the "bn_survivor" strategy name internally.
+  const stratKey = name === "saviour_combo" ? "bn_survivor" : name
+  const capSlice = stratCapital?.strategies?.find(x => x.key === stratKey)
+  const capitalUsed  = capSlice ? capSlice.deployed : 0
+  const capitalLimit = capSlice ? capSlice.cap : 40000
+  const capPct = Math.min(100, capitalLimit > 0 ? (capitalUsed / capitalLimit) * 100 : 0)
   const capCol = capPct > 80 ? C.red : capPct > 50 ? C.orange : C.green
+  const capDrift     = capSlice?.drift ?? 0
+  const capDriftFlag = capSlice?.drift_flag ?? false
 
   if (!data) return (
     <div style={{ background: C.card, borderRadius: 12, padding: 18, border: `1px solid ${C.border}`, minHeight: 180, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -794,6 +803,11 @@ function StratCard({ name, data, onStop, onReset, trades }) {
         <div style={{ height: 3, background: C.border, borderRadius: 2 }}>
           <div style={{ height: "100%", width: `${capPct}%`, background: capCol, borderRadius: 2, transition: "width 0.5s" }} />
         </div>
+        {capDriftFlag && (
+          <div style={{ marginTop: 6, fontSize: 9, color: C.red, fontWeight: 700 }}>
+            ⚠ DRIFT ₹{fmt(Math.abs(capDrift), 0)} vs ground truth — auto-heals within 5min
+          </div>
+        )}
       </div>
       <div style={{ background: C.panel, borderRadius: 6, padding: "7px 10px", fontSize: 10, color: "#4a8080", borderLeft: `2px solid ${C.dim}`, fontFamily: "monospace", minHeight: 26 }}>
         {data.last_signal || "— no signal yet —"}
@@ -1438,7 +1452,10 @@ function OpenPositions({ trades }) {
         const ltp     = t.current_ltp || 0
         const fresh   = t.ltp_fresh === true
         const premium = (t.entry_price || 0) * (t.quantity || 0)
-        const beHit   = unreal >= 400
+        const trailingArmed = t.trailing_armed === true
+        const costOfTrade   = t.cost_of_trade || 0
+        const peakPnl       = t.peak_pnl || 0
+        const trailingFloor = t.trailing_floor || 0
         const capDeployed = 40000
         const pctReturn = premium > 0 ? ((unreal / premium) * 100).toFixed(1) : "0.0"
         const tpTarget  = (premium * 0.40).toFixed(0)
@@ -1458,6 +1475,8 @@ function OpenPositions({ trades }) {
                 ["CAP USED",  fmtRs(capDeployed)],
                 ["% RETURN",  pctReturn + "%"],
                 ["TP TARGET", fmtRs(Number(tpTarget))],
+                ["COST",      fmtRs(costOfTrade)],
+                ["PEAK",      fmtRs(peakPnl)],
               ].map(([label, val]) => (
                 <div key={label}>
                   <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>{label}</div>
@@ -1468,7 +1487,7 @@ function OpenPositions({ trades }) {
                     fontWeight: label === "DIR" ? 700 : 400 }}>{val}</div>
                 </div>
               ))}
-              {beHit && <div style={{ background: "#00e87a20", border: "1px solid #00e87a40", borderRadius: 6, padding: "2px 8px", fontSize: 10, color: C.green, fontWeight: 700 }}>🔒 BE LOCKED</div>}
+              {trailingArmed && <div style={{ background: "#00e87a20", border: "1px solid #00e87a40", borderRadius: 6, padding: "2px 8px", fontSize: 10, color: C.green, fontWeight: 700 }}>🔒 TRAILING ARMED | Floor: {fmtRs(trailingFloor)}</div>}
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end", marginBottom: 2 }}>
@@ -2455,6 +2474,22 @@ export default function App() {
   const [tab,      setTab]      = useState("positions")
   const [token,    setToken]    = useState(null)
   const capital = useCapital()
+  // Per-strategy capital tracking from risk_manager (ground truth + drift
+  // detection) -- single source of truth also used by the actual capital
+  // guard that blocks trades, replacing each StratCard's own disconnected,
+  // hardcoded local calc (see 31-Jul capital-tracking investigation)
+  const [stratCapital, setStratCapital] = useState(null)
+  useEffect(() => {
+    async function fetchStratCapital() {
+      try {
+        const r = await axios.get(`${API}/api/capital`)
+        if (r.data) setStratCapital(r.data)
+      } catch {}
+    }
+    fetchStratCapital()
+    const id = setInterval(fetchStratCapital, 5000)
+    return () => clearInterval(id)
+  }, [])
   const wsRef   = useRef(null)
   const [soundEnabled, setSoundEnabled] = useState(false)
   const prevTradeCount = useRef(0)
@@ -2631,7 +2666,7 @@ export default function App() {
       {/* ── Strategy cards ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, marginBottom: 16 }}>
         {["saviour_combo", "survivor", "wave_extractor"].map(name => (
-          <StratCard key={name} name={name} data={s[name]} onStop={handleStop} onReset={handleReset} trades={trades} />
+          <StratCard key={name} name={name} data={s[name]} onStop={handleStop} onReset={handleReset} trades={trades} stratCapital={stratCapital} />
         ))}
       </div>
 

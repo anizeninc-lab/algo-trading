@@ -330,6 +330,17 @@ class SaviourCombo:
             2
         )
 
+    def _get_combined_unrealised_pnl(self) -> float:
+        """Unrealised P&L only — excludes realised from closed trades."""
+        wave_s     = state_store.get_strategy("wave_extractor")
+        survivor_s = state_store.get_strategy("survivor")
+        bn_s       = state_store.get_strategy("bn_survivor") if self.bn_survivor else None
+        return round(
+            (wave_s.unrealised_pnl     if wave_s     else 0.0) +
+            (survivor_s.unrealised_pnl if survivor_s else 0.0) +
+            (bn_s.unrealised_pnl       if bn_s       else 0.0),
+            2
+        )
     def _update_combo_status(self, combined_pnl: float) -> None:
         wave_s     = state_store.get_strategy("wave_extractor")
         survivor_s = state_store.get_strategy("survivor")
@@ -345,7 +356,7 @@ class SaviourCombo:
                 open_trades  += getattr(s, "open_trades",  0)
                 open_orders  += getattr(s, "open_orders",  0)
 
-        state_store.update_pnl(self.name, realised=self._get_combined_realised_pnl(), unrealised=combined_pnl)
+        state_store.update_pnl(self.name, realised=self._get_combined_realised_pnl(), unrealised=self._get_combined_unrealised_pnl())
         state_store.update_trades(
             name=self.name,
             total=total_trades,

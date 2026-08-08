@@ -4,24 +4,30 @@ import asyncio
 import logging
 import os
 import time
+import uuid
 import pytz as _pytz
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from brokers.base import AbstractBrokerGateway, Order, Tick
 from core.event_bus import EventType
 from core.risk_manager import risk_manager
-from dashboard.api import pnl_registry, ltp_registry
+from dashboard.api import pnl_registry, ltp_registry, trailing_registry
 from core.state_store import Direction, state_store
 from core.trade_log import trade_logger
 from strategy.base_strategy import BaseStrategy
 
 logger = logging.getLogger(__name__)
 
+STALE_POSITION_MAX_AGE_HOURS = 6  # recovered positions older than this are force-closed, not re-adopted
+EXIT_SLIPPAGE_PCT = 0.01  # 1% adverse slippage on exit fills -- was a hardcoded 2% (4x entry slippage), unified 30-Jul, see enhancement #5
+
 
 @dataclass
 class WaveConfig:
     option_symbol:        str   = ""
+    readable_symbol:      str   = ""  # human-readable descriptor for backtesting lookups only; never used for orders/LTP
     sell_gap:             float = 15.0
     buy_gap:              float = 15.0
     quantity:             int   = 65
@@ -31,6 +37,16 @@ class WaveConfig:
     max_net_position:     int   = 2
     delta_limit:          float = 200.0
     nifty_instrument_key: str   = "NSE_INDEX|Nifty 50"
+    # ── Adaptive gap sizing ──────────────────────────────────────────────
+    # Instead of a flat sell_gap/buy_gap, size the bracket off recently
+    # realized option price movement so it stays fillable as premium
+    # levels and volatility regimes change through the day.
+    adaptive_gap:          bool  = True
+    gap_lookback_seconds:  float = 120.0   # window used to measure realized move
+    gap_multiplier:        float = 1.5     # safety margin above realized move
+    gap_sample_count:      int   = 8       # how many past measurements to average
+    min_gap:               float = 2.0     # floor, avoids near-instant fills
+    max_gap:               float = 20.0    # ceiling, avoids reverting to old problem
 
 
 class WaveExtractor(BaseStrategy):
@@ -51,7 +67,10 @@ class WaveExtractor(BaseStrategy):
         # Resolved once at init — avoids repeated os.getenv calls in signal logic
         self._is_paper = os.getenv("PAPER_TRADE", "false").lower() == "true"
         self._current_price    = 0.0
-        self._realised_pnl     = 0.0
+        self._price_history: deque = deque()   # (epoch_ts, price) samples for adaptive gap
+        self._recent_moves: list   = []          # rolling realized-move samples
+        _seeded = state_store.get_strategy(self.name)
+        self._realised_pnl     = _seeded.realised_pnl if _seeded else 0.0
         self._unrealised_pnl   = 0.0
         self._open_trade_ids   = []
         self._open_trades_data = []
@@ -195,7 +214,30 @@ class WaveExtractor(BaseStrategy):
         try:
             if self._stop_flag or not self.is_market_open():
                 return
-            # ── Global pre-trade gate (#24) ────────────────────────────────────
+
+            # ── Always update price + monitor any already-open trade FIRST ──────
+            # (must run regardless of new-entry gating below — an open trade's
+            # stop-loss / trailing-profit checks must never be skipped just
+            # because NEW entries are currently blocked, e.g. capital-limit hit)
+            self._current_price = tick.mid_price
+            self._record_price_sample(tick.mid_price)
+
+            if "INDEX" in tick.symbol:
+                state_store.update_nifty_price(tick.last_price)
+            else:
+                state_store.update_option_price(self.cfg.option_symbol, tick.last_price)
+
+            await self._monitor_open_trades()
+            self._calculate_pnl()
+
+            # ── Paper Trade Fill Simulator ──────────────────────────────────
+            if self._is_paper:
+                filled = await self._handle_paper_fill(tick.mid_price)
+                if filled:
+                    return
+            # ── End Paper Trade Fill Simulator ─────────────────────────────
+
+            # ── Global pre-trade gate (#24) — gates NEW entries only ────────────
             blocked, reason = risk_manager.is_trading_blocked()
             if blocked:
                 if reason != self._last_block_reason:
@@ -212,22 +254,6 @@ class WaveExtractor(BaseStrategy):
                 return
             else:
                 self._last_block_reason = ""
-            self._current_price = tick.last_price
-
-            if "INDEX" in tick.symbol:
-                state_store.update_nifty_price(tick.last_price)
-            else:
-                state_store.update_option_price(self.cfg.option_symbol, tick.last_price)
-
-            await self._monitor_open_trades()
-            self._calculate_pnl()
-
-            # ── Paper Trade Fill Simulator ──────────────────────────────────
-            if self._is_paper:
-                filled = await self._handle_paper_fill(tick.last_price)
-                if filled:
-                    return
-            # ── End Paper Trade Fill Simulator ─────────────────────────────
 
             can_trade, reason = risk_manager.can_trade(self.name)
             if can_trade:
@@ -290,10 +316,12 @@ class WaveExtractor(BaseStrategy):
                 strategy=self.name,
                 broker=type(self.broker).__name__,
                 symbol=self.cfg.option_symbol,
+                readable_symbol=self.cfg.readable_symbol,
                 order_type="SELL",
                 quantity=filled_qty,
                 entry_price=price,
                 broker_order_id=order_id,
+                client_order_id=f"WAVE_LIVE_SELL_{uuid.uuid4().hex[:8]}",
                 paper_trade=self._is_paper,
             )
             self._open_trades_data.append({
@@ -317,10 +345,12 @@ class WaveExtractor(BaseStrategy):
                 strategy=self.name,
                 broker=type(self.broker).__name__,
                 symbol=self.cfg.option_symbol,
+                readable_symbol=self.cfg.readable_symbol,
                 order_type="BUY",
                 quantity=filled_qty,
                 entry_price=price,
                 broker_order_id=order_id,
+                client_order_id=f"WAVE_LIVE_BUY_{uuid.uuid4().hex[:8]}",
                 paper_trade=self._is_paper,
             )
             self._open_trades_data.append({
@@ -364,10 +394,12 @@ class WaveExtractor(BaseStrategy):
                 strategy=self.name,
                 broker=type(self.broker).__name__,
                 symbol=trade["symbol"],
+                readable_symbol=self.cfg.readable_symbol,
                 order_type=trade["order_type"],
                 quantity=trade["quantity"],
                 entry_price=trade["entry_price"],
                 broker_order_id=trade["order_id"],
+                client_order_id=f"WAVE_PAPER_SELL_{uuid.uuid4().hex[:8]}",
                 paper_trade=True,
             )
             self._sell_order_id = ""
@@ -395,10 +427,12 @@ class WaveExtractor(BaseStrategy):
                 strategy=self.name,
                 broker=type(self.broker).__name__,
                 symbol=trade["symbol"],
+                readable_symbol=self.cfg.readable_symbol,
                 order_type=trade["order_type"],
                 quantity=trade["quantity"],
                 entry_price=trade["entry_price"],
                 broker_order_id=trade["order_id"],
+                client_order_id=f"WAVE_PAPER_BUY_{uuid.uuid4().hex[:8]}",
                 paper_trade=True,
             )
             self._buy_order_id  = ""
@@ -453,9 +487,51 @@ class WaveExtractor(BaseStrategy):
             m[str(-i)] = [1.0, scale[i - 1]]   # short imbalance -> widen sell, buy stays tight
         return m
 
+    def _record_price_sample(self, price: float) -> None:
+        """Track recent price ticks so the adaptive gap can measure realized
+        movement. Pruned to 2x the lookback window to bound memory."""
+        now = time.time()
+        self._price_history.append((now, price))
+        cutoff = now - (2 * self.cfg.gap_lookback_seconds)
+        while self._price_history and self._price_history[0][0] < cutoff:
+            self._price_history.popleft()
+
+    def _compute_adaptive_gap(self) -> float:
+        """Size the bracket gap off what the option has actually been doing,
+        instead of a fixed point value that goes stale as premium/volatility
+        changes. Measures the realized move over the last gap_lookback_seconds,
+        keeps a short rolling average of these measurements, and applies
+        gap_multiplier as a safety margin — clamped to [min_gap, max_gap]."""
+        if len(self._price_history) < 2:
+            return (self.cfg.sell_gap + self.cfg.buy_gap) / 2  # not enough data yet
+
+        now = time.time()
+        target_t = now - self.cfg.gap_lookback_seconds
+        past_price = self._price_history[0][1]
+        for t, p in self._price_history:
+            if t >= target_t:
+                past_price = p
+                break
+
+        realized_move = abs(self._current_price - past_price)
+        self._recent_moves.append(realized_move)
+        if len(self._recent_moves) > self.cfg.gap_sample_count:
+            self._recent_moves.pop(0)
+
+        avg_move = sum(self._recent_moves) / len(self._recent_moves)
+        gap = round(avg_move * self.cfg.gap_multiplier, 1)
+        return max(self.cfg.min_gap, min(self.cfg.max_gap, gap))
+
     def _get_scaled_gaps(self, current_diff_scale: int) -> tuple:
         """Scale sell_gap/buy_gap based on current position imbalance.
+        Base gap comes from _compute_adaptive_gap() when adaptive_gap is on
+        (sized off recently realized option movement), falling back to the
+        flat cfg.sell_gap/buy_gap values otherwise.
         Ported from master WaveStrategy._get_scaled_gaps."""
+        base_gap = self._compute_adaptive_gap() if self.cfg.adaptive_gap else None
+        buy_base  = base_gap if base_gap is not None else self.cfg.buy_gap
+        sell_base = base_gap if base_gap is not None else self.cfg.sell_gap
+
         scale_map = self._generate_multiplier_scale()
         key = str(current_diff_scale)
         if key not in scale_map:
@@ -465,8 +541,8 @@ class WaveExtractor(BaseStrategy):
             )
         else:
             mult = scale_map[key]
-        scaled_buy_gap  = round(self.cfg.buy_gap * mult[0], 1)
-        scaled_sell_gap = round(self.cfg.sell_gap * mult[1], 1)
+        scaled_buy_gap  = round(buy_base * mult[0], 1)
+        scaled_sell_gap = round(sell_base * mult[1], 1)
         return scaled_buy_gap, scaled_sell_gap
 
     async def _place_duo_bracket(self) -> None:
@@ -576,6 +652,20 @@ class WaveExtractor(BaseStrategy):
         """Restore an orphaned OPEN trade from the DB into live tracking."""
         symbol = row.get("symbol", "")
         order_type = row.get("order_type", "BUY")
+
+        # ── Staleness check — don't silently re-adopt positions from a prior day/session ──
+        entry_time_str = row.get("entry_time")
+        if entry_time_str:
+            entry_dt = datetime.fromisoformat(entry_time_str)
+            age_hours = (datetime.now() - entry_dt).total_seconds() / 3600
+            if age_hours > STALE_POSITION_MAX_AGE_HOURS:
+                logger.warning(
+                    f"[wave_extractor] Recovered position {row.get('id')} is "
+                    f"{age_hours:.1f}h old (>{STALE_POSITION_MAX_AGE_HOURS}h) — "
+                    f"treating as stale, forcing close instead of re-adopting."
+                )
+                raise ValueError(f"stale position {row.get('id')} — force close")
+
         trade = {
             "id":          row.get("id"),
             "order_id":    row.get("broker_order_id", row.get("id")),
@@ -621,9 +711,9 @@ class WaveExtractor(BaseStrategy):
         exit_order_type = "BUY" if trade["order_type"] == "SELL" else "SELL"
 
         if exit_order_type == "BUY":
-            exit_price = round(self._current_price * 1.02, 1)
+            exit_price = round(self._current_price * (1 + EXIT_SLIPPAGE_PCT), 1)  # adverse -- buying back higher
         else:
-            exit_price = round(self._current_price * 0.98, 1)
+            exit_price = round(self._current_price * (1 - EXIT_SLIPPAGE_PCT), 1)  # adverse -- selling lower
 
         try:
             _now_tz = datetime.now(_pytz.timezone("Asia/Kolkata"))
@@ -683,12 +773,17 @@ class WaveExtractor(BaseStrategy):
             self._realised_pnl  += pnl
             self._closed_trades += 1
 
-            risk_manager.release_trade(self.name, trade["order_type"])
-
             if trade.get("id"):
+                # MFE (peak P&L) capture for future trailing-threshold tuning -- read-only,
+                # never affects trade P&L or any exit decision already taken above.
+                _peak_pnl = risk_manager.get_mfe(trade["id"])
+                _trough_pnl = risk_manager.get_mae(trade["id"])
+                risk_manager.clear_watermark(trade["id"])
                 trade_logger.close_trade(
                     trade["id"], exit_price, reason,
                     net_pnl=pnl, gross_pnl=gross_pnl, total_costs=total_costs,
+                    peak_pnl=_peak_pnl,
+                    trough_pnl=_trough_pnl,
                 )
             else:
                 logger.error(f"[wave_extractor] No trade id on close -- DB record not updated for {trade.get('symbol')}")
@@ -703,6 +798,13 @@ class WaveExtractor(BaseStrategy):
 
         except Exception as e:
             logger.error(f"[wave_extractor] _close_trade failed: {e}")
+        finally:
+            # Capital must always be released once a trade leaves _open_trades_data,
+            # regardless of which exit path fired or whether an exception occurred --
+            # fixes capital-drift bug where early-return ("already closed") and
+            # exception paths silently skipped release, leaving _deployed_capital
+            # stuck high vs. real open exposure (see capital-guard investigation, 31-Jul)
+            risk_manager.release_trade(self.name, trade["order_type"])
 
     async def _close_all_positions(self) -> None:
         if not self._open_trades_data:
@@ -781,6 +883,9 @@ class WaveExtractor(BaseStrategy):
                 if tid:
                     pnl_registry[tid] = round(pnl, 2)
                     ltp_registry[tid] = self._current_price
+                    trailing_registry[tid] = risk_manager.get_trailing_status(
+                        entry, self._current_price, otype, qty, trade_id=tid
+                    )
             except Exception:
                 pass
         self._unrealised_pnl = pnl

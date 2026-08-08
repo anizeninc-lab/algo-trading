@@ -4,6 +4,8 @@ import asyncio
 import logging
 import os
 import time
+import uuid
+from datetime import datetime
 from dataclasses import dataclass
 
 from brokers.base import AbstractBrokerGateway, Order, Tick
@@ -21,6 +23,8 @@ from core.alerting import (
 from strategy.base_strategy import BaseStrategy
 
 logger = logging.getLogger(__name__)
+
+STALE_POSITION_MAX_AGE_HOURS = 6  # recovered positions older than this are force-closed, not re-adopted
 
 
 @dataclass
@@ -67,7 +71,8 @@ class SurvivorAlgo(BaseStrategy):
         self._open_trade_ids   = []
         self._open_trades_data = []
         self._trades_reloaded  = False  # gate: block entries until DB reload completes
-        self._realised_pnl     = 0.0
+        _seeded = state_store.get_strategy(self.name)
+        self._realised_pnl     = _seeded.realised_pnl if _seeded else 0.0
         self._unrealised_pnl   = 0.0
         self._last_nifty_price = 0.0
         self._closed_trades    = 0
@@ -267,7 +272,7 @@ class SurvivorAlgo(BaseStrategy):
         # Log tick only once per minute to reduce log volume
         _now_ts = __import__('time').time()
         if not hasattr(self, '_last_tick_log') or _now_ts - self._last_tick_log >= 60:
-            logger.info(f"[survivor] Nifty tick: {tick.last_price:.2f} | PE anchor: {self._pe_last_value:.2f} | diff: {tick.last_price - self._pe_last_value:.2f}")
+            logger.info(f"[{self.cfg.strategy_name}] {self.cfg.instrument_name} tick: {tick.last_price:.2f} | PE anchor: {self._pe_last_value:.2f} | diff: {tick.last_price - self._pe_last_value:.2f}")
             self._last_tick_log = _now_ts
         self._last_nifty_price = tick.last_price
         loop = self._loop
@@ -330,7 +335,7 @@ class SurvivorAlgo(BaseStrategy):
 
             can_trade, reason = risk_manager.can_trade(self.name)
             if can_trade:
-                sf_ok, sf_reason = strategy_filter.can_trade("survivor")
+                sf_ok, sf_reason = strategy_filter.can_trade(self.name)
                 if not sf_ok:
                     can_trade = False
                     reason = f"[context] {sf_reason}"
@@ -714,10 +719,12 @@ class SurvivorAlgo(BaseStrategy):
                 strategy=self.name,
                 broker=type(self.broker).__name__,
                 symbol=symbol,
+                readable_symbol=self._build_symbol(direction, final_strike),
                 order_type="SELL",
                 quantity=quantity,
                 entry_price=entry_price,
                 broker_order_id=order_id,
+                client_order_id=f"SURVIVOR_SELL_{uuid.uuid4().hex[:8]}",
                 notes=f"VIX Regime Trigger | Nifty @ {nifty_price:.2f}",
                 paper_trade=_is_paper,
             )
@@ -735,17 +742,21 @@ class SurvivorAlgo(BaseStrategy):
             hedge_ok = await self._open_hedge_leg(
                 trade_data, direction, final_strike, nifty_price, quantity, _is_paper
             )
-            if hedge_ok is False and not _is_paper:
-                logger.error(f"[survivor] Hedge failed in live mode for {trade_id} -- auto-closing naked short")
+            if hedge_ok is False:
+                logger.error(f"[survivor] Hedge failed for {trade_id} -- auto-closing naked short (paper={_is_paper})")
                 self._signal(f"\U0001F6A8 HEDGE FAILED -- auto-closing naked short {direction} {int(final_strike)} for safety")
                 try:
-                    ltp = await self.broker.get_ltp(symbol)
-                    await self.broker.place_order(Order(
-                        symbol=symbol, exchange="NFO", order_type="BUY",
-                        quantity=quantity, product="I", price=round(ltp * 1.02, 1),
-                        tag=f"HEDGE_FAIL_CLOSE_{trade_id[-6:]}",
-                    ))
-                    trade_logger.close_trade(trade_id, ltp, "HEDGE_FAILED_AUTOCLOSE")
+                    if _is_paper:
+                        ltp = self._current_price if getattr(self, "_current_price", 0) else entry_price
+                        trade_logger.close_trade(trade_id, ltp, "HEDGE_FAILED_AUTOCLOSE")
+                    else:
+                        ltp = await self.broker.get_ltp(symbol)
+                        await self.broker.place_order(Order(
+                            symbol=symbol, exchange="NFO", order_type="BUY",
+                            quantity=quantity, product="I", price=round(ltp * 1.02, 1),
+                            tag=f"HEDGE_FAIL_CLOSE_{trade_id[-6:]}",
+                        ))
+                        trade_logger.close_trade(trade_id, ltp, "HEDGE_FAILED_AUTOCLOSE")
                 except Exception as ce:
                     logger.error(f"[survivor] Auto-close after hedge failure failed: {ce}")
                     self._signal(f"\U0001F6A8\U0001F6A8 CRITICAL: naked short {symbol} -- hedge AND auto-close FAILED -- manual intervention required")
@@ -898,13 +909,15 @@ class SurvivorAlgo(BaseStrategy):
                 strategy=self.name,
                 broker=type(self.broker).__name__,
                 symbol=hedge_symbol,
+                readable_symbol=candidate,
                 order_type="BUY",
                 quantity=quantity,
                 entry_price=buy_price,
                 broker_order_id=hedge_order_id,
+                client_order_id=f"SURVIVOR_HEDGE_BUY_{uuid.uuid4().hex[:8]}",
                 notes=f"HEDGE leg for {direction} short @ {short_strike:.0f}",
                 parent_trade_id=trade_data.get("id", ""),
-                paper_trade=_is_paper,
+                paper_trade=is_paper,
             )
 
             from core.transaction_costs import calculate_order_cost
@@ -915,6 +928,15 @@ class SurvivorAlgo(BaseStrategy):
             trade_data["hedge_trade_id"]   = hedge_trade_id
             trade_data["hedge_entry_cost"] = calculate_order_cost(buy_price, quantity, "BUY")
 
+            # Reserve hedge-leg capital (BUY-side premium) -- previously never
+            # registered, meaning _deployed_capital under-counted real exposure
+            # whenever a hedge was active (see capital-tracking investigation, 31-Jul).
+            # Using register_capital (not register_trade) deliberately -- the main
+            # SELL leg already counts as this position's "1 trade" for the daily
+            # trade-count limit; the hedge is capital-only, not a second trade.
+            _hedge_lots = max(1, int(quantity // self.cfg.lot_size))
+            risk_manager.register_capital(self.name, "BUY", multiplier=_hedge_lots)
+
             max_loss = abs(hedge_strike - short_strike) * quantity
             self._signal(
                 f"\U0001F6E1 HEDGE BOUGHT {hedge_symbol} @ \u20b9{buy_price:.2f} | "
@@ -924,6 +946,7 @@ class SurvivorAlgo(BaseStrategy):
         except Exception as e:
             logger.error(f"[survivor] _open_hedge_leg failed: {e}")
             self._signal(f"\U0001F6A8 HEDGE LEG ERROR for {direction} -- position may be UNHEDGED")
+            return False
 
     async def _log_delta_shadow_comparison(
         self, direction: str, actual_strike: float, nifty_price: float
@@ -993,6 +1016,20 @@ class SurvivorAlgo(BaseStrategy):
         """Restore an orphaned OPEN trade from the DB into live tracking."""
         symbol = row.get("symbol", "")
         direction = "PE" if "PE" in symbol else ("CE" if "CE" in symbol else "")
+
+        # ── Staleness check — don't silently re-adopt positions from a prior day/session ──
+        entry_time_str = row.get("entry_time")
+        if entry_time_str:
+            entry_dt = datetime.fromisoformat(entry_time_str)
+            age_hours = (datetime.now() - entry_dt).total_seconds() / 3600
+            if age_hours > STALE_POSITION_MAX_AGE_HOURS:
+                logger.warning(
+                    f"[{self.name}] Recovered position {row.get('id')} is "
+                    f"{age_hours:.1f}h old (>{STALE_POSITION_MAX_AGE_HOURS}h) — "
+                    f"treating as stale, forcing close instead of re-adopting."
+                )
+                raise ValueError(f"stale position {row.get('id')} — force close")
+
         self._open_trade_ids.append(row.get("id"))
         recovered_trade = {
             "id":         row.get("id"),
@@ -1427,8 +1464,23 @@ class SurvivorAlgo(BaseStrategy):
                         continue  # trade closed, move to next
 
                 # ── Normal stop loss (no breakeven lock yet) ──────────────
-                elif risk_manager.check_trade_stop_loss(
-                    trade["entry"], curr_price, trade["quantity"], trade["order_type"]
+                hedge_entry_price   = trade.get("hedge_entry", 0.0) or 0.0
+                hedge_current_price = 0.0
+                if trade.get("hedge_symbol"):
+                    _h_ikey = self._ikey_cache.get(trade["hedge_symbol"], trade["hedge_symbol"])
+                    hedge_current_price = self._ltp_cache.get(
+                        _h_ikey, self._ltp_cache.get(trade["hedge_symbol"], 0.0)
+                    )
+                    hedge_pnl_preview = (hedge_current_price - hedge_entry_price) * trade.get("hedge_quantity", 0)
+                    logger.info(
+                        f"[survivor] Hedge LTP: {trade['hedge_symbol']} = {hedge_current_price} | "
+                        f"Hedge P&L: ₹{hedge_pnl_preview:.2f}"
+                    )
+                if not trade.get("_be_locked") and risk_manager.check_trade_stop_loss(
+                    trade["entry"], curr_price, trade["quantity"], trade["order_type"],
+                    hedge_entry_price=hedge_entry_price,
+                    hedge_current_price=hedge_current_price,
+                    hedge_quantity=trade.get("hedge_quantity", 0),
                 ):
                     self._signal(
                         f"🛑 STOP LOSS hit | {trade['symbol']} | "
@@ -1442,7 +1494,11 @@ class SurvivorAlgo(BaseStrategy):
                 _fixed_tp = 800.0 if "BANKNIFTY" in self.cfg.instrument_name.upper() else 0.0
                 if risk_manager.check_trailing_profit(
                     trade["entry"], curr_price, trade["order_type"], trade["quantity"],
-                    fixed_target=_fixed_tp, trade_id=trade.get("id", "")
+                    fixed_target=_fixed_tp, trade_id=trade.get("id", ""),
+                    hedge_entry_price=hedge_entry_price,
+                    hedge_current_price=hedge_current_price,
+                    hedge_quantity=trade.get("hedge_quantity", 0),
+                    hedge_entry_cost=trade.get("hedge_entry_cost", 0.0),
                 ):
                     self._signal(
                         f"✅ PROFIT TARGET hit | {trade['symbol']} | "
@@ -1569,6 +1625,13 @@ class SurvivorAlgo(BaseStrategy):
                 )
             except Exception as he:
                 logger.error(f"[survivor] Hedge close failed for {trade.get('hedge_symbol')}: {he}")
+            finally:
+                # Release hedge-leg capital reserved at open, regardless of whether
+                # the hedge close itself succeeded -- mirrors the register_capital
+                # call added at hedge-open; must always pair (see capital-tracking
+                # investigation, 31-Jul)
+                _hedge_rel_lots = max(1, int(trade.get("hedge_quantity", self.cfg.lot_size) // self.cfg.lot_size))
+                risk_manager.release_capital(self.name, "BUY", multiplier=_hedge_rel_lots)
 
         # Calculate P&L (short leg + hedge leg combined, NET of real transaction costs).
         # Costs are recomputed fresh here rather than read from trade_data, because
@@ -1578,14 +1641,23 @@ class SurvivorAlgo(BaseStrategy):
         # restarts correctly (confirmed working since the June 22 recovery fix), so
         # costs are derived from those instead.
         from core.transaction_costs import calculate_order_cost
-        entry_cost = calculate_order_cost(trade["entry"], trade["quantity"], "SELL")
+        # Branch on the trade's actual order_type -- this function closes both
+        # the normal short leg (order_type=SELL) AND independently-tracked
+        # long/hedge legs (order_type=BUY) reaching their own TP/SL/EOD exit.
+        # Using SELL-side math unconditionally flips the P&L sign for BUY trades.
+        if trade["order_type"] == "SELL":
+            entry_cost = calculate_order_cost(trade["entry"], trade["quantity"], "SELL")
+            short_exit_cost = calculate_order_cost(exit_price, trade["quantity"], "BUY")
+            gross_pnl = (trade["entry"] - exit_price) * trade["quantity"] + hedge_pnl
+        else:
+            entry_cost = calculate_order_cost(trade["entry"], trade["quantity"], "BUY")
+            short_exit_cost = calculate_order_cost(exit_price, trade["quantity"], "SELL")
+            gross_pnl = (exit_price - trade["entry"]) * trade["quantity"] + hedge_pnl
         hedge_entry_cost = (
             calculate_order_cost(trade["hedge_entry"], trade["hedge_quantity"], "BUY")
             if trade.get("hedge_symbol") else 0.0
         )
-        short_exit_cost = calculate_order_cost(exit_price, trade["quantity"], "BUY")
         total_costs = entry_cost + hedge_entry_cost + short_exit_cost + hedge_exit_cost
-        gross_pnl = (trade["entry"] - exit_price) * trade["quantity"] + hedge_pnl
         pnl = gross_pnl - total_costs
         self._realised_pnl += pnl
         self._signal(
@@ -1607,9 +1679,17 @@ class SurvivorAlgo(BaseStrategy):
         _rel_mult = max(1, int(trade.get("quantity", self.cfg.lot_size) // self.cfg.lot_size))
         risk_manager.release_trade(self.name, trade["order_type"], multiplier=_rel_mult)
 
+        # MFE (peak P&L) capture for future trailing-threshold tuning -- read-only,
+        # never affects trade P&L or any exit decision already taken above.
+        _peak_pnl = risk_manager.get_mfe(trade["id"])
+        _trough_pnl = risk_manager.get_mae(trade["id"])
+        risk_manager.clear_watermark(trade["id"])
+
         trade_logger.close_trade(
             trade["id"], exit_price, reason,
             net_pnl=pnl, gross_pnl=gross_pnl, total_costs=total_costs,
+            peak_pnl=_peak_pnl,
+            trough_pnl=_trough_pnl,
         )
         self._update_pnl(self._realised_pnl, self._unrealised_pnl)
         self._signal(
@@ -1692,7 +1772,7 @@ class SurvivorAlgo(BaseStrategy):
         self._update_pnl(self._realised_pnl, self._unrealised_pnl)
         # Update live P&L registry for dashboard
         try:
-            from dashboard.api import pnl_registry, ltp_registry
+            from dashboard.api import pnl_registry, ltp_registry, trailing_registry
             for trade in self._open_trades_data:
                 entry = trade["entry"]
                 qty   = trade["quantity"]
@@ -1703,6 +1783,20 @@ class SurvivorAlgo(BaseStrategy):
                     pnl += self._get_hedge_unrealised_pnl(trade)
                     pnl_registry[trade["id"]] = round(pnl, 2)
                     ltp_registry[trade["id"]] = curr
+                    # Same hedge-price lookup _get_hedge_unrealised_pnl uses,
+                    # so cost/trailing numbers never diverge from live P&L.
+                    hedge_symbol = trade.get("hedge_symbol")
+                    hedge_curr = 0.0
+                    if hedge_symbol:
+                        hedge_ikey = self._ikey_cache.get(hedge_symbol, hedge_symbol)
+                        hedge_curr = self._ltp_cache.get(hedge_ikey, self._ltp_cache.get(hedge_symbol, 0.0))
+                    trailing_registry[trade["id"]] = risk_manager.get_trailing_status(
+                        entry, curr, trade["order_type"], qty, trade_id=trade["id"],
+                        hedge_entry_price=trade.get("hedge_entry", 0.0) or 0.0,
+                        hedge_current_price=hedge_curr,
+                        hedge_quantity=trade.get("hedge_quantity", 0),
+                        hedge_entry_cost=trade.get("hedge_entry_cost", 0.0),
+                    )
                 # If curr == 0, keep existing registry value (don't overwrite with wrong 0)
         except Exception:
             pass

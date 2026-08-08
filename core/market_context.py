@@ -1,4 +1,3 @@
-
 """
 market_context.py — Layer 1: Market Context Engine
 ====================================================
@@ -147,11 +146,118 @@ class MarketContextEngine:
         self._or_ticks_low:  float = float("inf")
         self._regime_change_callbacks = []  # list of fn(old, new)
 
+        # ── Live tick-driven candle aggregation ─────────────────────────
+        # Instead of re-fetching a rolling 60-candle window from Upstox's
+        # REST API every 30s (~664 calls/day observed), build a real
+        # session-anchored 1-minute candle series locally from the NIFTY
+        # tick stream the bot already subscribes to. A separate lock keeps
+        # this independent of self._lock to avoid any nested-lock risk
+        # between the tick thread and the main poll loop.
+        self._broker = None
+        self._candle_lock = threading.Lock()
+        self._session_candles: list = []       # completed 1-min Candle objects, oldest first
+        self._current_bucket: Optional[dict] = None       # in-progress minute: {open,high,low,close}
+        self._current_bucket_minute: Optional[str] = None  # "YYYY-MM-DD HH:MM" key of in-progress bucket
+        self._SESSION_CANDLE_CAP = 400  # ~ full trading day of 1-min candles, bounds memory
+
     # ── Public read-only properties (Layer 2 reads these) ──────────────────
 
     def register_regime_callback(self, fn) -> None:
         """Register a callback fn(old_regime, new_regime) on regime change."""
         self._regime_change_callbacks.append(fn)
+
+    def set_broker(self, broker) -> None:
+        """
+        Wire in the broker so market_context can subscribe to live NIFTY
+        ticks and build its own session-anchored candle series locally,
+        instead of re-fetching a rolling window from Upstox's REST API
+        every poll cycle. Mirrors the existing vix_manager.set_broker()
+        pattern already used in main.py. Safe to call once at startup,
+        before or after start() — the broker's subscribe_ticks() supports
+        multiple callbacks per symbol, so this coexists cleanly with
+        survivor/saviour_combo's own NIFTY tick subscriptions.
+        """
+        self._broker = broker
+        try:
+            broker.subscribe_ticks(
+                symbols=[NIFTY_INSTRUMENT_KEY],
+                callback=self._on_nifty_tick,
+            )
+            logger.info(
+                "[market_context] Subscribed to live NIFTY ticks — "
+                "session candles now build locally instead of via REST poll"
+            )
+        except Exception as e:
+            logger.error(f"[market_context] Failed to subscribe to NIFTY ticks: {e}")
+
+    def _on_nifty_tick(self, tick) -> None:
+        """
+        Aggregate incoming NIFTY ticks into session-anchored 1-minute
+        candles. Runs synchronously on the broker's tick thread — kept
+        fast and lock-scoped so it never blocks the WebSocket feed.
+        Bucketing uses local IST receipt time (matches the rest of this
+        file's now(IST) convention) rather than parsing tick timestamps.
+        """
+        try:
+            price = getattr(tick, "last_price", None)
+            if not price:
+                return
+            now = datetime.now(IST)
+            minute_key = now.strftime("%Y-%m-%d %H:%M")
+            with self._candle_lock:
+                if self._current_bucket_minute is None:
+                    self._current_bucket_minute = minute_key
+                    self._current_bucket = {
+                        "open": price, "high": price, "low": price, "close": price
+                    }
+                    return
+                if minute_key == self._current_bucket_minute:
+                    b = self._current_bucket
+                    b["high"]  = max(b["high"], price)
+                    b["low"]   = min(b["low"],  price)
+                    b["close"] = price
+                    return
+                # Minute rolled over — finalize the completed bucket, start fresh
+                from core.regime_engine import Candle
+                finished = self._current_bucket
+                self._session_candles.append(Candle(
+                    ts=self._current_bucket_minute,
+                    open=finished["open"], high=finished["high"],
+                    low=finished["low"], close=finished["close"],
+                ))
+                if len(self._session_candles) > self._SESSION_CANDLE_CAP:
+                    self._session_candles.pop(0)
+                self._current_bucket_minute = minute_key
+                self._current_bucket = {
+                    "open": price, "high": price, "low": price, "close": price
+                }
+        except Exception as e:
+            logger.debug(f"[market_context] Tick aggregation error: {e}")
+
+    def _backfill_session_candles(self) -> None:
+        """
+        One-time REST backfill of today's session candles. Covers the gap
+        between actual market open and whenever set_broker()/ticks start
+        flowing (or a restart mid-session, when the tick-built series
+        resets to empty). After this, ticks take over and no further REST
+        calls are needed for candle data — replacing what was previously
+        ~664 calls/day with essentially 1 per session (plus rare
+        reconnect-triggered backfills if the local series runs dry).
+        """
+        try:
+            from core.regime_engine import fetch_intraday_candles
+            token = os.getenv("UPSTOX_ACCESS_TOKEN", "")
+            if not token:
+                return
+            candles = fetch_intraday_candles(token, self._SESSION_CANDLE_CAP)
+            with self._candle_lock:
+                if not self._session_candles:  # don't clobber ticks that arrived first
+                    self._session_candles = list(candles)
+            logger.info(
+                f"[market_context] Backfilled {len(candles)} session candles (one-time REST call)"
+            )
+        except Exception as e:
+            logger.error(f"[market_context] Session candle backfill failed: {e}")
 
     @property
     def regime(self) -> str:
@@ -241,6 +347,7 @@ class MarketContextEngine:
             logger.warning("MarketContextEngine already running")
             return
         self._fetch_previous_day_levels()  # one-time, before loop starts
+        self._backfill_session_candles()   # one-time REST backfill; ticks take over after this
         self._stop_flag.clear()
         self._thread = threading.Thread(
             target=self._run_loop,
@@ -483,10 +590,28 @@ class MarketContextEngine:
 
     def _classify_regime(self):
         """Delegates to regime_engine for institutional-grade classification."""
-        import os as _os
-        from core.regime_engine import regime_engine, fetch_intraday_candles
-        token = _os.getenv("UPSTOX_ACCESS_TOKEN", "")
-        candles = fetch_intraday_candles(token, 60)
+        from core.regime_engine import regime_engine, Candle
+
+        with self._candle_lock:
+            candles = list(self._session_candles)
+            if self._current_bucket_minute is not None:
+                # Include the still-forming current-minute bucket so regime
+                # scoring reacts to the latest price, not just fully-closed
+                # candles from a minute or more ago.
+                b = self._current_bucket
+                candles = candles + [Candle(
+                    ts=self._current_bucket_minute, open=b["open"],
+                    high=b["high"], low=b["low"], close=b["close"],
+                )]
+
+        if len(candles) < 5:
+            # Not enough locally-built data yet (e.g. right after a restart,
+            # before ticks have had time to accumulate) — fall back to a
+            # one-time REST backfill rather than blocking classification.
+            self._backfill_session_candles()
+            with self._candle_lock:
+                candles = list(self._session_candles)
+
         with self._lock:
             pcr      = self._oi_snapshot.pcr
             snap     = self._oi_snapshot
