@@ -455,6 +455,9 @@ class WaveExtractor(BaseStrategy):
             qty   = trade["quantity"]
             price = self._current_price
 
+            risk_manager.record_mfe_mae(
+                entry, price, otype, qty, trade_id=trade.get("id", "")
+            )
             if risk_manager.check_trade_stop_loss(entry, price, qty, otype):
                 _sl_pnl = (entry - price) * qty if otype == "SELL" else (price - entry) * qty
                 self._signal(

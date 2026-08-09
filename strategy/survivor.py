@@ -1476,6 +1476,16 @@ class SurvivorAlgo(BaseStrategy):
                         f"[survivor] Hedge LTP: {trade['hedge_symbol']} = {hedge_current_price} | "
                         f"Hedge P&L: ₹{hedge_pnl_preview:.2f}"
                     )
+                # Record MFE/MAE unconditionally, before either exit check --
+                # ensures the tick that triggers a stop-loss exit is never
+                # missed (see RiskManager.record_mfe_mae docstring).
+                risk_manager.record_mfe_mae(
+                    trade["entry"], curr_price, trade["order_type"], trade["quantity"],
+                    trade_id=trade.get("id", ""),
+                    hedge_entry_price=hedge_entry_price,
+                    hedge_current_price=hedge_current_price,
+                    hedge_quantity=trade.get("hedge_quantity", 0),
+                )
                 if not trade.get("_be_locked") and risk_manager.check_trade_stop_loss(
                     trade["entry"], curr_price, trade["quantity"], trade["order_type"],
                     hedge_entry_price=hedge_entry_price,
