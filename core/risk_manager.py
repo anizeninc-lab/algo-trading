@@ -1025,6 +1025,46 @@ class RiskManager:
         mae = self._mae_watermarks.get(trade_id, float("inf"))
         return mae if mae != float("inf") else 0.0
 
+    def record_mfe_mae(
+        self,
+        entry_price:          float,
+        current_price:        float,
+        order_type:            str   = "SELL",
+        quantity:              int   = 65,
+        trade_id:              str   = "",
+        hedge_entry_price:     float = 0.0,
+        hedge_current_price:   float = 0.0,
+        hedge_quantity:        int   = 0,
+    ) -> None:
+        """
+        Unconditionally records this tick's net P&L into the MFE/MAE
+        trackers, independent of check_trade_stop_loss and
+        check_trailing_profit. Call this FIRST in the monitoring loop,
+        before either exit check -- previously, when check_trade_stop_loss
+        fired and the loop did `continue`, that tick's
+        check_trailing_profit call (where MFE/MAE updates lived) never ran,
+        so the exact tick that triggered a stop-loss exit was silently
+        missed, understating trough_pnl on SL exits. Safe to call every
+        tick; pure bookkeeping, never affects any exit decision.
+        """
+        if not trade_id or entry_price <= 0:
+            return
+        if order_type == "SELL":
+            pnl = (entry_price - current_price) * quantity
+        else:
+            pnl = (current_price - entry_price) * quantity
+        hedge_pnl = 0.0
+        if hedge_entry_price > 0.0 and hedge_current_price > 0.0:
+            hq = hedge_quantity or quantity
+            hedge_pnl = (hedge_current_price - hedge_entry_price) * hq
+        net_pnl = pnl + hedge_pnl
+        prev_mfe = self._mfe_watermarks.get(trade_id, float("-inf"))
+        if net_pnl > prev_mfe:
+            self._mfe_watermarks[trade_id] = net_pnl
+        prev_mae = self._mae_watermarks.get(trade_id, float("inf"))
+        if net_pnl < prev_mae:
+            self._mae_watermarks[trade_id] = net_pnl
+
     def clear_watermark(self, trade_id: str) -> None:
         """Call on trade close to clean up watermark state. Read get_mfe()
         and get_mae() BEFORE calling this, since it also clears both
