@@ -2665,7 +2665,7 @@ export default function App() {
 
       {/* ── Strategy cards ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, marginBottom: 16 }}>
-        {["saviour_combo", "survivor", "wave_extractor"].map(name => (
+        {["saviour_combo", "survivor", "wave_extractor", "nifty_gex"].map(name => (
           <StratCard key={name} name={name} data={s[name]} onStop={handleStop} onReset={handleReset} trades={trades} stratCapital={stratCapital} />
         ))}
       </div>
