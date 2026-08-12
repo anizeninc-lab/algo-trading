@@ -1,6 +1,7 @@
 from core.strategy_filter import strategy_filter
 # strategy/wave_extractor.py
 import asyncio
+import json
 import logging
 import os
 import time
@@ -312,6 +313,12 @@ class WaveExtractor(BaseStrategy):
             self._bracket_active = False
             self._signal(f"SELL filled @ {price:.2f} qty={filled_qty}" + (" [PARTIAL]" if is_partial else ""))
             risk_manager.register_trade(self.name, "SELL")
+            _entry_context = json.dumps({
+                "net_position_before": self._net_position,
+                "sell_price":          self._sell_price,
+                "buy_price":           self._buy_price,
+                "adaptive_gap":        self.cfg.adaptive_gap,
+            }, default=str)
             _live_trade_id = trade_logger.open_trade(
                 strategy=self.name,
                 broker=type(self.broker).__name__,
@@ -323,6 +330,7 @@ class WaveExtractor(BaseStrategy):
                 broker_order_id=order_id,
                 client_order_id=f"WAVE_LIVE_SELL_{uuid.uuid4().hex[:8]}",
                 paper_trade=self._is_paper,
+                entry_context=_entry_context,
             )
             self._open_trades_data.append({
                 "id":          _live_trade_id,
@@ -341,6 +349,12 @@ class WaveExtractor(BaseStrategy):
             self._bracket_active = False
             self._signal(f"BUY filled @ {price:.2f} qty={filled_qty}" + (" [PARTIAL]" if is_partial else ""))
             risk_manager.register_trade(self.name, "BUY")
+            _entry_context = json.dumps({
+                "net_position_before": self._net_position,
+                "sell_price":          self._sell_price,
+                "buy_price":           self._buy_price,
+                "adaptive_gap":        self.cfg.adaptive_gap,
+            }, default=str)
             _live_trade_id = trade_logger.open_trade(
                 strategy=self.name,
                 broker=type(self.broker).__name__,
@@ -352,6 +366,7 @@ class WaveExtractor(BaseStrategy):
                 broker_order_id=order_id,
                 client_order_id=f"WAVE_LIVE_BUY_{uuid.uuid4().hex[:8]}",
                 paper_trade=self._is_paper,
+                entry_context=_entry_context,
             )
             self._open_trades_data.append({
                 "id":          _live_trade_id,

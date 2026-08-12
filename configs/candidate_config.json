@@ -1,0 +1,15 @@
+[
+  {
+    "id": "d59db2e1",
+    "created_at": "2026-08-12T15:14:07.233969",
+    "strategy": "nifty_gex",
+    "parameter": "risk_pct",
+    "current_value": "0.015",
+    "proposed_value": "0.02",
+    "rationale": "Live test Aug 12: a 3.72 R:R setup was skipped, rounding to 0 lots by ~3% margin against the tolerance cap. Deferred raising risk_pct until real paper-mode skip rate is observed over several days.",
+    "evidence": "test_gex_trade_management_live.py: spot=24373.25 risk_per_unit=23.82 one_lot_risk=1548 tolerance_ceiling=1500",
+    "status": "proposed",
+    "decided_at": null,
+    "decision_note": ""
+  }
+]

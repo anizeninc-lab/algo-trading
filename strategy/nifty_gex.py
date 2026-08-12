@@ -41,6 +41,7 @@
 #     observed in paper mode.
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -339,12 +340,12 @@ class NiftyGex(BaseStrategy):
                 logger.warning(f"[nifty_gex] No valid option last_price for {option_symbol} -- skipping")
                 return
 
-            await self._place_entry_order(checklist, plan, option_symbol, option_last_price)
+            await self._place_entry_order(checklist, plan, option_symbol, option_last_price, gex_regime)
 
         except Exception as e:
             logger.exception(f"[nifty_gex] _evaluate_entry failed: {e}")
 
-    async def _place_entry_order(self, checklist, plan, option_symbol: str, limit_price: float) -> None:
+    async def _place_entry_order(self, checklist, plan, option_symbol: str, limit_price: float, gex_regime: dict = None) -> None:
         now_tz = datetime.now(IST)
         tag = f"GEX_ENTRY_{checklist.direction.upper()}_{now_tz.strftime('%Y%m%d%H%M%S')}"
 
@@ -354,6 +355,9 @@ class NiftyGex(BaseStrategy):
             "symbol":        option_symbol,
             "quantity":      plan.quantity,
             "target_strike": checklist.target_strike,
+            # Captured for post-mortem entry_context -- see _handle_order_update
+            "gex_regime":    gex_regime,
+            "structure_type": checklist.structure_type,
         }
         self._entry_placed_at = time.time()
 
@@ -431,6 +435,20 @@ class NiftyGex(BaseStrategy):
 
         if order_id == self._entry_order_id and self._pending_trade:
             pt = self._pending_trade
+            plan = pt.get("plan")
+            entry_context = json.dumps({
+                "direction":        pt.get("direction"),
+                "target_strike":    pt.get("target_strike"),
+                "structure_type":   pt.get("structure_type"),
+                "gex_regime":       (pt.get("gex_regime") or {}).get("regime"),
+                "net_gex":          (pt.get("gex_regime") or {}).get("net_gex"),
+                "stop_price":       plan.stop_price if plan else None,
+                "target1_price":    plan.target1_price if plan else None,
+                "reward_to_risk":   plan.reward_to_risk if plan else None,
+                "quantity":         plan.quantity if plan else None,
+                "risk_amount":      plan.risk_amount if plan else None,
+                "spot_at_entry":    self._current_spot,
+            }, default=str)
             trade_id = trade_logger.open_trade(
                 strategy=self.name,
                 broker=type(self.broker).__name__,
@@ -442,6 +460,7 @@ class NiftyGex(BaseStrategy):
                 broker_order_id=order_id,
                 client_order_id=f"GEX_ENTRY_{uuid.uuid4().hex[:8]}",
                 paper_trade=self._is_paper,
+                entry_context=entry_context,
             )
             self._active_trade = {
                 "id":           trade_id,

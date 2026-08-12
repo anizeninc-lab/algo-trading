@@ -1,6 +1,7 @@
 from core.strategy_filter import strategy_filter
 # strategy/survivor.py
 import asyncio
+import json
 import logging
 import os
 import time
@@ -715,6 +716,11 @@ class SurvivorAlgo(BaseStrategy):
                     self._pending_orders.discard(_order_key)
                     return
 
+            _entry_context = json.dumps({
+                "direction":    direction,
+                "strike":       final_strike,
+                "nifty_price":  nifty_price,
+            }, default=str)
             trade_id = trade_logger.open_trade(
                 strategy=self.name,
                 broker=type(self.broker).__name__,
@@ -727,6 +733,7 @@ class SurvivorAlgo(BaseStrategy):
                 client_order_id=f"SURVIVOR_SELL_{uuid.uuid4().hex[:8]}",
                 notes=f"VIX Regime Trigger | Nifty @ {nifty_price:.2f}",
                 paper_trade=_is_paper,
+                entry_context=_entry_context,
             )
 
             from core.transaction_costs import calculate_order_cost
@@ -905,6 +912,12 @@ class SurvivorAlgo(BaseStrategy):
                 self.broker.subscribe_ticks(symbols=[hedge_ikey], callback=self._on_tick_sync)
                 self._ikey_cache[hedge_symbol] = hedge_ikey
 
+            _hedge_entry_context = json.dumps({
+                "direction":     direction,
+                "short_strike":  short_strike,
+                "hedge_strike":  hedge_strike,
+                "hedge_premium": hedge_premium,
+            }, default=str)
             hedge_trade_id = trade_logger.open_trade(
                 strategy=self.name,
                 broker=type(self.broker).__name__,
@@ -918,6 +931,7 @@ class SurvivorAlgo(BaseStrategy):
                 notes=f"HEDGE leg for {direction} short @ {short_strike:.0f}",
                 parent_trade_id=trade_data.get("id", ""),
                 paper_trade=is_paper,
+                entry_context=_hedge_entry_context,
             )
 
             from core.transaction_costs import calculate_order_cost

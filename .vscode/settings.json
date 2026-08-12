@@ -1,0 +1,8 @@
+{
+    "files.exclude": {
+        "**/*.bak": true,
+        "**/*.bak_*": true,
+        "**/*.backup*": true,
+        "**/__pycache__": true
+    }
+}
