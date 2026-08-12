@@ -1,16 +1,10 @@
 {
-  "date": "2026-08-07",
-  "trade_counts": {
-    "survivor": 1,
-    "bn_survivor": 1,
-    "wave_extractor": 3
-  },
+  "date": "2026-08-12",
+  "trade_counts": {},
   "daily_pnl": {},
-  "system_halted": false,
-  "halt_reason": "",
+  "system_halted": true,
+  "halt_reason": "Max daily loss hit: \u20b9-4781.99 (limit: \u20b9-3000.00, hardcoded floor: \u20b9-3000.00)",
   "deployed_capital": {
-    "survivor": 0.0,
-    "bn_survivor": 0.0,
     "wave_extractor": 0.0
   }
 }

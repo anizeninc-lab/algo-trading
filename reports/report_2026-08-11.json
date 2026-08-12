@@ -1,0 +1,55 @@
+{
+  "date": "2026-08-11",
+  "total_trades": 3,
+  "closed_trades": 3,
+  "open_trades": 0,
+  "winners": 0,
+  "losers": 3,
+  "total_pnl": -2656.8,
+  "win_rate": 0.0,
+  "avg_win": 0,
+  "avg_loss": -885.6,
+  "best_trade": -868.83,
+  "worst_trade": -896.56,
+  "exit_reasons": {
+    "STOP_LOSS": 3
+  },
+  "trades": [
+    {
+      "id": "e52daab0",
+      "symbol": "NSE_FO|41011",
+      "direction": "PE",
+      "entry_price": 35.8,
+      "exit_price": 23.2,
+      "pnl": -868.83,
+      "status": "CLOSED",
+      "entry_time": "2026-08-11T11:04",
+      "exit_time": "2026-08-11T12:03",
+      "notes": "STOP_LOSS"
+    },
+    {
+      "id": "f434c79e",
+      "symbol": "NSE_FO|41011",
+      "direction": "PE",
+      "entry_price": 53.9,
+      "exit_price": 40.9,
+      "pnl": -896.56,
+      "status": "CLOSED",
+      "entry_time": "2026-08-11T09:46",
+      "exit_time": "2026-08-11T11:00",
+      "notes": "STOP_LOSS"
+    },
+    {
+      "id": "d596a393",
+      "symbol": "NSE_FO|41011",
+      "direction": "PE",
+      "entry_price": 67.8,
+      "exit_price": 54.9,
+      "pnl": -891.41,
+      "status": "CLOSED",
+      "entry_time": "2026-08-11T09:31",
+      "exit_time": "2026-08-11T09:43",
+      "notes": "STOP_LOSS"
+    }
+  ]
+}

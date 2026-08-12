@@ -954,6 +954,7 @@ async def get_capital_intelligence():
         "survivor":     {"name": "Nifty Survivor",    "cap": PER_STRATEGY_CAP, "lot_size": 65,  "margin_per_lot": 40000},
         "bn_survivor":  {"name": "BankNifty Survivor", "cap": PER_STRATEGY_CAP, "lot_size": 15,  "margin_per_lot": 40000},
         "wave_extractor":{"name": "Wave Extractor",   "cap": PER_STRATEGY_CAP, "lot_size": 65,  "margin_per_lot": 40000},
+        "nifty_gex":    {"name": "Nifty GEX",          "cap": PER_STRATEGY_CAP, "lot_size": 65,  "margin_per_lot": 15000},
     }
     deployed = risk_manager._deployed_capital
     total_cap = PER_STRATEGY_CAP * len(strategies)

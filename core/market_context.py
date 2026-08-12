@@ -285,6 +285,22 @@ class MarketContextEngine:
             return self._prev_day_levels
 
     @property
+    def session_candles_1min(self) -> list:
+        """
+        Public read-only access to the live tick-built 1-min session candles.
+        """
+        from core.regime_engine import Candle
+        with self._candle_lock:
+            candles = list(self._session_candles)
+            if self._current_bucket_minute is not None:
+                b = self._current_bucket
+                candles = candles + [Candle(
+                    ts=self._current_bucket_minute, open=b["open"],
+                    high=b["high"], low=b["low"], close=b["close"],
+                )]
+        return candles
+
+    @property
     def is_pcr_spike(self) -> bool:
         """True if a sudden PCR spike was detected in last 15 minutes."""
         with self._lock:

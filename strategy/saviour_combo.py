@@ -11,6 +11,7 @@ from core.trade_log import trade_logger
 from strategy.base_strategy import BaseStrategy
 from strategy.survivor import SurvivorAlgo, SurvivorConfig
 from strategy.wave_extractor import WaveConfig, WaveExtractor
+from strategy.nifty_gex import NiftyGexConfig, NiftyGex
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,8 @@ class SaviourComboConfig:
     wave:                 WaveConfig     = field(default_factory=WaveConfig)
     survivor:             SurvivorConfig = field(default_factory=SurvivorConfig)
     banknifty_survivor:   SurvivorConfig = None   # None = disabled
+    nifty_gex:            NiftyGexConfig = field(default_factory=NiftyGexConfig)
+    enable_nifty_gex:     bool           = False   # off by default -- flip on once paper-tested
     max_combined_loss:    float          = -5000.0
     auto_start_survivor:  bool           = True
     wave_net_threshold:   int            = 2
@@ -42,6 +45,8 @@ class SaviourCombo:
             if config.banknifty_survivor is not None
             else None
         )
+        self.nifty_gex = NiftyGex(broker, config.nifty_gex) if config.enable_nifty_gex else None
+        self._nifty_gex_started = False
         self._bn_survivor_started = False
         self._running           = False
         self._survivor_started  = False
@@ -68,6 +73,16 @@ class SaviourCombo:
             logger.info(f"[saviour_combo] Shared loop with Wave Extractor: {_wave_loop}")
         except Exception as _we:
             logger.error(f"[saviour_combo] Could not share loop with Wave: {_we}")
+
+        # ── Nifty GEX A+ Setup ──────────────────────────────────────────
+        if self.nifty_gex is not None:
+            try:
+                await self.nifty_gex.start()
+                self._nifty_gex_started = True
+                self.nifty_gex._loop = _wave_loop
+                logger.info("[saviour_combo] Nifty GEX strategy started")
+            except Exception as _ge:
+                logger.error(f"[saviour_combo] Nifty GEX failed to start: {_ge}")
         # Start Survivor immediately if threshold is 0 or auto_start enabled
         if self.cfg.auto_start_survivor or self.cfg.wave_net_threshold == 0:
             await self.survivor.start()
@@ -147,6 +162,9 @@ class SaviourCombo:
 
         if self._bn_survivor_started and self.bn_survivor is not None:
             await self.bn_survivor.stop(reason)
+
+        if self._nifty_gex_started and self.nifty_gex is not None:
+            await self.nifty_gex.stop(reason)
 
         await self.wave.stop(reason)
 
