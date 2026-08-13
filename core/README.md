@@ -66,7 +66,7 @@ import requests
 r = requests.post('https://api.upstox.com/v2/login/authorization/token', data={
     'code': 'CODE',
     'client_id': 'REDACTED',
-    'client_secret': 'REDACTED',
+    'client_secret': ''client_secret': 'YOUR_CLIENT_SECRET_HERE',
     'redirect_uri': 'http://127.0.0.1:8080/callback',
     'grant_type': 'authorization_code'
 })
