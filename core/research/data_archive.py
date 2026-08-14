@@ -88,6 +88,7 @@ class DataArchiver:
         self._last_archived_candle_key: Optional[str] = None
         self._last_archived_option_candle_key: Optional[str] = None
         self._last_session_plan_version = 0
+        self._last_archived_oi_ts: Optional[str] = None
 
         self._init_db()
 
@@ -151,6 +152,24 @@ class DataArchiver:
                         spot     REAL
                     )
                 """)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS oi_snapshots (
+                        ts                          TEXT NOT NULL PRIMARY KEY,
+                        total_ce_oi                 INTEGER,
+                        total_pe_oi                 INTEGER,
+                        ce_oi_delta                 INTEGER,
+                        pe_oi_delta                 INTEGER,
+                        pcr                         REAL,
+                        atm_strike                  REAL,
+                        max_pain_strike             REAL,
+                        highest_ce_oi_strike        REAL,
+                        highest_pe_oi_strike        REAL,
+                        pe_support_migrating_up     INTEGER,
+                        pe_support_migrating_down   INTEGER,
+                        ce_resistance_migrating_up  INTEGER,
+                        ce_resistance_migrating_down INTEGER
+                    )
+                """)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_candles_symbol_ts ON candles_1min(symbol, ts)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_capital_strategy_ts ON capital_snapshots(strategy, ts)")
                 conn.commit()
@@ -186,6 +205,7 @@ class DataArchiver:
                 self._maybe_archive_option_candles()
                 self._maybe_snapshot_capital_and_greeks()
                 self._maybe_archive_session_plan()
+                self._maybe_archive_oi()
             except Exception as e:
                 # Belt-and-suspenders: _maybe_* methods already catch their
                 # own errors, but the loop itself must never die.
@@ -346,6 +366,39 @@ class DataArchiver:
                 conn.commit()
         except Exception as e:
             logger.error(f"[DataArchiver] GEX snapshot error: {e}")
+
+    # ── Open Interest ───────────────────────────────────────────────────────
+
+    def _maybe_archive_oi(self) -> None:
+        """Archives a new OI snapshot only when market_context has actually
+        fetched fresh data (its own _fetch_and_update_oi() runs every 30s
+        during the main session) -- avoids duplicate rows on every 5s loop
+        tick, matching the version-based dedup pattern used for session_plans."""
+        try:
+            oi = self.market_context.oi
+            if oi.timestamp is None:
+                return  # no OI fetched yet this run (e.g. pre-market, or token missing)
+            ts_str = oi.timestamp.isoformat()
+            if ts_str == self._last_archived_oi_ts:
+                return
+            self._last_archived_oi_ts = ts_str
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO oi_snapshots "
+                    "(ts, total_ce_oi, total_pe_oi, ce_oi_delta, pe_oi_delta, pcr, "
+                    "atm_strike, max_pain_strike, highest_ce_oi_strike, highest_pe_oi_strike, "
+                    "pe_support_migrating_up, pe_support_migrating_down, "
+                    "ce_resistance_migrating_up, ce_resistance_migrating_down) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (ts_str, oi.total_ce_oi, oi.total_pe_oi, oi.ce_oi_delta, oi.pe_oi_delta,
+                     oi.pcr, oi.atm_strike, oi.max_pain_strike, oi.highest_ce_oi_strike,
+                     oi.highest_pe_oi_strike, int(oi.pe_support_migrating_up),
+                     int(oi.pe_support_migrating_down), int(oi.ce_resistance_migrating_up),
+                     int(oi.ce_resistance_migrating_down)),
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error(f"[DataArchiver] OI snapshot error: {e}")
 
     def _maybe_archive_session_plan(self) -> None:
         try:

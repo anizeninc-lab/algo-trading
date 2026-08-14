@@ -114,6 +114,7 @@ class NiftyGex(BaseStrategy):
         # Active (filled) trade -- only one at a time, per module docstring
         self._active_trade: dict = {}         # id, symbol, direction, entry_price(option), quantity, plan, entry_candle_count
         self._closing_lock = asyncio.Lock()
+        self._last_block_reason = ""    # avoids repeated log spam, matches wave_extractor
 
         self._realised_pnl   = 0.0
         self._unrealised_pnl = 0.0
@@ -239,7 +240,24 @@ class NiftyGex(BaseStrategy):
 
             blocked, reason = risk_manager.is_trading_blocked()
             if blocked:
+                if reason != self._last_block_reason:
+                    self._last_block_reason = reason
+                    logger.info(f"[nifty_gex] Trading blocked: {reason}")
+                    if "daily loss" in reason.lower():
+                        if self._active_trade:
+                            await self._close_active_trade("MAX_DAILY_LOSS")
+                        await self.stop(reason="MAX_DAILY_LOSS")
+                    elif "circuit breaker" in reason.lower() or "halted" in reason.lower():
+                        if self._active_trade:
+                            await self._close_active_trade("API_CIRCUIT_BREAKER")
+                        await self.stop(reason="API_CIRCUIT_BREAKER")
+                    elif "auto-stop" in reason.lower():
+                        if self._active_trade:
+                            await self._close_active_trade("AUTO_STOP")
+                        await self.stop(reason="AUTO_STOP")
                 return
+            else:
+                self._last_block_reason = ""
 
             if self._entry_order_id:
                 return  # entry order pending -- wait for fill/timeout, don't re-evaluate
