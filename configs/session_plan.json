@@ -18,27 +18,27 @@
     "position_size": 0.75
   },
   "scores": {
-    "range_score": 5.0,
-    "trending_score": 5.0,
+    "range_score": 7.0,
+    "trending_score": 3.0,
     "or_width": null,
     "or_width_signal": "OR data not collected",
-    "vix_level": 11.97,
-    "vix_signal": "VIX=12.0 LOW \u2192 calm market, range likely",
-    "gap_pct": 0.681,
-    "gap_signal": "moderate gap \u2192 trending possible",
+    "vix_level": 11.5,
+    "vix_signal": "VIX=11.5 LOW \u2192 calm market, range likely",
+    "gap_pct": 0.139,
+    "gap_signal": "flat open \u2192 range likely",
     "midpoint_crosses": 0,
     "crosses_signal": "0 crosses \u2192 strong directional move",
     "pcr_at_open": 1.0,
     "pcr_signal": "PCR=1.00 NEUTRAL \u2192 range bias",
-    "prev_close": 24306.85,
-    "today_open": 24472.45
+    "prev_close": 24328.15,
+    "today_open": 24361.9
   },
-  "produced_at": "2026-08-12T11:25:47.844936+05:30",
+  "produced_at": "2026-08-14T09:44:26.949417+05:30",
   "plan_version": 1,
   "notes": [
-    "OR data unavailable \u2014 defaulting to RANGE MEDIUM, Survivor ACTIVE",
+    "RANGE confirmed \u2014 Survivor ACTIVE, Wave BLOCKED",
     "MEDIUM confidence \u2014 position size reduced to 75%",
-    "Low VIX (12.0) \u2014 tighter triggers applied"
+    "Low VIX (11.5) \u2014 tighter triggers applied"
   ],
   "is_ready": true,
   "low_confidence_hold_until": null

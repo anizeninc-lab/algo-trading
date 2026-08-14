@@ -159,6 +159,12 @@ class MarketContextEngine:
         self._current_bucket: Optional[dict] = None       # in-progress minute: {open,high,low,close}
         self._current_bucket_minute: Optional[str] = None  # "YYYY-MM-DD HH:MM" key of in-progress bucket
         self._SESSION_CANDLE_CAP = 400  # ~ full trading day of 1-min candles, bounds memory
+        # ── Live tick-driven OPTION candle aggregation (mirrors NIFTY above) ──
+        self._option_candle_lock = threading.Lock()
+        self._option_symbol = None
+        self._option_session_candles: list = []
+        self._option_current_bucket: Optional[dict] = None
+        self._option_current_bucket_minute: Optional[str] = None
 
     # ── Public read-only properties (Layer 2 reads these) ──────────────────
 
@@ -233,6 +239,80 @@ class MarketContextEngine:
                 }
         except Exception as e:
             logger.debug(f"[market_context] Tick aggregation error: {e}")
+
+    def subscribe_option_ticks(self, symbol: str) -> None:
+        """Start building local 1-min candles for the option contract currently
+        being traded. Callable any time after set_broker(). Resets candle
+        series if called again with a new symbol (e.g. next day's contract)."""
+        if self._broker is None:
+            logger.error("[market_context] subscribe_option_ticks called before set_broker()")
+            return
+        with self._option_candle_lock:
+            self._option_symbol = symbol
+            self._option_session_candles = []
+            self._option_current_bucket = None
+            self._option_current_bucket_minute = None
+        try:
+            self._broker.subscribe_ticks(symbols=[symbol], callback=self._on_option_tick)
+            logger.info(f"[market_context] Subscribed to live option ticks for {symbol}")
+        except Exception as e:
+            logger.error(f"[market_context] Failed to subscribe to option ticks for {symbol}: {e}")
+
+    def _on_option_tick(self, tick) -> None:
+        """Aggregate option ticks into 1-min candles. Mirrors _on_nifty_tick."""
+        try:
+            price = getattr(tick, "last_price", None)
+            if not price:
+                return
+            tick_symbol = getattr(tick, "symbol", None) or getattr(tick, "instrument_key", None)
+            if self._option_symbol and tick_symbol and tick_symbol != self._option_symbol:
+                return
+            now = datetime.now(IST)
+            minute_key = now.strftime("%Y-%m-%d %H:%M")
+            with self._option_candle_lock:
+                if self._option_current_bucket_minute is None:
+                    self._option_current_bucket_minute = minute_key
+                    self._option_current_bucket = {"open": price, "high": price, "low": price, "close": price}
+                    return
+                if minute_key == self._option_current_bucket_minute:
+                    b = self._option_current_bucket
+                    b["high"] = max(b["high"], price)
+                    b["low"] = min(b["low"], price)
+                    b["close"] = price
+                    return
+                from core.regime_engine import Candle
+                finished = self._option_current_bucket
+                self._option_session_candles.append(Candle(
+                    ts=self._option_current_bucket_minute,
+                    open=finished["open"], high=finished["high"],
+                    low=finished["low"], close=finished["close"],
+                ))
+                if len(self._option_session_candles) > self._SESSION_CANDLE_CAP:
+                    self._option_session_candles.pop(0)
+                self._option_current_bucket_minute = minute_key
+                self._option_current_bucket = {"open": price, "high": price, "low": price, "close": price}
+        except Exception as e:
+            logger.debug(f"[market_context] Option tick aggregation error: {e}")
+
+    @property
+    def option_session_candles_1min(self) -> list:
+        """Public read-only access to the live 1-min candles for the tracked option."""
+        from core.regime_engine import Candle
+        with self._option_candle_lock:
+            candles = list(self._option_session_candles)
+            if self._option_current_bucket_minute is not None:
+                b = self._option_current_bucket
+                candles = candles + [Candle(
+                    ts=self._option_current_bucket_minute, open=b["open"],
+                    high=b["high"], low=b["low"], close=b["close"],
+                )]
+        return candles
+
+    @property
+    def option_symbol_tracked(self) -> str:
+        """The option symbol currently being tracked for candle-building, if any."""
+        with self._option_candle_lock:
+            return self._option_symbol or ""
 
     def _backfill_session_candles(self) -> None:
         """

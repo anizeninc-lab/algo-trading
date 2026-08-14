@@ -110,7 +110,8 @@ class RiskManager:
         # capital_base — P&L-linked dynamic ceiling, persisted alongside per_strategy_cap
         self._per_strategy_cap: float
         self._capital_base: float
-        self._per_strategy_cap, self._capital_base = self._load_capital_config()
+        self._per_strategy_cap, self._capital_base, self._capital_topup = self._load_capital_config()
+        self._last_pool_alert_ts: float = 0.0
 
         # Periodic ground-truth capital drift reconciliation (background loop)
         self._capital_reconcile_task    = None
@@ -274,11 +275,13 @@ class RiskManager:
             except Exception as e:
                 logger.error(f"[RiskManager] Capital reconcile loop error: {e}")
 
-    def _load_capital_config(self) -> tuple[float, float]:
-        """Load per-strategy capital cap and P&L-linked capital_base from
-        configs/capital_config.json. Returns (per_strategy_cap, capital_base)."""
+    def _load_capital_config(self) -> tuple[float, float, float]:
+        """Load per-strategy capital cap, P&L-linked capital_base, and manual
+        top-up from configs/capital_config.json.
+        Returns (per_strategy_cap, capital_base, capital_topup)."""
         cap = 150000.0
         base = CAPITAL_BASE_DEFAULT
+        topup = 0.0
         try:
             import json
             cfg_path = Path("configs/capital_config.json")
@@ -286,14 +289,18 @@ class RiskManager:
                 data = json.loads(cfg_path.read_text())
                 cap = float(data.get("per_strategy_cap", 150000.0))
                 base = float(data.get("capital_base", CAPITAL_BASE_DEFAULT))
-                logger.info(f"[RiskManager] Loaded per_strategy_cap: ₹{cap:,.0f} | capital_base: ₹{base:,.0f}")
+                topup = float(data.get("capital_topup", 0.0))
+                logger.info(
+                    f"[RiskManager] Loaded per_strategy_cap: ₹{cap:,.0f} | "
+                    f"capital_base: ₹{base:,.0f} | capital_topup: ₹{topup:,.0f}"
+                )
         except Exception as e:
             logger.warning(f"[RiskManager] Could not load capital_config.json: {e}")
-        return cap, base
+        return cap, base, topup
 
     def _save_capital_config(self) -> None:
-        """Persist both per_strategy_cap and capital_base together, so setting
-        one via the dashboard never clobbers the other."""
+        """Persist per_strategy_cap, capital_base, and capital_topup together,
+        so setting one via the dashboard/Telegram never clobbers the others."""
         try:
             import json
             cfg_path = Path("configs/capital_config.json")
@@ -301,9 +308,43 @@ class RiskManager:
             cfg_path.write_text(json.dumps({
                 "per_strategy_cap": self._per_strategy_cap,
                 "capital_base":     self._capital_base,
+                "capital_topup":    self._capital_topup,
             }, indent=2))
         except Exception as e:
             logger.error(f"[RiskManager] Could not save capital_config.json: {e}")
+
+    def get_effective_total_pool(self) -> float:
+        """Total account-wide capital pool available across ALL strategies
+        combined: the trailing-P&L-linked capital_base (shrinks after losses,
+        grows after profit) plus any manual top-up added via /addcapital."""
+        return self._capital_base + self._capital_topup
+
+    def add_capital(self, amount: float) -> float:
+        """Manually add capital to the account pool (e.g. via the /addcapital
+        Telegram command or dashboard). Persists immediately and returns the
+        new total pool value."""
+        amount = float(amount)
+        self._capital_topup += amount
+        self._save_capital_config()
+        new_total = self.get_effective_total_pool()
+        logger.info(
+            f"[RiskManager] Capital top-up: +₹{amount:,.0f} -> total pool now ₹{new_total:,.0f}"
+        )
+        return new_total
+
+    def _maybe_alert_pool_low(self, deployed: float, pool: float) -> None:
+        """Throttled Telegram alert when the account-wide pool (not a single
+        strategy) is the reason a trade was blocked. 15-min cooldown so it
+        doesn't spam on every tick while the pool stays exhausted."""
+        import time as _time
+        now = _time.monotonic()
+        if now - self._last_pool_alert_ts > 900:
+            self._last_pool_alert_ts = now
+            try:
+                from core.alerting import alert_capital_pool_low
+                alert_capital_pool_low(deployed, pool)
+            except Exception as e:
+                logger.warning(f"[RiskManager] Could not send capital pool alert: {e}")
 
     def set_per_strategy_cap(self, new_cap: float) -> None:
         """Update per-strategy capital cap and persist to disk."""
@@ -375,6 +416,22 @@ class RiskManager:
                 f"exceeds per-strategy cap of ₹{PER_STRATEGY_CAP:,.0f}"
             )
             logger.info(f"[RiskManager] CAPITAL GUARD: {reason}")
+            return False, reason
+
+        # NEW: account-wide total pool check — the combined total across ALL
+        # strategies, not just this one, must also fit.
+        total_pool     = self.get_effective_total_pool()
+        total_deployed = self.get_total_deployed_capital()
+        projected_total = total_deployed + margin_needed
+        if projected_total > total_pool:
+            reason = (
+                f"TOTAL POOL exhausted — account deployed: ₹{total_deployed:,.0f} + "
+                f"new: ₹{margin_needed:,.0f} = ₹{projected_total:,.0f} "
+                f"exceeds total capital pool of ₹{total_pool:,.0f}. "
+                f"Add capital with /addcapital <amount>."
+            )
+            logger.info(f"[RiskManager] CAPITAL GUARD: {reason}")
+            self._maybe_alert_pool_low(total_deployed, total_pool)
             return False, reason
 
         return True, ""
@@ -692,6 +749,7 @@ class RiskManager:
                 "system_halted":   self._system_halted,
                 "halt_reason":     self._halt_reason,
                 "deployed_capital": self._deployed_capital,
+                "last_reset_day":  self._last_reset_day,
             }
             RISK_STATE_FILE.parent.mkdir(exist_ok=True)
             # Atomic write: write to a temp file first, then rename over the
@@ -722,6 +780,7 @@ class RiskManager:
                 return
             self._trade_counts     = state.get("trade_counts", {})
             self._daily_pnl        = state.get("daily_pnl", {})
+            self._last_reset_day   = state.get("last_reset_day", now.day)
             # Re-validate halt against today's actual DB P&L — don't blindly restore halted=True
             persisted_halt   = state.get("system_halted", False)
             persisted_reason = state.get("halt_reason", "")

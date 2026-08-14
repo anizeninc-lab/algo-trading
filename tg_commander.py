@@ -106,7 +106,6 @@ def handle_status() -> str:
         return "\n".join(lines)
     except Exception as e:
         return f"❌ Status fetch failed: {e}"
-
 def handle_resume() -> str:
     try:
         # Clear halt via killswitch reset endpoint
@@ -114,6 +113,28 @@ def handle_resume() -> str:
         # Restart bot
         subprocess.run(["pm2", "restart", "trading-bot", "--update-env"], timeout=15)
         return "✅ <b>Bot resumed</b> — halt cleared and restarted."
+    except Exception as e:
+        return f"❌ Resume failed: {e}"
+
+
+def handle_add_capital(amount_str: str) -> str:
+    try:
+        amount = float(amount_str)
+    except ValueError:
+        return f"❌ Invalid amount: {amount_str!r} — usage: /addcapital 50000"
+    try:
+        resp = requests.post(
+            f"{DASHBOARD_URL}/api/capital/add",
+            params={"amount": amount},
+            timeout=15,
+        )
+        data = resp.json()
+        if data.get("status") == "ok":
+            new_total = data.get("new_total_pool", 0)
+            return f"✅ <b>Capital added</b>: ₹{amount:,.0f}\nNew total pool: ₹{new_total:,.0f}"
+        return f"❌ Add capital failed: {data.get('error', 'unknown error')}"
+    except Exception as e:
+        return f"❌ Add capital failed: {e}"
     except Exception as e:
         return f"❌ Resume failed: {e}"
 
@@ -134,7 +155,7 @@ def handle_token(code: str) -> str:
 # ── Main loop ─────────────────────────────────────────────────────────────────
 def main():
     print("[tg_commander] Started — listening for commands...")
-    tg_send("🤖 <b>Telegram Commander online</b>\nCommands: /kill /status /resume /token &lt;code&gt;")
+    tg_send("🤖 <b>Telegram Commander online</b>\nCommands: /kill /status /resume /token &lt;code&gt; /addcapital &lt;amount&gt;")
 
     offset = 0
     # Skip old messages on startup
@@ -170,14 +191,18 @@ def main():
                 code = text.split("/token ", 1)[1].strip()
                 tg_send("⏳ Exchanging token...")
                 tg_send(handle_token(code))
-
+            elif text.startswith("/addcapital "):
+                amount_str = text.split("/addcapital ", 1)[1].strip()
+                tg_send("⏳ Adding capital...")
+                tg_send(handle_add_capital(amount_str))
             elif text.startswith("/"):
                 tg_send(
                     "❓ Unknown command. Available:\n"
                     "/kill — close all positions\n"
                     "/status — P&amp;L and position summary\n"
                     "/resume — clear halt and restart\n"
-                    "/token &lt;code&gt; — refresh Upstox token"
+                    "/token &lt;code&gt; — refresh Upstox token\n"
+                    "/addcapital &lt;amount&gt; — top up capital pool"
                 )
 
         time.sleep(POLL_INTERVAL)

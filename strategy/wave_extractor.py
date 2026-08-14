@@ -98,6 +98,13 @@ class WaveExtractor(BaseStrategy):
         )
 
         self.broker.on_order_update(self._on_order_update)
+        # Start building 1-min option premium candles for research/backtesting
+        # (research_archive.db picks these up via data_archive.py)
+        try:
+            from core.market_context import market_context as _mc_wave
+            _mc_wave.subscribe_option_ticks(self.cfg.option_symbol)
+        except Exception as e:
+            logger.error(f"[wave_extractor] Could not start option candle tracking: {e}")
 
         self._sync_task = asyncio.create_task(self._position_sync_loop())
         asyncio.create_task(self._auto_stop_watchdog())
