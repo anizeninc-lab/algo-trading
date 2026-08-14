@@ -163,6 +163,17 @@ class CandleReplaySource:
                 self.broker.emit_tick(tick)
                 if self.real_time_pace:
                     await asyncio.sleep(15)  # ~60s / 4 ticks per candle
+                else:
+                    # CRITICAL: emit_tick uses run_coroutine_threadsafe to schedule
+                    # on_tick() on this same event loop, but scheduling != running.
+                    # Without a real await here, --fast mode fires all ticks in one
+                    # synchronous burst and every on_tick() call stays queued,
+                    # unexecuted, until something else awaits -- by which point
+                    # stop() may have already flipped _stop_flag=True, silently
+                    # discarding every queued tick. This tiny sleep(0) forces an
+                    # actual event-loop yield so each on_tick() actually runs
+                    # before the next tick is emitted.
+                    await asyncio.sleep(0)
         return len(candles)
 
 
