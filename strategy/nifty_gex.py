@@ -102,7 +102,9 @@ class NiftyGex(BaseStrategy):
         self._seed_date = None                # date the seed was last fetched, guards re-fetch
 
         # Throttled evaluation
+        # Throttled evaluation
         self._last_eval_at: float = 0.0
+        self._last_gex_snapshot: dict = {}    # for research/data_archive.py -- avoids duplicate REST calls
 
         # Pending entry order (placed, not yet filled)
         self._entry_order_id: str = ""
@@ -293,6 +295,12 @@ class NiftyGex(BaseStrategy):
             gex_regime = classify_regime(gex)
             if not gex_regime:
                 return
+            self._last_gex_snapshot = {
+                "ts": datetime.now(IST).isoformat(),
+                "net_gex": gex_regime.get("net_gex"),
+                "regime": gex_regime.get("regime"),
+                "spot": self._current_spot,
+            }
 
             ema_stack = get_multi_timeframe_stack(candles, self._historical_15min_seed)
 

@@ -1,4 +1,5 @@
 {
   "per_strategy_cap": 50000.0,
-  "capital_base": 133431.12
+  "capital_base": 138047.58,
+  "capital_topup": 20000.0
 }

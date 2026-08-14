@@ -94,6 +94,8 @@ async def run_strategies(config: dict):
     market_context.set_broker(broker)
 
     from core.session_planner import session_planner
+    from core.research.data_archive import DataArchiver
+    from core.state_store import state_store
     session_planner.start()
     logger.info("[main] Session planner started")
 
@@ -186,6 +188,17 @@ async def run_strategies(config: dict):
     dashboard_api.combo_ref = combo  # wire Greeks + kill switch
     await combo.start()
 
+    archiver = DataArchiver(
+        market_context=market_context,
+        risk_manager=risk_manager,
+        vix_manager=vix_manager,
+        session_planner=session_planner,
+        state_store=state_store,
+        combo=combo,
+    )
+    archiver.start()
+    logger.info("[main] Data archiver started")
+
     try:
         while True:
             await asyncio.sleep(1)
@@ -194,6 +207,7 @@ async def run_strategies(config: dict):
         await combo.stop(reason="MANUAL")
         await vix_manager.stop()
         await risk_manager.stop_capital_reconcile_loop()
+        archiver.stop()
 
 async def main():
     # ── Time sync check ───────────────────────────────────────────────────

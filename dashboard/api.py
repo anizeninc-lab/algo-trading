@@ -149,6 +149,20 @@ async def get_strategy_status(name: str):
     }
 
 
+@app.post("/api/capital/add")
+async def add_capital(amount: float):
+    """Manually top up the account-wide capital pool (e.g. via /addcapital
+    Telegram command or dashboard button)."""
+    try:
+        from core.risk_manager import risk_manager
+        if amount <= 0:
+            return {"status": "error", "error": "Amount must be positive"}
+        new_total = risk_manager.add_capital(amount)
+        return {"status": "ok", "added": amount, "new_total_pool": round(new_total, 2)}
+    except Exception as e:
+        logger.exception(f"[capital] Error adding capital: {e}")
+        return {"status": "error", "error": str(e)}
+
 @app.post("/api/killswitch")
 async def kill_switch(flatten: bool = True):
     """
@@ -687,11 +701,9 @@ async def get_bot_status():
     blocked, block_reason = risk_manager.is_trading_blocked()
 
     # Capital
-    max_cap   = risk_manager.max_capital_deployed if hasattr(risk_manager, "max_capital_deployed") else 150000
-    risk_state = risk_manager._load_state() if hasattr(risk_manager, "_load_state") else {}
-    deployed  = sum((risk_manager._deployed_capital or {}).values()) if hasattr(risk_manager, "_deployed_capital") else 0.0
-    remaining = max(0.0, max_cap - deployed)
-
+    max_cap   = risk_manager.get_effective_total_pool() if hasattr(risk_manager, "get_effective_total_pool") else 150000
+    deployed  = risk_manager.get_total_deployed_capital() if hasattr(risk_manager, "get_total_deployed_capital") else 0.0
+    remaining = max_cap - deployed
     # Trades today
     try:
         today = date.today().isoformat()

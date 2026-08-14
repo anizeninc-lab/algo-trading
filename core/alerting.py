@@ -141,7 +141,15 @@ def alert_reconcile_mismatch(trade_id: str, symbol: str) -> None:
         f"Auto-closed in DB",
         LEVEL_WARNING
     )
-
+def alert_capital_pool_low(deployed: float, pool: float) -> None:
+        pct = (deployed / pool * 100) if pool else 0.0
+        send_telegram(
+            f"*⚠️ CAPITAL POOL EXHAUSTED*\n"
+            f"Deployed: `₹{deployed:,.0f}` / Pool: `₹{pool:,.0f}` ({pct:.0f}%)\n"
+            f"Strategies are blocked from opening new trades until capital is added.\n"
+            f"Add capital: `/addcapital <amount>`",
+            LEVEL_WARNING
+    )
 
 def alert_system_start(nifty_price: float, regime: str, paper: bool) -> None:
     mode = "📄 PAPER" if paper else "💰 LIVE"
