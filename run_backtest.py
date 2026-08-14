@@ -34,12 +34,39 @@ BACKTEST_RISK_STATE = Path("configs/backtest_risk_state.json")
 
 _trade_log_module.trade_logger.db_path = BACKTEST_TRADE_DB
 _trade_log_module.trade_logger._init_db()   # create fresh tables in the new file
+_trade_log_module.trade_logger._migrate_db()  # apply same column migrations live DB has
+                                                # (readable_symbol, peak_pnl, trough_pnl,
+                                                # entry_context, client_order_id) -- _init_db()
+                                                # alone only has the original base schema.
 _risk_manager_module.RISK_STATE_FILE = BACKTEST_RISK_STATE
 # Force a clean slate for this run -- don't inherit any halt state at all
 _risk_manager_module.risk_manager._system_halted = False
 _risk_manager_module.risk_manager._halt_reason = ""
 _risk_manager_module.risk_manager._trade_counts = {}
 _risk_manager_module.risk_manager._daily_pnl = {}
+
+# ── STEP 1b: force market_context into a tradeable regime ─────────────────
+# market_context is a live-data-driven singleton (regime only updates from
+# real NIFTY ticks, which this backtest never sends). Left alone it stays
+# at its cold-start default (REGIME_CLOSED), which strategy_filter.can_trade()
+# correctly refuses to trade in -- silently producing 0 orders regardless of
+# the replayed option data. Safe to mutate here: run_backtest.py is always
+# its own separate OS process, never sharing memory with the live bot.
+# NOTE: this is a fixed approximation, not a historically accurate regime
+# replay (real regime varies through the day and depends on OI data we
+# don't archive yet) -- results reflect the strategy's option-price-driven
+# logic, not regime-timing accuracy. See handoff notes.
+import core.market_context as _market_context_module
+# wave_extractor only trades REGIME_TRENDING_BULL / REGIME_TRENDING_BEAR
+# (see core/strategy_filter.py STRATEGY_ALLOWED_REGIMES) -- NOT range.
+_market_context_module.market_context._regime = _market_context_module.REGIME_TRENDING_BULL
+# strategy_filter also hard-requires opening_range.is_ready (REQUIRE_OR_LOCKED=True),
+# which needs locked=True + high/low set -- never happens in this fresh process
+# since we never run real 9:15-9:30 opening-range collection.
+_market_context_module.market_context._opening_range.locked = True
+_market_context_module.market_context._opening_range.high = _market_context_module.market_context._opening_range.high or 24400.0
+_market_context_module.market_context._opening_range.low  = _market_context_module.market_context._opening_range.low  or 24200.0
+print("[run_backtest] market_context regime forced to REGIME_TRENDING_BULL + opening_range seeded (approximation, see docstring)")
 _risk_manager_module.risk_manager._deployed_capital = {}
 
 print(f"[run_backtest] Isolated: trades -> {BACKTEST_TRADE_DB}, risk state -> {BACKTEST_RISK_STATE}")
@@ -93,9 +120,17 @@ async def main():
     print("[run_backtest] Replay finished. Stopping strategy...")
     await wave.stop(reason="BACKTEST_COMPLETE")
 
-    positions = await broker.get_positions()
-    total_trades = len(broker._orders)
-    realised_pnl = sum(p.pnl for p in positions)
+    # Paper-mode trades never touch SimulatedBroker (wave_extractor logs
+    # [PAPER] fills and writes straight to trade_logger, bypassing
+    # broker.place_order() entirely) -- broker._orders/get_positions() stay
+    # empty regardless of how many trades actually happened. Read the real
+    # numbers from trade_logger's own DB instead, which both paper and live
+    # order paths write to consistently.
+    summary = _trade_log_module.trade_logger.get_pnl_summary(
+        strategy="wave_extractor", today_only=False
+    )
+    total_trades = summary.get("total_trades", 0)
+    realised_pnl = summary.get("total_pnl", 0.0)
 
     run_id = f"BT_{uuid.uuid4().hex[:10]}"
     save_backtest_result(
