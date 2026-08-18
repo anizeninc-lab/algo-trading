@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from brokers.base import AbstractBrokerGateway, Order, Tick
 from core.event_bus import EventType
 from core.risk_manager import risk_manager
+from core.regime_engine import regime_engine
 from core.auto_config import fetch_instruments, find_symbol_from_instruments, get_nearest_tuesday, get_nearest_wednesday
 from core.state_store import Direction, state_store
 from core.trade_log import trade_logger
@@ -39,6 +40,9 @@ class SurvivorConfig:
     ce_reset_gap:         float = 90.0
     pe_quantity:          int   = 65
     ce_quantity:          int   = 65
+    pe_enabled:           bool  = True   # set False to fully disable PE-side selling (all 4 trigger points)
+    ce_enabled:           bool  = True   # set False to fully disable CE-side selling (all 4 trigger points)
+    min_regime_stability: float = 0.0    # 0 = off (current behavior). Minimum get_regime_stability() score (0-100) required before opening a new position.
     pe_start:             float = 0.0
     ce_start:             float = 0.0
     min_price_to_sell:    float = 15.0  # aligned with main.py instantiation (was 30.0)
@@ -351,7 +355,8 @@ class SurvivorAlgo(BaseStrategy):
             if can_trade:
                 # ── TRIGGER 1: Movement-based (overshoot-scaled, master port) ──
                 # PE SELL — Nifty moved up enough from last PE anchor
-                if nifty_price - self._pe_last_value >= current_pe_gap and not self._pe_sold_flag and _open_pe == 0:
+                if self.cfg.pe_enabled and nifty_price - self._pe_last_value >= current_pe_gap and not self._pe_sold_flag and _open_pe == 0 \
+                        and regime_engine.get_regime_stability() >= self.cfg.min_regime_stability:
                     _pe_diff = round(nifty_price - self._pe_last_value, 0)
                     _pe_raw_mult = int(_pe_diff / current_pe_gap) if current_pe_gap else 1
                     _pe_mult = max(1, min(_pe_raw_mult, self.cfg.sell_multiplier_threshold))
@@ -379,7 +384,8 @@ class SurvivorAlgo(BaseStrategy):
                     self._update_position(Direction.SHORT)
 
                 # CE SELL — Nifty moved down enough from last CE anchor
-                elif self._ce_last_value - nifty_price >= current_ce_gap and not self._ce_sold_flag and _open_ce == 0:
+                elif self.cfg.ce_enabled and self._ce_last_value - nifty_price >= current_ce_gap and not self._ce_sold_flag and _open_ce == 0 \
+                        and regime_engine.get_regime_stability() >= self.cfg.min_regime_stability:
                     _ce_diff = round(self._ce_last_value - nifty_price, 0)
                     _ce_raw_mult = int(_ce_diff / current_ce_gap) if current_ce_gap else 1
                     _ce_mult = max(1, min(_ce_raw_mult, self.cfg.sell_multiplier_threshold))
@@ -1500,21 +1506,8 @@ class SurvivorAlgo(BaseStrategy):
                     hedge_current_price=hedge_current_price,
                     hedge_quantity=trade.get("hedge_quantity", 0),
                 )
-                if not trade.get("_be_locked") and risk_manager.check_trade_stop_loss(
-                    trade["entry"], curr_price, trade["quantity"], trade["order_type"],
-                    hedge_entry_price=hedge_entry_price,
-                    hedge_current_price=hedge_current_price,
-                    hedge_quantity=trade.get("hedge_quantity", 0),
-                ):
-                    self._signal(
-                        f"🛑 STOP LOSS hit | {trade['symbol']} | "
-                        f"Entry: {trade['entry']:.2f} | "
-                        f"Current: {curr_price:.2f} | P&L: ₹{curr_pnl:.0f}"
-                    )
-                    await self._close_trade(trade, "SL_HIT", curr_price)
-                    continue  # trade closed, move to next
-
-                # ── Profit target ─────────────────────────────────────────
+                # ── Profit target (checked first so an armed trailing floor
+                # can never be undercut by the stop-loss check below) ──────
                 _fixed_tp = 800.0 if "BANKNIFTY" in self.cfg.instrument_name.upper() else 0.0
                 if risk_manager.check_trailing_profit(
                     trade["entry"], curr_price, trade["order_type"], trade["quantity"],
@@ -1530,6 +1523,21 @@ class SurvivorAlgo(BaseStrategy):
                         f"Current: {curr_price:.2f} | P&L: ₹{curr_pnl:.0f}"
                     )
                     await self._close_trade(trade, "TP_HIT", curr_price)
+                    continue  # trade closed, move to next
+
+                elif not trade.get("_be_locked") and risk_manager.check_trade_stop_loss(
+                    trade["entry"], curr_price, trade["quantity"], trade["order_type"],
+                    hedge_entry_price=hedge_entry_price,
+                    hedge_current_price=hedge_current_price,
+                    hedge_quantity=trade.get("hedge_quantity", 0),
+                ):
+                    self._signal(
+                        f"🛑 STOP LOSS hit | {trade['symbol']} | "
+                        f"Entry: {trade['entry']:.2f} | "
+                        f"Current: {curr_price:.2f} | P&L: ₹{curr_pnl:.0f}"
+                    )
+                    await self._close_trade(trade, "SL_HIT", curr_price)
+                    continue  # trade closed, move to next
 
             except Exception as e:
                 logger.error(f"[survivor] Monitor error for {trade['symbol']}: {e}")
@@ -1857,6 +1865,9 @@ class SurvivorAlgo(BaseStrategy):
         from core.market_context import market_context
         if market_context.regime not in ("range", "reversal_watch"):
             return
+        # Shared stability gate for both time-based triggers (PE and CE)
+        if regime_engine.get_regime_stability() < self.cfg.min_regime_stability:
+            return
 
         # Get current PCR for direction filter
         pcr = getattr(market_context, "_pcr", 1.0)
@@ -1867,7 +1878,8 @@ class SurvivorAlgo(BaseStrategy):
 
         # PE time trigger: PCR > 1.2 means more puts = market leaning bullish = safe to sell PE
         if (
-            not self._time_based_pe_fired
+            self.cfg.pe_enabled
+            and not self._time_based_pe_fired
             and open_pe == 0
             and pcr >= 1.2
             and len(self._open_trades_data) < 2
@@ -1892,7 +1904,8 @@ class SurvivorAlgo(BaseStrategy):
 
         # CE time trigger: PCR < 0.8 means more calls = market leaning bearish = safe to sell CE
         if (
-            not self._time_based_ce_fired
+            self.cfg.ce_enabled
+            and not self._time_based_ce_fired
             and open_ce == 0
             and pcr <= 0.8
             and len(self._open_trades_data) < 2

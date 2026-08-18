@@ -1,0 +1,57 @@
+{
+  "date": "2026-08-17",
+  "generated_at": "2026-08-17 20:09:37 IST",
+  "stop_reason": "SCHEDULED_EOD",
+  "paper_trade": true,
+  "summary": {
+    "total_trades": 7,
+    "winning": 1,
+    "losing": 6,
+    "win_rate_pct": 14.3,
+    "net_pnl": -7387.51,
+    "combined_pnl": 0.0
+  },
+  "by_strategy": {
+    "survivor": {
+      "total_pnl": -7627.1,
+      "total_trades": 4,
+      "winning": 0,
+      "losing": 4,
+      "win_rate": 0.0
+    },
+    "wave_extractor": {
+      "total_pnl": 394.91,
+      "total_trades": 1,
+      "winning": 1,
+      "losing": 0,
+      "win_rate": 100.0
+    },
+    "bn_survivor": {
+      "total_pnl": -155.32,
+      "total_trades": 2,
+      "winning": 0,
+      "losing": 2,
+      "win_rate": 0.0
+    }
+  },
+  "risk_state": {
+    "daily_pnl": {},
+    "trade_counts": {
+      "survivor": 2,
+      "bn_survivor": 1,
+      "wave_extractor": 1
+    },
+    "deployed_capital": {},
+    "system_halted": true,
+    "halt_reason": "Max daily loss hit: \u20b9-4504.42 (limit: \u20b9-3000.00, hardcoded floor: \u20b9-3000.00)"
+  },
+  "system": {
+    "total_pnl": 0.0,
+    "active_strategies": 0,
+    "total_strategies": 0,
+    "system_health": "OK",
+    "broker_status": {},
+    "system_start": "2026-08-17T20:09:37.955707",
+    "last_updated": "2026-08-17T20:09:37.964617"
+  }
+}

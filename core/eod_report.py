@@ -122,12 +122,21 @@ def generate_eod_report(reason: str = "AUTO_STOP", combo=None) -> Path | None:
         # ── Telegram summary ──────────────────────────────────────────────────
         try:
             from core.alerting import send_telegram, LEVEL_INFO
+            # 'reason' is often something like AUTO_STOP, MAX_DAILY_LOSS, or
+            # SCHEDULED_EOD -- all contain underscores, which Telegram's
+            # Markdown parse_mode treats as unmatched italic markers and
+            # rejects with a 400 "can't parse entities" error. This has
+            # likely been silently failing on every call (AUTO_STOP and
+            # MAX_DAILY_LOSS both have underscores too, not just the new
+            # SCHEDULED_EOD reason) -- same escaping pattern already used
+            # for `reason` in alert_trade_closed() below, just missing here.
+            safe_reason = reason.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
             tg_msg = (
                 f"📊 EOD Report {date_str} {mode}\n"
                 f"Trades: {report['summary']['total_trades']} | "
                 f"Win: {report['summary']['win_rate_pct']}%\n"
                 f"Net P&L: ₹{report['summary']['net_pnl']:.2f}\n"
-                f"Stop: {reason}"
+                f"Stop: {safe_reason}"
             )
             send_telegram(tg_msg, LEVEL_INFO)
         except Exception:

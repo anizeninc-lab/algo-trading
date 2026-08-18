@@ -171,7 +171,7 @@ class SaviourCombo:
         event_bus.unsubscribe(self._on_child_event)
         state_store.update_state(self.name, StrategyState.STOPPED)
         # ── Generate EOD report only on true EOD or loss limit stop ──────
-        if reason in ("AUTO_STOP", "MAX_DAILY_LOSS"):
+        if reason in ("AUTO_STOP", "MAX_DAILY_LOSS", "MAX_LOSS"):
             try:
                 from core.eod_report import generate_eod_report
                 generate_eod_report(reason=reason, combo=self)

@@ -480,21 +480,21 @@ class WaveExtractor(BaseStrategy):
             risk_manager.record_mfe_mae(
                 entry, price, otype, qty, trade_id=trade.get("id", "")
             )
-            if risk_manager.check_trade_stop_loss(entry, price, qty, otype):
-                _sl_pnl = (entry - price) * qty if otype == "SELL" else (price - entry) * qty
-                self._signal(
-                    f"STOP LOSS hit | {otype} | Entry: {entry:.2f} | Current: {price:.2f} | "
-                    f"P&L: ₹{_sl_pnl:.0f}"
-                )
-                await self._close_trade(trade, "STOP_LOSS")
-
-            elif risk_manager.check_trailing_profit(entry, price, otype, qty, trade_id=trade.get("id", "")):
+            if risk_manager.check_trailing_profit(entry, price, otype, qty, trade_id=trade.get("id", "")):
                 _tp_pnl = (entry - price) * qty if otype == "SELL" else (price - entry) * qty
                 self._signal(
                     f"TRAILING PROFIT hit | {otype} | Entry: {entry:.2f} | Current: {price:.2f} | "
                     f"P&L: ₹{_tp_pnl:.0f}"
                 )
                 await self._close_trade(trade, "TRAILING_PROFIT")
+
+            elif risk_manager.check_trade_stop_loss(entry, price, qty, otype):
+                _sl_pnl = (entry - price) * qty if otype == "SELL" else (price - entry) * qty
+                self._signal(
+                    f"STOP LOSS hit | {otype} | Entry: {entry:.2f} | Current: {price:.2f} | "
+                    f"P&L: ₹{_sl_pnl:.0f}"
+                )
+                await self._close_trade(trade, "STOP_LOSS")
 
     # ── Order Placement ───────────────────────────────────────────────────────
 

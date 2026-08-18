@@ -140,16 +140,35 @@ class CandleReplaySource:
     def _load_candles(self) -> list:
         query = "SELECT ts, open, high, low, close FROM candles_1min WHERE symbol = ?"
         params = [self.symbol]
+        # Archived ts values use 'T' as the date/time separator
+        # ("2026-08-13T09:15:00"). A start_ts/end_ts filter passed in as
+        # "2026-08-13 09:15" (space, no seconds) compares WRONG in plain
+        # lexicographic SQLite TEXT comparison: 'T' (0x54) > ' ' (0x20), so
+        # an end_ts filter in that format silently drops every row instead
+        # of bounding the range (start_ts "works" too, but only by
+        # accident). Found and fixed in core/research/survivor_backtest.py
+        # first (Aug 15); applying the same fix here since this class has
+        # the identical bug and this docstring's own usage examples use
+        # the space format.
         if self.start_ts:
             query += " AND ts >= ?"
-            params.append(self.start_ts)
+            params.append(self._normalize_ts(self.start_ts))
         if self.end_ts:
             query += " AND ts <= ?"
-            params.append(self.end_ts)
+            params.append(self._normalize_ts(self.end_ts))
         query += " ORDER BY ts ASC"
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(query, params).fetchall()
         return rows
+
+    @staticmethod
+    def _normalize_ts(ts: str) -> str:
+        """'2026-08-13 09:15' or '2026-08-13T09:15' -> '2026-08-13T09:15:00',
+        matching archived candles_1min.ts formatting exactly."""
+        ts = ts.strip().replace(" ", "T")
+        if len(ts) == 16:  # no seconds, e.g. '...T09:15'
+            ts += ":00"
+        return ts
 
     async def run(self) -> int:
         """Feeds every candle through the broker as synthetic ticks.
