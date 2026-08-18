@@ -1,0 +1,4 @@
+{
+  "enabled": false,
+  "_note": "Master switch for core/confidence_gate.py (Step 11). Set enabled=true only once you've read core/confidence_gate.py's module docstring and are comfortable with exactly what it can and can't do. Recommended: fix Telegram alerting first, since that's the real-time notification path for anything this enables."
+}

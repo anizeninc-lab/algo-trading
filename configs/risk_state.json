@@ -1,17 +1,15 @@
 {
-  "date": "2026-08-14",
+  "date": "2026-08-18",
   "trade_counts": {
-    "wave_extractor": 3,
-    "survivor": 2,
-    "bn_survivor": 1
+    "wave_extractor": 1,
+    "survivor": 2
   },
   "daily_pnl": {},
   "system_halted": true,
-  "halt_reason": "Max daily loss hit: \u20b9-3583.67 (limit: \u20b9-3000.00, hardcoded floor: \u20b9-3000.00)",
+  "halt_reason": "Max daily loss hit: \u20b9-4274.27 (limit: \u20b9-3000.00, hardcoded floor: \u20b9-3000.00)",
   "deployed_capital": {
     "wave_extractor": 0.0,
-    "survivor": 0.0,
-    "bn_survivor": 0.0
+    "survivor": 0.0
   },
-  "last_reset_day": 14
+  "last_reset_day": 18
 }
