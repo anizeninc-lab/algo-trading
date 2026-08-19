@@ -10,9 +10,9 @@
 
 | Item | Value |
 |------|-------|
-| Server | Oracle Cloud Ubuntu 22.04 — 92.4.90.188 |
-| Dashboard | http://92.4.90.188:8081 |
-| Code editor | http://92.4.90.188:8082 |
+| Server | Oracle Cloud Ubuntu 22.04 — <YOUR_SERVER_IP> |
+| Dashboard | http://<YOUR_SERVER_IP>:8081 |
+| Code editor | http://<YOUR_SERVER_IP>:8082 |
 | Process manager | PM2 |
 | Broker | Upstox (NFO intraday) |
 | Language | Python 3.10 + React frontend |
@@ -26,7 +26,7 @@
 
 **Step 1** — Open Git Bash on Windows and run:
 ```bash
-ssh -i ~/.ssh/oci_trading -L 8080:127.0.0.1:8080 ubuntu@92.4.90.188
+ssh -i ~/.ssh/oci_trading -L 8080:127.0.0.1:8080 ubuntu@<YOUR_SERVER_IP>
 ```
 
 **Step 2** — On the server, stop nginx:
@@ -43,7 +43,7 @@ python3 -c "
 import requests
 r = requests.post('https://api.upstox.com/v2/login/authorization/token', data={
     'code': 'CODE',
-    'client_id': 'REDACTED',
+    'client_id': '<YOUR_CLIENT_ID>',
     'client_secret': 'YOUR_CLIENT_SECRET_HERE',
     'redirect_uri': 'http://127.0.0.1:8080/callback',
     'grant_type': 'authorization_code'

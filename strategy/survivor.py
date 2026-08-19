@@ -1491,6 +1491,15 @@ class SurvivorAlgo(BaseStrategy):
                     hedge_current_price = self._ltp_cache.get(
                         _h_ikey, self._ltp_cache.get(trade["hedge_symbol"], 0.0)
                     )
+                    if hedge_current_price == 0.0:
+                        # Fallback to synthetic/broker pricer -- _ltp_cache is only
+                        # ever populated from real option TICKS (on_tick(), price <5000),
+                        # which never happens during backtest replay (IndexReplay only
+                        # emits index ticks; option prices are synthetic and computed
+                        # on-demand via broker.get_ltp()/_price_for()). Without this,
+                        # the hedge leg's price silently stays 0.0 for the entire
+                        # backtest, corrupting hedge P&L and SL/breakeven checks.
+                        hedge_current_price = await self.broker.get_ltp(trade["hedge_symbol"])
                     hedge_pnl_preview = (hedge_current_price - hedge_entry_price) * trade.get("hedge_quantity", 0)
                     logger.info(
                         f"[survivor] Hedge LTP: {trade['hedge_symbol']} = {hedge_current_price} | "
