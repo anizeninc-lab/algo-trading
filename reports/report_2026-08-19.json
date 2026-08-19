@@ -1,0 +1,44 @@
+{
+  "date": "2026-08-19",
+  "total_trades": 2,
+  "closed_trades": 2,
+  "open_trades": 0,
+  "winners": 1,
+  "losers": 1,
+  "total_pnl": 65.42,
+  "win_rate": 50.0,
+  "avg_win": 1007.88,
+  "avg_loss": -942.46,
+  "best_trade": 1007.88,
+  "worst_trade": -942.46,
+  "exit_reasons": {
+    "EOD": 1,
+    "STOP_LOSS": 1
+  },
+  "trades": [
+    {
+      "id": "ccb2d634",
+      "symbol": "NSE_FO|61623",
+      "direction": "PE",
+      "entry_price": 117.3,
+      "exit_price": 100.9,
+      "pnl": 1007.88,
+      "status": "CLOSED",
+      "entry_time": "2026-08-19T10:14",
+      "exit_time": "2026-08-19T15:10",
+      "notes": "EOD"
+    },
+    {
+      "id": "a66d4ffb",
+      "symbol": "NSE_FO|61623",
+      "direction": "PE",
+      "entry_price": 111.7,
+      "exit_price": 125.3,
+      "pnl": -942.46,
+      "status": "CLOSED",
+      "entry_time": "2026-08-19T09:39",
+      "exit_time": "2026-08-19T09:51",
+      "notes": "STOP_LOSS"
+    }
+  ]
+}

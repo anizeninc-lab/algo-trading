@@ -180,6 +180,8 @@ class TradeLogger:
         paper_trade: bool = False,
         readable_symbol: str = "",
         entry_context: str = "",
+        sl_price: float = None,
+        target_price: float = None,
     ) -> str:
         """
         Record a new trade when an order fills. 
@@ -213,8 +215,8 @@ class TradeLogger:
                 """
                 INSERT INTO trades
                     (id, strategy, broker, symbol, order_type, quantity,
-                     entry_price, entry_time, status, broker_order_id, client_order_id, notes, parent_trade_id, paper_trade, readable_symbol, entry_context)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?, ?)
+                     entry_price, entry_time, status, broker_order_id, client_order_id, notes, parent_trade_id, paper_trade, readable_symbol, entry_context, sl_price, target_price)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     trade_id,
@@ -232,6 +234,8 @@ class TradeLogger:
                     1 if paper_trade else 0,
                     readable_symbol,
                     entry_context,
+                    sl_price,
+                    target_price,
                 ),
             )
 

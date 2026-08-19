@@ -496,6 +496,7 @@ class WaveExtractor(BaseStrategy):
                 )
                 await self._close_trade(trade, "STOP_LOSS")
 
+
     # ── Order Placement ───────────────────────────────────────────────────────
 
     def _generate_multiplier_scale(self) -> dict:

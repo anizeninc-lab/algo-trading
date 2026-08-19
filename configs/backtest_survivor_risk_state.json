@@ -1,13 +1,13 @@
 {
   "date": "2026-08-19",
   "trade_counts": {
-    "wave_extractor": 2
+    "survivor": 2
   },
   "daily_pnl": {},
   "system_halted": false,
   "halt_reason": "",
   "deployed_capital": {
-    "wave_extractor": 0.0
+    "survivor": 0.0
   },
   "last_reset_day": 19
 }
