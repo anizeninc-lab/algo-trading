@@ -99,6 +99,29 @@ class SurvivorAlgo(BaseStrategy):
             or self.cfg.paper_trade_override
         )
 
+    def _compute_target_price(self, entry_price: float, quantity: int, order_type: str) -> float:
+        """
+        Stage-1 profit target as a real option price level, computed once at
+        trade-open (mirrors the formula in RiskManager.check_trailing_profit /
+        the ``_fixed_tp`` logic in _monitor_open_trades, ~line 1520).
+
+        BankNifty uses a fixed ₹800 target; everything else uses 40% of
+        premium collected (entry_price * quantity). For a SELL, the option
+        price must fall to reach the target; for a BUY (hedge leg), it must
+        rise. Unlike stop-loss, this is a real fixed number known immediately
+        at trade-open -- safe to compute and store once, unlike sl_price
+        which stays NULL until breakeven-lock (see handoff notes).
+        """
+        if entry_price <= 0 or quantity <= 0:
+            return None
+        premium_collected = entry_price * quantity
+        is_banknifty = "BANKNIFTY" in self.cfg.instrument_name.upper()
+        profit_target_rupees = 800.0 if is_banknifty else round(premium_collected * 0.40, 2)
+        if order_type == "SELL":
+            return round(entry_price - (profit_target_rupees / quantity), 2)
+        else:
+            return round(entry_price + (profit_target_rupees / quantity), 2)
+
     def reset_daily_strategy_state(self, morning_open_price: float) -> None:
         """
         Master daily reset hook called at market open to clear yesterday's data.
@@ -740,6 +763,7 @@ class SurvivorAlgo(BaseStrategy):
                 notes=f"VIX Regime Trigger | Nifty @ {nifty_price:.2f}",
                 paper_trade=_is_paper,
                 entry_context=_entry_context,
+                target_price=self._compute_target_price(entry_price, quantity, "SELL"),
             )
 
             from core.transaction_costs import calculate_order_cost
@@ -938,6 +962,7 @@ class SurvivorAlgo(BaseStrategy):
                 parent_trade_id=trade_data.get("id", ""),
                 paper_trade=is_paper,
                 entry_context=_hedge_entry_context,
+                target_price=self._compute_target_price(buy_price, quantity, "BUY"),
             )
 
             from core.transaction_costs import calculate_order_cost
@@ -1397,6 +1422,15 @@ class SurvivorAlgo(BaseStrategy):
                         except Exception as fe:
                             logger.debug(f"[survivor] REST fallback failed: {fe}")
 
+                    # Log a price snapshot every ~3s (this loop's own cadence)
+                    # for the dashboard's per-trade detail chart. Piggybacks
+                    # on this existing loop rather than a separate timer.
+                    _snapshot_price = cached if cached > 0 else self._ltp_cache.get(
+                        ikey, self._ltp_cache.get(symbol, 0.0)
+                    )
+                    if _snapshot_price > 0:
+                        trade_logger.log_price_history(trade.get("id", ""), _snapshot_price)
+
                 # Independent periodic SL/TP enforcement -- fires even if no
                 # ticks are arriving. Acts like a broker-side GTT would: a
                 # check enforced on a timer, independent of the live tick
@@ -1459,6 +1493,7 @@ class SurvivorAlgo(BaseStrategy):
                 if curr_pnl >= 400.0 and not trade.get("_be_locked"):
                     trade["_be_locked"] = True
                     trade["_sl_floor"] = trade["entry"]
+                    trade_logger.update_trade_sl(trade.get("id", ""), trade["entry"])
                     self._signal(
                         f"🔒 BREAKEVEN LOCKED | {trade['symbol']} | "
                         f"P&L: ₹{curr_pnl:.0f} — SL moved to entry ₹{trade['entry']:.2f}"
