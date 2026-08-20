@@ -148,6 +148,48 @@ class TradeLogger:
                 except Exception as e:
                     logger.error(f"Migration error while adding entry_context: {e}")
 
+            # sl_price / target_price: real option price levels for the
+            # dashboard's per-trade detail chart (Aug 19 2026 dashboard
+            # redesign). target_price is computable at trade-open (Stage-1
+            # profit target formula, see SurvivorAlgo._compute_target_price)
+            # and is written once via open_trade(). sl_price stays NULL until
+            # breakeven-lock triggers mid-trade (no fixed SL exists before
+            # that), then gets set via update_trade_sl(). Both nullable --
+            # this was previously applied as a manual ALTER TABLE directly on
+            # the live trade_log.db; codifying it here so fresh/backtest DBs
+            # (e.g. backtest_survivor_trade_log.db) get the columns too.
+            if "sl_price" not in columns:
+                try:
+                    conn.execute("ALTER TABLE trades ADD COLUMN sl_price REAL DEFAULT NULL;")
+                    logger.info("Database Migration applied: Added sl_price column to trades table.")
+                except Exception as e:
+                    logger.error(f"Migration error while adding sl_price: {e}")
+            if "target_price" not in columns:
+                try:
+                    conn.execute("ALTER TABLE trades ADD COLUMN target_price REAL DEFAULT NULL;")
+                    logger.info("Database Migration applied: Added target_price column to trades table.")
+                except Exception as e:
+                    logger.error(f"Migration error while adding target_price: {e}")
+
+            # trade_price_history: periodic price snapshots for open trades,
+            # logged every ~3s from SurvivorAlgo._refresh_ltp_loop. Powers the
+            # per-trade detail chart (entry/exit/SL/TP markers over time) in
+            # the dashboard redesign. Separate table, not a trades column,
+            # since it's a one-to-many time series per trade.
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS trade_price_history (
+                    trade_id  TEXT NOT NULL,
+                    ts        TEXT NOT NULL,
+                    price     REAL NOT NULL
+                );
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_trade_price_history_trade_id "
+                "ON trade_price_history(trade_id);"
+            )
+
     def _connect(self) -> sqlite3.Connection:
         """Open a clean database thread connection."""
         conn = sqlite3.connect(self.db_path)
@@ -256,6 +298,57 @@ class TradeLogger:
                 (parent_trade_id,),
             ).fetchone()
         return dict(row) if row else None
+
+    def update_trade_sl(self, trade_id: str, sl_price: float) -> bool:
+        """
+        Update a trade's sl_price column after breakeven-lock triggers.
+
+        Unlike target_price (known at trade-open), sl_price is genuinely
+        dynamic -- no fixed SL floor exists until the breakeven-lock
+        threshold (₹400 net profit) is hit mid-trade. This method is called
+        at that moment from strategy/survivor.py's _monitor_open_trades,
+        rather than being passed to open_trade() at insert time.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM trades WHERE id = ?", (trade_id,)
+            ).fetchone()
+            if not row:
+                logger.warning(f"TradeLogger: update_trade_sl -- trade {trade_id} not found")
+                return False
+            conn.execute(
+                "UPDATE trades SET sl_price = ? WHERE id = ?",
+                (sl_price, trade_id),
+            )
+        logger.info(f"TradeLogger: sl_price updated for trade {trade_id} -> {sl_price}")
+        return True
+
+    def log_price_history(self, trade_id: str, price: float) -> None:
+        """
+        Append one price snapshot for an open trade. Called every ~3s from
+        SurvivorAlgo._refresh_ltp_loop (piggybacking on its existing REST/WS
+        refresh cadence rather than a separate loop). Fire-and-forget: never
+        raises, since a missed snapshot shouldn't affect live trading.
+        """
+        if not trade_id or price is None or price <= 0:
+            return
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO trade_price_history (trade_id, ts, price) VALUES (?, ?, ?)",
+                    (trade_id, datetime.now().isoformat(), price),
+                )
+        except Exception as e:
+            logger.debug(f"TradeLogger: log_price_history failed for {trade_id}: {e}")
+
+    def get_price_history(self, trade_id: str) -> list:
+        """Return this trade's price series as a list of {ts, price} dicts, ordered by time."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT ts, price FROM trade_price_history WHERE trade_id = ? ORDER BY ts ASC",
+                (trade_id,),
+            ).fetchall()
+        return [{"ts": r["ts"], "price": r["price"]} for r in rows]
 
     def close_trade(
         self,
@@ -378,6 +471,15 @@ class TradeLogger:
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
+
+    def get_trade_by_id(self, trade_id: str) -> Optional[dict]:
+        """Fetch a single trade row by id. Used by the /api/trades/{id}/history
+        endpoint to pair price history with entry/exit/SL/TP markers."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM trades WHERE id = ?", (trade_id,)
+            ).fetchone()
+        return dict(row) if row else None
 
     def get_pnl_summary(self, strategy: Optional[str] = None, today_only: bool = False) -> dict:
         """Calculate total realized dashboard P&L metrics.

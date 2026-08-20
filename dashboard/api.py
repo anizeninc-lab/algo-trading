@@ -270,6 +270,32 @@ async def get_trades(
 async def get_trades_summary(strategy: str = None):
     return trade_logger.get_pnl_summary(strategy=strategy)
 
+@app.get("/api/trades/{trade_id}/history")
+async def get_trade_history(trade_id: str):
+    """
+    Price series for a single trade, plus its entry/exit/SL/TP markers, for
+    the dashboard's per-trade detail chart (expandable row in TradeLedger).
+    History points come from trade_price_history, logged every ~3s while the
+    trade is open via SurvivorAlgo._refresh_ltp_loop. sl_price may be NULL if
+    breakeven-lock never triggered for this trade -- that's expected, not an
+    error (see core/trade_log.py update_trade_sl docstring).
+    """
+    trade = trade_logger.get_trade_by_id(trade_id)
+    if not trade:
+        return {"error": "trade not found", "trade_id": trade_id}
+    history = trade_logger.get_price_history(trade_id)
+    return {
+        "trade_id":    trade_id,
+        "entry_price": trade.get("entry_price"),
+        "exit_price":  trade.get("exit_price"),
+        "sl_price":    trade.get("sl_price"),
+        "target_price": trade.get("target_price"),
+        "entry_time":  trade.get("entry_time"),
+        "exit_time":   trade.get("exit_time"),
+        "status":      trade.get("status"),
+        "history":     history,
+    }
+
 @app.get("/api/banknifty/trades")
 async def get_banknifty_trades(status: str = None, limit: int = 200):
     """Returns BankNifty paper trades separately from Nifty trades."""

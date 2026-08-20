@@ -548,11 +548,22 @@ function PnlLineChart({ trades, height = 180 }) {
   let cumPnl = 0
   todayTrades.forEach(t => {
     cumPnl += (t.realised_pnl || 0)
-    points.push({ time: t.exit_time?.slice(11, 16) || "", cumPnl, pnl: t.realised_pnl || 0, strategy: t.strategy })
+    points.push({ time: t.exit_time?.slice(11, 16) || "", cumPnl, pnl: t.realised_pnl || 0, strategy: t.strategy, exitReason: t.notes || "" })
   })
-  if (points.length === 1) {
-    const now = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false })
-    points.push({ time: now, cumPnl: 0, pnl: 0 })
+
+  // Live point: realised-so-far + unrealised P&L on currently open trades,
+  // so the line keeps moving in real time between closes instead of sitting
+  // flat all day (Aug 19 2026 dashboard redesign -- previously only updated
+  // on trade close). unrealised_pnl is already annotated per-trade by the
+  // /api/trades endpoint for OPEN status rows.
+  const openPnlNow = trades
+    .filter(t => t.status === "OPEN")
+    .reduce((s, t) => s + (t.unrealised_pnl || 0), 0)
+  const liveCum = cumPnl + openPnlNow
+  const hasOpenTrades = trades.some(t => t.status === "OPEN")
+  if (hasOpenTrades || points.length === 1) {
+    const nowLabel = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false })
+    points.push({ time: nowLabel, cumPnl: liveCum, pnl: openPnlNow, live: true })
   }
 
   const minPnl = Math.min(...points.map(p => p.cumPnl), -500)
@@ -567,6 +578,13 @@ function PnlLineChart({ trades, height = 180 }) {
   const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${toX(i).toFixed(1)} ${toY(p.cumPnl).toFixed(1)}`).join(" ")
   const fillD = `${pathD} L ${toX(points.length-1).toFixed(1)} ${zeroY.toFixed(1)} L ${toX(0).toFixed(1)} ${zeroY.toFixed(1)} Z`
   const yTicks = [-5000, 0, Math.round(maxPnl/2), maxPnl].filter(v => v >= minPnl && v <= maxPnl)
+
+  // Exit-reason marker: a subtle outer ring on each closed-trade dot, colour
+  // coded to match the profit-target (green) / stop-loss (red) convention
+  // used on the per-trade detail chart, so a glance at the equity curve
+  // shows which closes were TP hits vs SL hits.
+  const exitRingColour = reason =>
+    reason?.includes("TP_HIT") ? "#00e87a" : reason?.includes("SL_HIT") ? "#ff3d5a" : null
 
   return (
     <div style={{ width: "100%", overflowX: "auto" }}>
@@ -585,11 +603,29 @@ function PnlLineChart({ trades, height = 180 }) {
         )}
         {points.length > 1 && <path d={fillD} fill={lineCol} opacity={0.07} />}
         {points.length > 1 && <path d={pathD} fill="none" stroke={lineCol} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />}
-        {points.slice(1).map((p, i) => (
-          <circle key={i} cx={toX(i+1)} cy={toY(p.cumPnl)} r={4} fill={p.pnl >= 0 ? "#00e87a" : "#ff3d5a"} stroke="#060b14" strokeWidth={1.5}>
-            <title>{p.time} | {p.strategy} | ₹{p.pnl?.toFixed(0)} | Total: ₹{p.cumPnl?.toFixed(0)}</title>
-          </circle>
-        ))}
+        {points.slice(1).map((p, i) => {
+          const ringColour = !p.live ? exitRingColour(p.exitReason) : null
+          return (
+            <g key={i}>
+              {ringColour && (
+                <circle cx={toX(i+1)} cy={toY(p.cumPnl)} r={7} fill="none" stroke={ringColour} strokeWidth={1.5} opacity={0.7} />
+              )}
+              <circle cx={toX(i+1)} cy={toY(p.cumPnl)} r={p.live ? 5 : 4} fill={p.pnl >= 0 ? "#00e87a" : "#ff3d5a"} stroke="#060b14" strokeWidth={1.5}>
+                <title>
+                  {p.live
+                    ? `LIVE (unrealised) | ₹${p.pnl?.toFixed(0)} | Total: ₹${p.cumPnl?.toFixed(0)}`
+                    : `${p.time} | ${p.strategy} | ${p.exitReason || "—"} | ₹${p.pnl?.toFixed(0)} | Total: ₹${p.cumPnl?.toFixed(0)}`}
+                </title>
+              </circle>
+              {p.live && (
+                <circle cx={toX(i+1)} cy={toY(p.cumPnl)} r={5} fill="none" stroke={p.pnl >= 0 ? "#00e87a" : "#ff3d5a"} strokeWidth={1.5}>
+                  <animate attributeName="r" values="5;11;5" dur="1.6s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.8;0;0.8" dur="1.6s" repeatCount="indefinite" />
+                </circle>
+              )}
+            </g>
+          )
+        })}
         {points.length > 1 && (
           <text x={toX(points.length-1)+6} y={toY(lastPnl)+4} fill={lineCol} fontSize={11} fontWeight="800" fontFamily="monospace">
             {lastPnl >= 0 ? "+" : ""}₹{lastPnl.toFixed(0)}
@@ -602,6 +638,92 @@ function PnlLineChart({ trades, height = 180 }) {
           const idx = points.indexOf(p)
           return <text key={i} x={toX(idx)} y={pad.top+ih+16} textAnchor="middle" fill="#3a5070" fontSize={8} fontFamily="monospace">{p.time}</text>
         })}
+      </svg>
+    </div>
+  )
+}
+
+// ── PER-TRADE DETAIL CHART ────────────────────────────────────────────────────
+function TradeDetailChart({ trade }) {
+  // Loading/error state is derived from whether the last fetch matches the
+  // currently-shown trade.id, rather than reset via a synchronous setState
+  // call at the top of the effect body (avoids react-hooks/set-state-in-effect).
+  const [fetchState, setFetchState] = useState({ tradeId: null, data: null, errored: false })
+
+  useEffect(() => {
+    let cancelled = false
+    axios.get(`${API}/api/trades/${trade.id}/history`)
+      .then(r => { if (!cancelled) setFetchState({ tradeId: trade.id, data: r.data, errored: false }) })
+      .catch(() => { if (!cancelled) setFetchState({ tradeId: trade.id, data: null, errored: true }) })
+    return () => { cancelled = true }
+  }, [trade.id])
+
+  const loading = fetchState.tradeId !== trade.id
+  const errored = !loading && fetchState.errored
+  const history = !loading ? fetchState.data : null
+
+  if (loading) {
+    return <div style={{ color: C.muted, fontSize: 11, padding: "16px 0", textAlign: "center" }}>Loading price history…</div>
+  }
+  if (errored || !history) {
+    return <div style={{ color: C.red, fontSize: 11, padding: "16px 0", textAlign: "center" }}>Could not load price history</div>
+  }
+
+  const points = history.history || []
+  if (points.length === 0) {
+    return (
+      <div style={{ color: C.muted, fontSize: 11, padding: "16px 0", textAlign: "center" }}>
+        No price history recorded for this trade yet
+      </div>
+    )
+  }
+
+  const w = 640, h = 200
+  const pad = { top: 16, right: 64, bottom: 22, left: 58 }
+  const iw = w - pad.left - pad.right
+  const ih = h - pad.top - pad.bottom
+
+  const refVals = [history.entry_price, history.exit_price, history.sl_price, history.target_price].filter(v => v != null)
+  const allVals = [...points.map(p => p.price), ...refVals]
+  const minP = Math.min(...allVals)
+  const maxP = Math.max(...allVals)
+  const range = (maxP - minP) || 1
+  const rangePad = range * 0.12
+
+  const toX = i => pad.left + (i / Math.max(points.length - 1, 1)) * iw
+  const toY = v => pad.top + ih - ((v - (minP - rangePad)) / (range + rangePad * 2)) * ih
+
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${toX(i).toFixed(1)} ${toY(p.price).toFixed(1)}`).join(" ")
+
+  return (
+    <div style={{ width: "100%", overflowX: "auto" }}>
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet" style={{ display: "block" }}>
+        {history.target_price != null && (
+          <>
+            <line x1={pad.left} y1={toY(history.target_price)} x2={pad.left+iw} y2={toY(history.target_price)} stroke={C.green} strokeWidth={1} strokeDasharray="5 3" opacity={0.6} />
+            <text x={pad.left+iw+4} y={toY(history.target_price)+3} fill={C.green} fontSize={9} fontFamily="monospace">TP {fmtRs(history.target_price)}</text>
+          </>
+        )}
+        {history.sl_price != null && (
+          <>
+            <line x1={pad.left} y1={toY(history.sl_price)} x2={pad.left+iw} y2={toY(history.sl_price)} stroke={C.red} strokeWidth={1} strokeDasharray="5 3" opacity={0.6} />
+            <text x={pad.left+iw+4} y={toY(history.sl_price)+3} fill={C.red} fontSize={9} fontFamily="monospace">SL {fmtRs(history.sl_price)}</text>
+          </>
+        )}
+        <path d={pathD} fill="none" stroke={C.cyan} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        {history.entry_price != null && (
+          <circle cx={toX(0)} cy={toY(history.entry_price)} r={5} fill={C.cyan} stroke={C.bg} strokeWidth={1.5}>
+            <title>Entry @ {fmtRs(history.entry_price)}</title>
+          </circle>
+        )}
+        {history.exit_price != null && history.status === "CLOSED" && (
+          <circle cx={toX(points.length-1)} cy={toY(history.exit_price)} r={5} fill={C.purple} stroke={C.bg} strokeWidth={1.5}>
+            <title>Exit @ {fmtRs(history.exit_price)}</title>
+          </circle>
+        )}
+        {history.sl_price == null && (
+          <text x={pad.left} y={pad.top+ih+16} fill={C.muted} fontSize={8} fontFamily="monospace">SL not locked yet (breakeven-lock hasn't triggered)</text>
+        )}
       </svg>
     </div>
   )
@@ -826,7 +948,7 @@ function StratCard({ name, data, onStop, onReset, trades, stratCapital }) {
 }
 
 function TradeLedger({ trades }) {
-  const [selected, setSelected] = useState(null)
+  const [expandedId, setExpandedId] = useState(null)
   const [filter, setFilter] = useState("ALL")
   const filtered = trades.filter(t => filter === "ALL" ? true : t.status === filter)
   const cols = ["TRADE ID", "STRATEGY", "INSTRUMENT", "DIR", "ENTRY TIME", "ENTRY ₹", "EXIT TIME", "EXIT ₹", "PREMIUM", "% RETURN", "EXIT REASON", "STATUS", "P&L"]
@@ -848,35 +970,6 @@ function TradeLedger({ trades }) {
     a.download = `trades_${new Date().toISOString().slice(0,10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
-  }
-
-  if (selected) {
-    const t = selected
-    const premium = (t.entry_price || 0) * (t.quantity || 0)
-    const margin = premium * 5
-    const maxRisk = premium * 0.35
-    const rr = maxRisk > 0 ? ((t.realised_pnl || 0) / maxRisk).toFixed(2) : "—"
-    return (
-      <div>
-        <button onClick={() => setSelected(null)} style={{ background: C.panel, border: `1px solid ${C.border}`, color: C.cyan, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 11, fontFamily: "monospace", marginBottom: 16 }}>← BACK TO LEDGER</button>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          {[
-            { title: "TRADE DETAILS", rows: [["Trade ID", t.id], ["Strategy", t.strategy], ["Instrument", t.symbol], ["Direction", t.order_type], ["Quantity", t.quantity], ["Status", t.status], ["Broker Order ID", t.broker_order_id]] },
-            { title: "CAPITAL & RISK", rows: [["Entry Price", fmtRs(t.entry_price)], ["Exit Price", fmtRs(t.exit_price)], ["Premium", fmtRs(premium)], ["Est. Margin", fmtRs(margin)], ["Max Risk", fmtRs(maxRisk)], ["Realised P&L", fmtRs(t.realised_pnl)], ["% Return", premium > 0 ? ((t.realised_pnl||0)/premium*100).toFixed(1)+"%" : "—"], ["Risk/Reward", rr]] },
-          ].map(({ title, rows }) => (
-            <div key={title} style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>{title}</div>
-              {rows.map(([label, val]) => (
-                <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border2}` }}>
-                  <span style={{ fontSize: 11, color: C.muted }}>{label}</span>
-                  <span style={{ fontSize: 11, color: C.text, fontFamily: "monospace" }}>{val || "—"}</span>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
-    )
   }
 
   return (
@@ -907,25 +1000,46 @@ function TradeLedger({ trades }) {
               {filtered.map((t, i) => {
                 const premium = (t.entry_price || 0) * (t.quantity || 0)
                 const statusCol = t.status === "OPEN" ? C.blue : t.status === "CLOSED" ? C.green : C.muted
+                const rowKey = t.id || i
+                const isExpanded = expandedId === rowKey
                 return (
-                  <tr key={t.id || i} onClick={() => setSelected(t)} style={{ borderBottom: `1px solid ${C.border2}`, cursor: "pointer" }}
-                    onMouseEnter={e => e.currentTarget.style.background = C.panel}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                    <td style={{ padding: "8px 12px", color: C.cyan, fontFamily: "monospace", fontSize: 10 }}>{(t.id || "").slice(0, 8)}…</td>
-                    <td style={{ padding: "8px 12px", color: C.text }}>{t.strategy}</td>
-                    <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace", fontSize: 10 }}>{t.symbol}</td>
-                    <td style={{ padding: "8px 12px", fontWeight: 700, color: t.order_type === "SELL" ? C.red : C.green }}>{t.order_type}</td>
+                  <React.Fragment key={rowKey}>
+                    <tr onClick={() => setExpandedId(isExpanded ? null : rowKey)}
+                      style={{ borderBottom: isExpanded ? "none" : `1px solid ${C.border2}`, cursor: "pointer", background: isExpanded ? C.panel : "transparent" }}
+                      onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = C.panel }}
+                      onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = "transparent" }}>
+                      <td style={{ padding: "8px 12px", color: C.cyan, fontFamily: "monospace", fontSize: 10 }}>
+                        <span style={{ display: "inline-block", marginRight: 6, transition: "transform 0.15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>▸</span>
+                        {(t.id || "").slice(0, 8)}…
+                      </td>
+                      <td style={{ padding: "8px 12px", color: C.text }}>{t.strategy}</td>
+                      <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace", fontSize: 10 }}>{t.symbol}</td>
+                      <td style={{ padding: "8px 12px", fontWeight: 700, color: t.order_type === "SELL" ? C.red : C.green }}>{t.order_type}</td>
 
-                    <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10 }}>{fmtTime(t.entry_time)}</td>
-                    <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace" }}>{fmtRs(t.entry_price)}</td>
-                    <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10 }}>{fmtTime(t.exit_time)}</td>
-                    <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace" }}>{fmtRs(t.exit_price)}</td>
-                    <td style={{ padding: "8px 12px", color: C.orange, fontFamily: "monospace" }}>{fmtRs(premium)}</td>
-                    <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10, whiteSpace: "nowrap" }}>{t.notes ? t.notes.replace(/_/g," ") : "—"}</td>
-                    <td style={{ padding: "8px 12px", color: pnlC(t.realised_pnl), fontFamily: "monospace", fontWeight: 700 }}>{premium > 0 ? ((t.realised_pnl||0)/premium*100).toFixed(1)+"%" : "—"}</td>
-                    <td style={{ padding: "8px 12px" }}><Pill label={t.status} colour={statusCol} size={9} /></td>
-                    <td style={{ padding: "8px 12px", fontWeight: 700, color: pnlC(t.realised_pnl), fontFamily: "monospace" }}>{fmtRs(t.realised_pnl)}</td>
-                  </tr>
+                      <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10 }}>{fmtTime(t.entry_time)}</td>
+                      <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace" }}>{fmtRs(t.entry_price)}</td>
+                      <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10 }}>{fmtTime(t.exit_time)}</td>
+                      <td style={{ padding: "8px 12px", color: C.text, fontFamily: "monospace" }}>{fmtRs(t.exit_price)}</td>
+                      <td style={{ padding: "8px 12px", color: C.orange, fontFamily: "monospace" }}>{fmtRs(premium)}</td>
+                      <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace", fontSize: 10, whiteSpace: "nowrap" }}>{t.notes ? t.notes.replace(/_/g," ") : "—"}</td>
+                      <td style={{ padding: "8px 12px", color: pnlC(t.realised_pnl), fontFamily: "monospace", fontWeight: 700 }}>{premium > 0 ? ((t.realised_pnl||0)/premium*100).toFixed(1)+"%" : "—"}</td>
+                      <td style={{ padding: "8px 12px" }}><Pill label={t.status} colour={statusCol} size={9} /></td>
+                      <td style={{ padding: "8px 12px", fontWeight: 700, color: pnlC(t.realised_pnl), fontFamily: "monospace" }}>{fmtRs(t.realised_pnl)}</td>
+                    </tr>
+                    {isExpanded && (
+                      <tr style={{ borderBottom: `1px solid ${C.border2}` }}>
+                        <td colSpan={cols.length} style={{ padding: "4px 16px 18px 16px", background: C.panel }}>
+                          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, fontSize: 10 }}>
+                            <span style={{ color: C.muted }}>Qty <span style={{ color: C.text, fontFamily: "monospace" }}>{t.quantity}</span></span>
+                            <span style={{ color: C.muted }}>Target <span style={{ color: C.green, fontFamily: "monospace" }}>{t.target_price != null ? fmtRs(t.target_price) : "—"}</span></span>
+                            <span style={{ color: C.muted }}>SL <span style={{ color: C.red, fontFamily: "monospace" }}>{t.sl_price != null ? fmtRs(t.sl_price) : "Not locked yet"}</span></span>
+                            <span style={{ color: C.muted }}>Broker Order ID <span style={{ color: C.text, fontFamily: "monospace" }}>{t.broker_order_id || "—"}</span></span>
+                          </div>
+                          <TradeDetailChart trade={t} />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 )
               })}
             </tbody>
@@ -1369,10 +1483,6 @@ function PerformancePanel({ trades }) {
             <div style={{ fontSize: 16, fontWeight: 800, color: col, fontFamily: "monospace" }}>{val}</div>
           </div>
         ))}
-      </div>
-      <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
-        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>TODAY'S CUMULATIVE P&L</div>
-        <PnlLineChart trades={trades} height={180} />
       </div>
 
       <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
@@ -2686,6 +2796,15 @@ export default function App() {
           {tab === "risk"      && <div style={{ display: "flex", flexDirection: "column", gap: 16 }}><AICapitalAdvisor /><OpportunityMeter /><CapitalIntelligencePanel trades={trades} /><RiskPanel trades={trades} global={g} /></div>}
           {tab === "strategy"  && <StrategyLab nifty={market?.nifty_price || 0} vix={vix?.value || 0} />}
         </div>
+      </div>
+
+      {/* ── Live equity curve (bottom of dashboard, always visible) ──
+          Moved here from the PERFORMANCE tab (Aug 19 2026 redesign) so it's
+          a persistent live view rather than gated behind a tab click; now
+          also reflects unrealised P&L on open trades, not just closes. */}
+      <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: `1px solid ${C.border}`, marginTop: 16 }}>
+        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>LIVE EQUITY CURVE — TODAY'S CUMULATIVE P&L</div>
+        <PnlLineChart trades={trades} height={180} />
       </div>
 
       <div style={{ textAlign: "center", marginTop: 12, fontSize: 9, color: C.dim, letterSpacing: 1 }}>
