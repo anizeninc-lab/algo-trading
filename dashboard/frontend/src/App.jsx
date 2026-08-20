@@ -227,9 +227,9 @@ function useCapital() {
 function Pill({ label, colour, size = 11 }) {
   return (
     <span style={{
-      background: colour + "18", color: colour, borderRadius: 3,
-      padding: "2px 8px", fontSize: size, fontWeight: 700, letterSpacing: 0.8,
-      border: `1px solid ${colour}30`, whiteSpace: "nowrap",
+      background: colour + "1f", color: colour, borderRadius: 20,
+      padding: "3px 10px", fontSize: size, fontWeight: 500, letterSpacing: 0.3,
+      whiteSpace: "nowrap",
     }}>{label}</span>
   )
 }
@@ -269,9 +269,9 @@ function TokenCountdown({ token }) {
   }, [expiry])
 
   if (!expiry || remaining === null) return (
-    <div style={{ background: C.card, borderRadius: 8, padding: "8px 14px", border: `1px solid ${C.border}`, minWidth: 140 }}>
-      <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>TOKEN EXPIRY</div>
-      <div style={{ fontSize: 12, color: C.muted, fontFamily: "monospace", marginTop: 2 }}>Unknown</div>
+    <div style={{ background: C.card, borderRadius: 10, padding: "12px 16px" }}>
+      <div style={{ fontSize: 9, color: C.muted, letterSpacing: 0.5 }}>Token expiry</div>
+      <div style={{ fontSize: 13, color: C.muted, fontFamily: "monospace", marginTop: 4 }}>Unknown</div>
     </div>
   )
 
@@ -282,14 +282,14 @@ function TokenCountdown({ token }) {
   const label = remaining < 0 ? "EXPIRED!" : `${hours}h ${mins}m ${secs}s`
 
   return (
-    <div style={{ background: C.card, borderRadius: 8, padding: "8px 14px", border: `1px solid ${col}40`, minWidth: 140 }}>
-      <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 2 }}>TOKEN EXPIRY</div>
-      <div style={{ fontSize: 13, fontWeight: 800, color: col, fontFamily: "monospace" }}>{label}</div>
+    <div style={{ background: C.card, borderRadius: 10, padding: "12px 16px" }}>
+      <div style={{ fontSize: 9, color: C.muted, letterSpacing: 0.5, marginBottom: 4 }}>Token expiry</div>
+      <div style={{ fontSize: 15, fontWeight: 500, color: col, fontFamily: "monospace" }}>{label}</div>
       {remaining < 3600 && remaining > 0 && (
-        <div style={{ fontSize: 9, color: C.orange, marginTop: 2 }}>⚠ Run get_token.py soon!</div>
+        <div style={{ fontSize: 9, color: C.orange, marginTop: 3 }}>Run get_token.py soon</div>
       )}
       {remaining < 0 && (
-        <div style={{ fontSize: 9, color: C.red, marginTop: 2 }}>🔴 Bot is blind — refresh token!</div>
+        <div style={{ fontSize: 9, color: C.red, marginTop: 3 }}>Bot is blind — refresh token</div>
       )}
     </div>
   )
@@ -322,13 +322,13 @@ function AutoStopCountdown() {
   const col   = fired ? C.muted : remaining < 1800 ? C.orange : C.cyan
 
   return (
-    <div style={{ background: C.card, borderRadius: 8, padding: "8px 14px", border: `1px solid ${col}40`, minWidth: 140 }}>
-      <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 2 }}>AUTO-STOP (3:10 PM)</div>
-      <div style={{ fontSize: 13, fontWeight: 800, color: col, fontFamily: "monospace" }}>
-        {fired ? "FIRED ✓" : `${hours}h ${mins}m ${secs}s`}
+    <div style={{ background: C.card, borderRadius: 10, padding: "12px 16px" }}>
+      <div style={{ fontSize: 9, color: C.muted, letterSpacing: 0.5, marginBottom: 4 }}>Auto-stop · 3:10 pm</div>
+      <div style={{ fontSize: 15, fontWeight: 500, color: col, fontFamily: "monospace" }}>
+        {fired ? "Fired" : `${hours}h ${mins}m ${secs}s`}
       </div>
       {!fired && remaining < 1800 && (
-        <div style={{ fontSize: 9, color: C.orange, marginTop: 2 }}>⚠ Approaching auto-stop</div>
+        <div style={{ fontSize: 9, color: C.orange, marginTop: 3 }}>Approaching auto-stop</div>
       )}
     </div>
   )
@@ -855,13 +855,13 @@ function NiftyBox({ market }) {
   }, [price])
   const col = flash === "up" ? C.green : flash === "down" ? C.red : C.text
   return (
-    <div style={{ background: C.card, borderRadius: 10, padding: "12px 16px", border: `1px solid ${flash ? (flash === "up" ? C.green : C.red) : C.border}`, minWidth: 160, transition: "border-color 0.3s" }}>
-      <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, marginBottom: 3 }}>NIFTY 50</div>
-      <div style={{ fontSize: 22, fontWeight: 800, color: col, fontFamily: "monospace", transition: "color 0.3s" }}>
+    <div style={{ background: C.card, borderRadius: 10, padding: "14px 16px", minWidth: 150 }}>
+      <div style={{ fontSize: 9, color: C.muted, letterSpacing: 0.5, marginBottom: 6 }}>Nifty 50</div>
+      <div style={{ fontSize: 20, fontWeight: 500, color: col, fontFamily: "monospace", transition: "color 0.3s" }}>
         {price > 0 ? price.toFixed(2) : "—"}{flash === "up" ? " ▲" : flash === "down" ? " ▼" : ""}
       </div>
       {market?.option_price > 0 && (
-        <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>OPT: <span style={{ color: C.text }}>₹{market.option_price.toFixed(2)}</span></div>
+        <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>Opt <span style={{ color: C.text }}>₹{market.option_price.toFixed(2)}</span></div>
       )}
     </div>
   )
@@ -869,10 +869,10 @@ function NiftyBox({ market }) {
 
 function StatTile({ label, value, colour, sub, bg }) {
   return (
-    <div style={{ background: bg || C.card, borderRadius: 10, padding: "12px 16px", border: `1px solid ${C.border}`, minWidth: 100 }}>
-      <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, marginBottom: 3 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 800, color: colour || C.text, fontFamily: "monospace" }}>{value}</div>
-      {sub && <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>{sub}</div>}
+    <div style={{ background: bg || C.card, borderRadius: 10, padding: "14px 16px" }}>
+      <div style={{ fontSize: 9, color: C.muted, letterSpacing: 0.5, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 17, fontWeight: 500, color: colour || C.text, fontFamily: "monospace" }}>{value}</div>
+      {sub && <div style={{ fontSize: 9, color: C.muted, marginTop: 4 }}>{sub}</div>}
     </div>
   )
 }
@@ -882,11 +882,11 @@ function VixBox({ vix }) {
   const v = vix.value
   const col = v >= 25 ? C.red : v >= 20 ? C.orange : v >= 16 ? C.yellow : C.green
   return (
-    <div style={{ background: C.card, borderRadius: 10, padding: "12px 16px", border: `1px solid ${col}30`, minWidth: 120 }}>
-      <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, marginBottom: 3 }}>INDIA VIX</div>
+    <div style={{ background: C.card, borderRadius: 10, padding: "14px 16px", minWidth: 120 }}>
+      <div style={{ fontSize: 9, color: C.muted, letterSpacing: 0.5, marginBottom: 6 }}>India VIX</div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-        <span style={{ fontSize: 22, fontWeight: 800, color: col, fontFamily: "monospace" }}>{v != null ? v.toFixed(2) : "—"}</span>
-        <span style={{ fontSize: 9, color: col, fontWeight: 700 }}>{vix.regime}</span>
+        <span style={{ fontSize: 20, fontWeight: 500, color: col, fontFamily: "monospace" }}>{v != null ? v.toFixed(2) : "—"}</span>
+        <span style={{ fontSize: 9, color: col }}>{vix.regime}</span>
       </div>
     </div>
   )
@@ -2569,47 +2569,47 @@ function BotStatusBar() {
   const pnlCol = (status.daily_pnl || 0) >= 0 ? C.green : pnlPct > 80 ? C.red : pnlPct > 50 ? C.orange : C.red
 
   return (
-    <div style={{ background: C.card, borderRadius: 10, padding: "10px 16px", border: `1px solid ${col}40`, marginBottom: 12, display: "flex", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
+    <div style={{ background: col + "0d", borderLeft: `2px solid ${col}`, borderRadius: "0 10px 10px 0", padding: "12px 18px", marginBottom: 12, display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
       {/* Trading Status */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 160 }}>
-        <div style={{ width: 10, height: 10, borderRadius: "50%", background: col, boxShadow: `0 0 6px ${col}` }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 150 }}>
+        <div style={{ width: 8, height: 8, borderRadius: "50%", background: col }} />
         <div>
-          <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>TRADING STATUS</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: col }}>{status.trading_status}</div>
+          <div style={{ fontSize: 9, color: C.muted, letterSpacing: 0.3 }}>Trading status</div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: col }}>{status.trading_status}</div>
         </div>
       </div>
       {/* Halt/Block Reason */}
       {(status.halt_reason || status.block_reason) && (
         <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 2 }}>
-            {status.is_halted ? "HALT REASON" : "BLOCK REASON"}
+          <div style={{ fontSize: 9, color: C.muted, letterSpacing: 0.3, marginBottom: 3 }}>
+            {status.is_halted ? "Halt reason" : "Block reason"}
           </div>
-          <div style={{ fontSize: 10, color: col, fontWeight: 600 }}>
+          <div style={{ fontSize: 11, color: col }}>
             {status.halt_reason || status.block_reason}
           </div>
         </div>
       )}
       {/* Capital Bar */}
-      <div style={{ minWidth: 160 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-          <span style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>CAPITAL DEPLOYED</span>
-          <span style={{ fontSize: 8, color: capCol, fontWeight: 800 }}>{capPct}%</span>
+      <div style={{ minWidth: 150 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ fontSize: 9, color: C.muted, letterSpacing: 0.3 }}>Capital deployed</span>
+          <span style={{ fontSize: 9, color: capCol, fontWeight: 500 }}>{capPct}%</span>
         </div>
-        <div style={{ height: 5, background: C.border, borderRadius: 3, marginBottom: 3 }}>
+        <div style={{ height: 4, background: C.border, borderRadius: 3, marginBottom: 4 }}>
           <div style={{ height: "100%", width: `${Math.min(capPct, 100)}%`, background: capCol, borderRadius: 3, transition: "width 0.5s" }} />
         </div>
         <div style={{ fontSize: 9, color: C.muted }}>
-          ₹{status.capital_deployed?.toLocaleString()} / ₹{status.capital_max?.toLocaleString()} 
+          ₹{status.capital_deployed?.toLocaleString()} / ₹{status.capital_max?.toLocaleString()}
           <span style={{ color: C.green, marginLeft: 6 }}>₹{status.capital_remaining?.toLocaleString()} free</span>
         </div>
       </div>
       {/* Daily P&L vs Limit */}
-      <div style={{ minWidth: 160 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-          <span style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>DAILY P&L</span>
-          <span style={{ fontSize: 8, color: pnlCol, fontWeight: 800 }}>{pnlPct.toFixed(1)}%</span>
+      <div style={{ minWidth: 150 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ fontSize: 9, color: C.muted, letterSpacing: 0.3 }}>Daily P&L</span>
+          <span style={{ fontSize: 9, color: pnlCol, fontWeight: 500 }}>{pnlPct.toFixed(1)}%</span>
         </div>
-        <div style={{ height: 5, background: C.border, borderRadius: 3, marginBottom: 3 }}>
+        <div style={{ height: 4, background: C.border, borderRadius: 3, marginBottom: 4 }}>
           <div style={{ height: "100%", width: `${Math.min(pnlPct, 100)}%`, background: pnlCol, borderRadius: 3, transition: "width 0.5s" }} />
         </div>
         <div style={{ fontSize: 9, color: C.muted }}>
@@ -2618,9 +2618,9 @@ function BotStatusBar() {
         </div>
       </div>
       {/* Trades Today */}
-      <div style={{ textAlign: "center", minWidth: 80 }}>
-        <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 2 }}>TRADES TODAY</div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: C.text, fontFamily: "monospace" }}>{status.trades_today}</div>
+      <div style={{ textAlign: "center", minWidth: 70 }}>
+        <div style={{ fontSize: 9, color: C.muted, letterSpacing: 0.3, marginBottom: 3 }}>Trades today</div>
+        <div style={{ fontSize: 18, fontWeight: 500, color: C.text, fontFamily: "monospace" }}>{status.trades_today}</div>
       </div>
     </div>
   )
@@ -2759,40 +2759,51 @@ export default function App() {
       `}</style>
 
       {/* ── Header ── */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 14, borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 20, paddingBottom: 16, borderBottom: `1px solid ${C.border}` }}>
         <div>
-          <div style={{ fontSize: 17, fontWeight: 800, color: "#fff", letterSpacing: -0.5 }}>◈ ALGO TRADING SYSTEM</div>
-          <div style={{ fontSize: 9, color: C.muted, marginTop: 3, letterSpacing: 2 }}>SAVIOUR COMBO · SURVIVOR ALGO · WAVE EXTRACTOR</div>
+          <div style={{ fontSize: 14, fontWeight: 500, color: C.text, letterSpacing: 0.3 }}>Algo trading system</div>
+          <div style={{ fontSize: 10, color: C.muted, marginTop: 3 }}>Saviour combo · Survivor algo · Wave extractor</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ fontSize: 11, color: C.muted }}>{now.toLocaleTimeString("en-IN")}</span>
-          {/* WS Status — now more prominent */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, background: C.card, borderRadius: 6, padding: "4px 10px", border: `1px solid ${wsStatus === "CONNECTED" ? C.green : wsStatus === "RECONNECTING" ? C.orange : C.red}40` }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: wsStatus === "CONNECTED" ? C.green : wsStatus === "RECONNECTING" ? C.orange : C.red, boxShadow: `0 0 6px ${wsStatus === "CONNECTED" ? C.green : C.red}` }} />
-            <span style={{ fontSize: 10, fontWeight: 700, color: wsStatus === "CONNECTED" ? C.green : wsStatus === "RECONNECTING" ? C.orange : C.red }}>
-              {wsStatus === "CONNECTED" ? "WS LIVE" : wsStatus === "RECONNECTING" ? "RECONNECTING" : "WS OFFLINE"}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, background: (wsStatus === "CONNECTED" ? C.green : wsStatus === "RECONNECTING" ? C.orange : C.red) + "1a", borderRadius: 20, padding: "4px 12px" }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: wsStatus === "CONNECTED" ? C.green : wsStatus === "RECONNECTING" ? C.orange : C.red }} />
+            <span style={{ fontSize: 10, fontWeight: 500, color: wsStatus === "CONNECTED" ? C.green : wsStatus === "RECONNECTING" ? C.orange : C.red }}>
+              {wsStatus === "CONNECTED" ? "WS live" : wsStatus === "RECONNECTING" ? "Reconnecting" : "WS offline"}
             </span>
           </div>
-          <Pill label={brokerOn ? "BROKER ON" : "BROKER OFF"} colour={brokerOn ? C.green : C.red} />
-          <Pill label={`PAPER: ${g.paper_trade ? "ON" : "OFF"}`} colour={g.paper_trade ? C.orange : C.blue} />
+          <Pill label={brokerOn ? "Broker on" : "Broker off"} colour={brokerOn ? C.green : C.red} />
+          <Pill label={`Paper: ${g.paper_trade ? "on" : "off"}`} colour={g.paper_trade ? C.orange : C.blue} />
           <SoundControl enabled={soundEnabled} onToggle={() => setSoundEnabled(p => !p)} />
           <button onClick={handleKillSwitch} disabled={killActive}
-            style={{ background: killActive ? "#888" : "#c25454", color: "#fff", border: "none", borderRadius: 6, padding: "5px 14px", fontSize: 11, fontWeight: 800, cursor: killActive ? "not-allowed" : "pointer", letterSpacing: 0.5 }}>
-            {killActive ? "STOPPING..." : "🚨 KILL"}
+            style={{ background: killActive ? C.dim : `${C.red}22`, color: killActive ? C.muted : C.red, border: "none", borderRadius: 20, padding: "6px 16px", fontSize: 11, fontWeight: 500, cursor: killActive ? "not-allowed" : "pointer" }}>
+            {killActive ? "Stopping…" : "Kill"}
           </button>
         </div>
       </div>
 
-      {/* ── Top stats ── */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+      {/* ── Top stats: hero P&L card + compact secondary grid ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 12, marginBottom: 12 }}>
+        <div style={{ background: C.card, borderRadius: 10, padding: "16px 20px", display: "flex", gap: 32, alignItems: "center", flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 9, color: C.muted, letterSpacing: 0.5, marginBottom: 6 }}>Current P&L</div>
+            <div style={{ fontSize: 26, fontWeight: 500, color: pnlC(currentPnl), fontFamily: "monospace" }}>{fmtRs(currentPnl)}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 9, color: C.muted, letterSpacing: 0.5, marginBottom: 6 }}>Today realised</div>
+            <div style={{ fontSize: 26, fontWeight: 500, color: pnlC(todayPnl), fontFamily: "monospace" }}>{fmtRs(todayPnl)}</div>
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <StatTile label="Open positions" value={openCount}           colour={openCount > 0 ? C.blue : C.muted} />
+          <StatTile label="Active strats"  value={`${g.active_strategies || 0}/${g.total_strategies || 0}`} colour={C.text} />
+          <StatTile label="System health"  value={g.system_health || "OK"} colour={g.system_health === "OK" ? C.green : C.red} />
+          <VixBox vix={vix} />
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
         <NiftyBox market={market} />
-        <StatTile label="CURRENT P&L"    value={fmtRs(currentPnl)}   colour={pnlC(currentPnl)}   bg={pnlBg(currentPnl)} />
-        <StatTile label="TODAY REALISED" value={fmtRs(todayPnl)}     colour={pnlC(todayPnl)}     bg={pnlBg(todayPnl)} />
-        <StatTile label="OPEN POSITIONS" value={openCount}           colour={openCount > 0 ? C.blue : C.muted} />
-        <StatTile label="ACTIVE STRATS"  value={`${g.active_strategies || 0}/${g.total_strategies || 0}`} colour={C.text} />
-        <StatTile label="SYSTEM HEALTH"  value={g.system_health || "OK"} colour={g.system_health === "OK" ? C.green : C.red} />
-        <VixBox vix={vix} />
-        {/* Token Expiry + Auto-stop */}
         <TokenCountdown token={token} />
         <AutoStopCountdown />
       </div>
