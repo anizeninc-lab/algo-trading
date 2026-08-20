@@ -293,6 +293,8 @@ async def get_trade_history(trade_id: str):
         "entry_time":  trade.get("entry_time"),
         "exit_time":   trade.get("exit_time"),
         "status":      trade.get("status"),
+        "quantity":    trade.get("quantity"),
+        "order_type":  trade.get("order_type"),
         "history":     history,
     }
 

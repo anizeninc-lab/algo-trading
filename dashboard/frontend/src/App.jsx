@@ -6,25 +6,25 @@ const API = "http://92.4.90.188:8081"
 const WS  = "ws://92.4.90.188:8081/ws/updates"
 
 const C = {
-  bg:       "#060b14",
-  panel:    "#0a1220",
-  card:     "#0d1526",
-  border:   "#1a2840",
-  border2:  "#0f1e35",
-  text:     "#c8d8f0",
-  muted:    "#3a5070",
-  dim:      "#1e3050",
-  green:    "#00e87a",
-  red:      "#ff3d5a",
-  blue:     "#3b82f6",
-  orange:   "#f59e0b",
-  cyan:     "#06b6d4",
-  purple:   "#8b5cf6",
-  yellow:   "#eab308",
+  bg:       "#070b12",
+  panel:    "#0a0f1a",
+  card:     "#0d1420",
+  border:   "#1c2436",
+  border2:  "#141b2b",
+  text:     "#e8ecf5",
+  muted:    "#5b6b85",
+  dim:      "#2a3548",
+  green:    "#4bcf8c",
+  red:      "#c25454",
+  blue:     "#5b8def",
+  orange:   "#c9a24b",
+  cyan:     "#5b8def",
+  purple:   "#7c6bd9",
+  yellow:   "#d1ad4f",
 }
 
 const pnlC  = v => (v || 0) >= 0 ? C.green : C.red
-const pnlBg = v => (v || 0) >= 0 ? "rgba(0,232,122,0.07)" : "rgba(255,61,90,0.07)"
+const pnlBg = v => (v || 0) >= 0 ? "rgba(75,207,140,0.07)" : "rgba(194,84,84,0.07)"
 const STATE_C = { RUNNING: C.green, STOPPED: C.muted, ERROR: C.red, IDLE: C.blue }
 const fmt = (n, d = 2) => n != null ? Number(n).toFixed(d) : "—"
 const fmtRs = (n, d = 2) => n != null ? `₹${fmt(n, d)}` : "—"
@@ -33,164 +33,164 @@ const fmtTime = s => s ? s.slice(11, 19) : "—"
 // ── Calendar Data ─────────────────────────────────────────────────────────────
 const CALENDAR = {
   "2026-05-25": { nakshatra: "Rohini", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and low-risk trend-following trades." },
-  "2026-05-26": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Market opening hour", advice: "Avoid impulsive entries and aggressive option buying." },
-  "2026-05-27": { nakshatra: "Ardra", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best day for structured intraday execution and analysis." },
-  "2026-05-28": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better suited for long-term investment decisions." },
+  "2026-05-26": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Market opening hour", advice: "Avoid impulsive entries and aggressive option buying." },
+  "2026-05-27": { nakshatra: "Ardra", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best day for structured intraday execution and analysis." },
+  "2026-05-28": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better suited for long-term investment decisions." },
   "2026-05-29": { nakshatra: "Pushya", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Strong day for profits, scaling positions, and financial decisions." },
   "2026-06-01": { nakshatra: "Rohini", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-06-02": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-06-03": { nakshatra: "Ardra", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-06-04": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-06-02": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-06-03": { nakshatra: "Ardra", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-06-04": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-06-05": { nakshatra: "Pushya", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-06-08": { nakshatra: "Ashlesha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-06-09": { nakshatra: "Magha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-06-10": { nakshatra: "Purva Phalguni", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-06-11": { nakshatra: "Uttara Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-06-09": { nakshatra: "Magha", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-06-10": { nakshatra: "Purva Phalguni", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-06-11": { nakshatra: "Uttara Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-06-12": { nakshatra: "Hasta", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-06-15": { nakshatra: "Chitra", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-06-16": { nakshatra: "Swati", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-06-17": { nakshatra: "Vishakha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-06-18": { nakshatra: "Anuradha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-06-16": { nakshatra: "Swati", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-06-17": { nakshatra: "Vishakha", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-06-18": { nakshatra: "Anuradha", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-06-19": { nakshatra: "Jyeshtha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-06-22": { nakshatra: "Moola", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-06-23": { nakshatra: "Purva Ashadha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-06-24": { nakshatra: "Uttara Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-06-25": { nakshatra: "Shravana", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-06-23": { nakshatra: "Purva Ashadha", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-06-24": { nakshatra: "Uttara Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-06-25": { nakshatra: "Shravana", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-06-26": { nakshatra: "Dhanishta", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-06-29": { nakshatra: "Shatabhisha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-06-30": { nakshatra: "Purva Bhadrapada", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-07-01": { nakshatra: "Rohini", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-07-02": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-06-30": { nakshatra: "Purva Bhadrapada", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-07-01": { nakshatra: "Rohini", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-07-02": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-07-03": { nakshatra: "Ardra", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-07-06": { nakshatra: "Punarvasu", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-07-07": { nakshatra: "Pushya", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-07-08": { nakshatra: "Ashlesha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-07-09": { nakshatra: "Magha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-07-07": { nakshatra: "Pushya", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-07-08": { nakshatra: "Ashlesha", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-07-09": { nakshatra: "Magha", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-07-10": { nakshatra: "Purva Phalguni", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-07-13": { nakshatra: "Uttara Phalguni", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-07-14": { nakshatra: "Hasta", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-07-15": { nakshatra: "Chitra", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-07-16": { nakshatra: "Swati", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-07-14": { nakshatra: "Hasta", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-07-15": { nakshatra: "Chitra", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-07-16": { nakshatra: "Swati", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-07-17": { nakshatra: "Vishakha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-07-20": { nakshatra: "Anuradha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-07-21": { nakshatra: "Jyeshtha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-07-22": { nakshatra: "Moola", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-07-23": { nakshatra: "Purva Ashadha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-07-21": { nakshatra: "Jyeshtha", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-07-22": { nakshatra: "Moola", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-07-23": { nakshatra: "Purva Ashadha", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-07-24": { nakshatra: "Uttara Ashadha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-07-27": { nakshatra: "Shravana", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-07-28": { nakshatra: "Dhanishta", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-07-29": { nakshatra: "Shatabhisha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-07-30": { nakshatra: "Purva Bhadrapada", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-07-28": { nakshatra: "Dhanishta", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-07-29": { nakshatra: "Shatabhisha", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-07-30": { nakshatra: "Purva Bhadrapada", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-07-31": { nakshatra: "Uttara Bhadrapada", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-08-03": { nakshatra: "Rohini", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-08-04": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-08-05": { nakshatra: "Ardra", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-08-06": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-08-04": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-08-05": { nakshatra: "Ardra", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-08-06": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-08-07": { nakshatra: "Pushya", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-08-10": { nakshatra: "Ashlesha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-08-11": { nakshatra: "Magha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-08-12": { nakshatra: "Purva Phalguni", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-08-13": { nakshatra: "Uttara Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-08-11": { nakshatra: "Magha", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-08-12": { nakshatra: "Purva Phalguni", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-08-13": { nakshatra: "Uttara Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-08-14": { nakshatra: "Hasta", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-08-17": { nakshatra: "Chitra", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-08-18": { nakshatra: "Swati", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-08-19": { nakshatra: "Vishakha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-08-20": { nakshatra: "Anuradha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-08-18": { nakshatra: "Swati", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-08-19": { nakshatra: "Vishakha", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-08-20": { nakshatra: "Anuradha", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-08-21": { nakshatra: "Jyeshtha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-08-24": { nakshatra: "Moola", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-08-25": { nakshatra: "Purva Ashadha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-08-26": { nakshatra: "Uttara Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-08-27": { nakshatra: "Shravana", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-08-25": { nakshatra: "Purva Ashadha", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-08-26": { nakshatra: "Uttara Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-08-27": { nakshatra: "Shravana", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-08-28": { nakshatra: "Dhanishta", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-08-31": { nakshatra: "Shatabhisha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-09-01": { nakshatra: "Rohini", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-09-02": { nakshatra: "Mrigashira", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-09-03": { nakshatra: "Ardra", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-09-01": { nakshatra: "Rohini", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-09-02": { nakshatra: "Mrigashira", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-09-03": { nakshatra: "Ardra", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-09-04": { nakshatra: "Punarvasu", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-09-07": { nakshatra: "Pushya", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-09-08": { nakshatra: "Ashlesha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-09-09": { nakshatra: "Magha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-09-10": { nakshatra: "Purva Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-09-08": { nakshatra: "Ashlesha", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-09-09": { nakshatra: "Magha", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-09-10": { nakshatra: "Purva Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-09-11": { nakshatra: "Uttara Phalguni", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-09-14": { nakshatra: "Hasta", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-09-15": { nakshatra: "Chitra", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-09-16": { nakshatra: "Swati", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-09-17": { nakshatra: "Vishakha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-09-15": { nakshatra: "Chitra", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-09-16": { nakshatra: "Swati", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-09-17": { nakshatra: "Vishakha", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-09-18": { nakshatra: "Anuradha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-09-21": { nakshatra: "Jyeshtha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-09-22": { nakshatra: "Moola", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-09-23": { nakshatra: "Purva Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-09-24": { nakshatra: "Uttara Ashadha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-09-22": { nakshatra: "Moola", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-09-23": { nakshatra: "Purva Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-09-24": { nakshatra: "Uttara Ashadha", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-09-25": { nakshatra: "Shravana", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-09-28": { nakshatra: "Dhanishta", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-09-29": { nakshatra: "Shatabhisha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-09-30": { nakshatra: "Purva Bhadrapada", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-10-01": { nakshatra: "Rohini", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-09-29": { nakshatra: "Shatabhisha", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-09-30": { nakshatra: "Purva Bhadrapada", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-10-01": { nakshatra: "Rohini", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-10-02": { nakshatra: "Mrigashira", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-10-05": { nakshatra: "Ardra", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-10-06": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-10-07": { nakshatra: "Pushya", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-10-08": { nakshatra: "Ashlesha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-10-06": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-10-07": { nakshatra: "Pushya", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-10-08": { nakshatra: "Ashlesha", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-10-09": { nakshatra: "Magha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-10-12": { nakshatra: "Purva Phalguni", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-10-13": { nakshatra: "Uttara Phalguni", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-10-14": { nakshatra: "Hasta", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-10-15": { nakshatra: "Chitra", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-10-13": { nakshatra: "Uttara Phalguni", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-10-14": { nakshatra: "Hasta", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-10-15": { nakshatra: "Chitra", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-10-16": { nakshatra: "Swati", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-10-19": { nakshatra: "Vishakha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-10-20": { nakshatra: "Anuradha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-10-21": { nakshatra: "Jyeshtha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-10-22": { nakshatra: "Moola", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-10-20": { nakshatra: "Anuradha", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-10-21": { nakshatra: "Jyeshtha", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-10-22": { nakshatra: "Moola", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-10-23": { nakshatra: "Purva Ashadha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-10-26": { nakshatra: "Uttara Ashadha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-10-27": { nakshatra: "Shravana", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-10-28": { nakshatra: "Dhanishta", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-10-29": { nakshatra: "Shatabhisha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-10-27": { nakshatra: "Shravana", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-10-28": { nakshatra: "Dhanishta", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-10-29": { nakshatra: "Shatabhisha", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-10-30": { nakshatra: "Purva Bhadrapada", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-11-02": { nakshatra: "Rohini", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-11-03": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-11-04": { nakshatra: "Ardra", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-11-05": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-11-03": { nakshatra: "Mrigashira", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-11-04": { nakshatra: "Ardra", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-11-05": { nakshatra: "Punarvasu", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-11-06": { nakshatra: "Pushya", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-11-09": { nakshatra: "Ashlesha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-11-10": { nakshatra: "Magha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-11-11": { nakshatra: "Purva Phalguni", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-11-12": { nakshatra: "Uttara Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-11-10": { nakshatra: "Magha", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-11-11": { nakshatra: "Purva Phalguni", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-11-12": { nakshatra: "Uttara Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-11-13": { nakshatra: "Hasta", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-11-16": { nakshatra: "Chitra", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-11-17": { nakshatra: "Swati", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-11-18": { nakshatra: "Vishakha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-11-19": { nakshatra: "Anuradha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-11-17": { nakshatra: "Swati", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-11-18": { nakshatra: "Vishakha", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-11-19": { nakshatra: "Anuradha", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-11-20": { nakshatra: "Jyeshtha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-11-23": { nakshatra: "Moola", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-11-24": { nakshatra: "Purva Ashadha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-11-25": { nakshatra: "Uttara Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-11-26": { nakshatra: "Shravana", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-11-24": { nakshatra: "Purva Ashadha", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-11-25": { nakshatra: "Uttara Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-11-26": { nakshatra: "Shravana", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-11-27": { nakshatra: "Dhanishta", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-11-30": { nakshatra: "Shatabhisha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-12-01": { nakshatra: "Rohini", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-12-02": { nakshatra: "Mrigashira", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-12-03": { nakshatra: "Ardra", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-12-01": { nakshatra: "Rohini", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-12-02": { nakshatra: "Mrigashira", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-12-03": { nakshatra: "Ardra", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-12-04": { nakshatra: "Punarvasu", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-12-07": { nakshatra: "Pushya", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-12-08": { nakshatra: "Ashlesha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-12-09": { nakshatra: "Magha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-12-10": { nakshatra: "Purva Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-12-08": { nakshatra: "Ashlesha", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-12-09": { nakshatra: "Magha", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-12-10": { nakshatra: "Purva Phalguni", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-12-11": { nakshatra: "Uttara Phalguni", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-12-14": { nakshatra: "Hasta", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-12-15": { nakshatra: "Chitra", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-12-16": { nakshatra: "Swati", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-12-17": { nakshatra: "Vishakha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-12-15": { nakshatra: "Chitra", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-12-16": { nakshatra: "Swati", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-12-17": { nakshatra: "Vishakha", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-12-18": { nakshatra: "Anuradha", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-12-21": { nakshatra: "Jyeshtha", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-12-22": { nakshatra: "Moola", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-12-23": { nakshatra: "Purva Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-12-24": { nakshatra: "Uttara Ashadha", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-12-22": { nakshatra: "Moola", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-12-23": { nakshatra: "Purva Ashadha", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-12-24": { nakshatra: "Uttara Ashadha", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
   "2026-12-25": { nakshatra: "Shravana", tara: "Very Strong", rating: "Very Good", ratingCol: "#39d353", fav: "1:00 PM – 3:00 PM", avoid: "3:00 PM – 3:30 PM", advice: "Good for profit booking and scaling positions." },
   "2026-12-28": { nakshatra: "Dhanishta", tara: "Favourable", rating: "Good", ratingCol: "#26a641", fav: "10:00 AM – 11:00 AM", avoid: "12:00 PM – 1:00 PM", advice: "Good for planning and selective low-risk trades." },
-  "2026-12-29": { nakshatra: "Shatabhisha", tara: "Moderate", rating: "Volatile", ratingCol: "#ff3d5a", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
-  "2026-12-30": { nakshatra: "Purva Bhadrapada", tara: "Strong", rating: "Excellent", ratingCol: "#00e87a", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
-  "2026-12-31": { nakshatra: "Uttara Bhadrapada", tara: "Moderate", rating: "Balanced", ratingCol: "#f59e0b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
+  "2026-12-29": { nakshatra: "Shatabhisha", tara: "Moderate", rating: "Volatile", ratingCol: "#c25454", fav: "1:00 PM – 2:10 PM", avoid: "Opening hour", advice: "Avoid impulsive entries and emotional trades." },
+  "2026-12-30": { nakshatra: "Purva Bhadrapada", tara: "Strong", rating: "Excellent", ratingCol: "#4bcf8c", fav: "9:35 AM – 11:10 AM", avoid: "12:00 PM – 1:00 PM", advice: "Best for structured intraday and momentum trades." },
+  "2026-12-31": { nakshatra: "Uttara Bhadrapada", tara: "Moderate", rating: "Balanced", ratingCol: "#c9a24b", fav: "10:20 AM – 11:10 AM", avoid: "Thursday noon", advice: "Better for long-term and strategic decisions." },
 }
 
 function getTodayCalendar() {
@@ -371,7 +371,7 @@ function PaperLiveToggle({ isPaper }) {
         {/* Toggle */}
         <div onClick={handleToggle} style={{
           width: 44, height: 24, borderRadius: 99,
-          background: localPaper ? "#f59e0b" : "#ff3d5a",
+          background: localPaper ? "#c9a24b" : "#c25454",
           position: "relative", cursor: toggling ? "wait" : "pointer",
           border: `1px solid ${col}`,
           transition: "background 0.3s",
@@ -514,11 +514,11 @@ function SessionPlanPanel() {
 
       {/* Strategy gates */}
       <div style={{ display: "flex", gap: 8 }}>
-        <div style={{ flex: 1, background: plan.survivor_active ? "#00e87a12" : "#ff3d5a12", borderRadius: 6, padding: "6px 10px", border: `1px solid ${plan.survivor_active ? C.green : C.red}30`, textAlign: "center" }}>
+        <div style={{ flex: 1, background: plan.survivor_active ? "#4bcf8c12" : "#c2545412", borderRadius: 6, padding: "6px 10px", border: `1px solid ${plan.survivor_active ? C.green : C.red}30`, textAlign: "center" }}>
           <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>SURVIVOR</div>
           <div style={{ fontSize: 11, fontWeight: 800, color: plan.survivor_active ? C.green : C.red }}>{plan.survivor_active ? "✅ ACTIVE" : "❌ BLOCKED"}</div>
         </div>
-        <div style={{ flex: 1, background: plan.wave_active ? "#00e87a12" : "#ff3d5a12", borderRadius: 6, padding: "6px 10px", border: `1px solid ${plan.wave_active ? C.green : C.red}30`, textAlign: "center" }}>
+        <div style={{ flex: 1, background: plan.wave_active ? "#4bcf8c12" : "#c2545412", borderRadius: 6, padding: "6px 10px", border: `1px solid ${plan.wave_active ? C.green : C.red}30`, textAlign: "center" }}>
           <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>WAVE</div>
           <div style={{ fontSize: 11, fontWeight: 800, color: plan.wave_active ? C.green : C.red }}>{plan.wave_active ? "✅ ACTIVE" : "❌ BLOCKED"}</div>
         </div>
@@ -574,7 +574,7 @@ function PnlLineChart({ trades, height = 180 }) {
   const toY = v => pad.top + ih - ((v - minPnl) / range) * ih
   const zeroY = toY(0)
   const lastPnl = points[points.length - 1]?.cumPnl || 0
-  const lineCol = lastPnl >= 0 ? "#00e87a" : "#ff3d5a"
+  const lineCol = lastPnl >= 0 ? "#4bcf8c" : "#c25454"
   const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${toX(i).toFixed(1)} ${toY(p.cumPnl).toFixed(1)}`).join(" ")
   const fillD = `${pathD} L ${toX(points.length-1).toFixed(1)} ${zeroY.toFixed(1)} L ${toX(0).toFixed(1)} ${zeroY.toFixed(1)} Z`
   const yTicks = [-5000, 0, Math.round(maxPnl/2), maxPnl].filter(v => v >= minPnl && v <= maxPnl)
@@ -584,22 +584,22 @@ function PnlLineChart({ trades, height = 180 }) {
   // used on the per-trade detail chart, so a glance at the equity curve
   // shows which closes were TP hits vs SL hits.
   const exitRingColour = reason =>
-    reason?.includes("TP_HIT") ? "#00e87a" : reason?.includes("SL_HIT") ? "#ff3d5a" : null
+    reason?.includes("TP_HIT") ? "#4bcf8c" : reason?.includes("SL_HIT") ? "#c25454" : null
 
   return (
     <div style={{ width: "100%", overflowX: "auto" }}>
       <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet" style={{ display: "block" }}>
         {yTicks.map(v => (
           <g key={v}>
-            <line x1={pad.left} y1={toY(v)} x2={pad.left+iw} y2={toY(v)} stroke="#1a2840" strokeWidth={1} strokeDasharray="4 4" />
-            <text x={pad.left-4} y={toY(v)+4} textAnchor="end" fill={v === 0 ? "#3a5070" : v < 0 ? "#ff3d5a60" : "#00e87a60"} fontSize={9} fontFamily="monospace">
+            <line x1={pad.left} y1={toY(v)} x2={pad.left+iw} y2={toY(v)} stroke="#1c2436" strokeWidth={1} strokeDasharray="4 4" />
+            <text x={pad.left-4} y={toY(v)+4} textAnchor="end" fill={v === 0 ? "#5b6b85" : v < 0 ? "#c2545460" : "#4bcf8c60"} fontSize={9} fontFamily="monospace">
               {v >= 0 ? `+₹${v}` : `-₹${Math.abs(v)}`}
             </text>
           </g>
         ))}
-        <line x1={pad.left} y1={zeroY} x2={pad.left+iw} y2={zeroY} stroke="#3a5070" strokeWidth={1.5} />
+        <line x1={pad.left} y1={zeroY} x2={pad.left+iw} y2={zeroY} stroke="#5b6b85" strokeWidth={1.5} />
         {toY(-5000) >= pad.top && toY(-5000) <= pad.top+ih && (
-          <line x1={pad.left} y1={toY(-5000)} x2={pad.left+iw} y2={toY(-5000)} stroke="#ff3d5a" strokeWidth={1} strokeDasharray="6 3" opacity={0.4} />
+          <line x1={pad.left} y1={toY(-5000)} x2={pad.left+iw} y2={toY(-5000)} stroke="#c25454" strokeWidth={1} strokeDasharray="6 3" opacity={0.4} />
         )}
         {points.length > 1 && <path d={fillD} fill={lineCol} opacity={0.07} />}
         {points.length > 1 && <path d={pathD} fill="none" stroke={lineCol} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />}
@@ -610,7 +610,7 @@ function PnlLineChart({ trades, height = 180 }) {
               {ringColour && (
                 <circle cx={toX(i+1)} cy={toY(p.cumPnl)} r={7} fill="none" stroke={ringColour} strokeWidth={1.5} opacity={0.7} />
               )}
-              <circle cx={toX(i+1)} cy={toY(p.cumPnl)} r={p.live ? 5 : 4} fill={p.pnl >= 0 ? "#00e87a" : "#ff3d5a"} stroke="#060b14" strokeWidth={1.5}>
+              <circle cx={toX(i+1)} cy={toY(p.cumPnl)} r={p.live ? 5 : 4} fill={p.pnl >= 0 ? "#4bcf8c" : "#c25454"} stroke="#070b12" strokeWidth={1.5}>
                 <title>
                   {p.live
                     ? `LIVE (unrealised) | ₹${p.pnl?.toFixed(0)} | Total: ₹${p.cumPnl?.toFixed(0)}`
@@ -618,7 +618,7 @@ function PnlLineChart({ trades, height = 180 }) {
                 </title>
               </circle>
               {p.live && (
-                <circle cx={toX(i+1)} cy={toY(p.cumPnl)} r={5} fill="none" stroke={p.pnl >= 0 ? "#00e87a" : "#ff3d5a"} strokeWidth={1.5}>
+                <circle cx={toX(i+1)} cy={toY(p.cumPnl)} r={5} fill="none" stroke={p.pnl >= 0 ? "#4bcf8c" : "#c25454"} strokeWidth={1.5}>
                   <animate attributeName="r" values="5;11;5" dur="1.6s" repeatCount="indefinite" />
                   <animate attributeName="opacity" values="0.8;0;0.8" dur="1.6s" repeatCount="indefinite" />
                 </circle>
@@ -632,11 +632,11 @@ function PnlLineChart({ trades, height = 180 }) {
           </text>
         )}
         {points.length <= 1 && (
-          <text x={w/2} y={h/2} textAnchor="middle" fill="#3a5070" fontSize={12} fontFamily="monospace">No closed trades today</text>
+          <text x={w/2} y={h/2} textAnchor="middle" fill="#5b6b85" fontSize={12} fontFamily="monospace">No closed trades today</text>
         )}
         {[points[0], points[Math.floor(points.length/2)], points[points.length-1]].filter(Boolean).map((p, i, arr) => {
           const idx = points.indexOf(p)
-          return <text key={i} x={toX(idx)} y={pad.top+ih+16} textAnchor="middle" fill="#3a5070" fontSize={8} fontFamily="monospace">{p.time}</text>
+          return <text key={i} x={toX(idx)} y={pad.top+ih+16} textAnchor="middle" fill="#5b6b85" fontSize={8} fontFamily="monospace">{p.time}</text>
         })}
       </svg>
     </div>
@@ -679,7 +679,7 @@ function TradeDetailChart({ trade }) {
   }
 
   const w = 640, h = 200
-  const pad = { top: 16, right: 64, bottom: 22, left: 58 }
+  const pad = { top: 16, right: 68, bottom: 22, left: 58 }
   const iw = w - pad.left - pad.right
   const ih = h - pad.top - pad.bottom
 
@@ -688,43 +688,92 @@ function TradeDetailChart({ trade }) {
   const minP = Math.min(...allVals)
   const maxP = Math.max(...allVals)
   const range = (maxP - minP) || 1
-  const rangePad = range * 0.12
+  const rangePad = range * 0.14
 
   const toX = i => pad.left + (i / Math.max(points.length - 1, 1)) * iw
   const toY = v => pad.top + ih - ((v - (minP - rangePad)) / (range + rangePad * 2)) * ih
 
   const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${toX(i).toFixed(1)} ${toY(p.price).toFixed(1)}`).join(" ")
 
+  // Approximate breakeven-lock point: SL only exists from the moment net P&L
+  // on THIS leg first crossed the ₹400 threshold, so the SL line should
+  // start there, not span the whole chart (a full-width line would imply a
+  // fixed SL existed the whole time, which isn't true -- see handoff notes).
+  // This is a per-leg approximation, since real breakeven-lock triggers on
+  // combined main+hedge P&L, which isn't available to a single-leg chart.
+  let lockIndex = 0
+  if (history.sl_price != null && history.quantity && history.order_type) {
+    const isSell = history.order_type === "SELL"
+    const idx = points.findIndex(p => {
+      const legPnl = isSell ? (history.entry_price - p.price) * history.quantity : (p.price - history.entry_price) * history.quantity
+      return legPnl >= 400
+    })
+    lockIndex = idx >= 0 ? idx : 0
+  }
+
+  const isOpen = history.status !== "CLOSED"
+  const lastPoint = points[points.length - 1]
+  const livePrice = isOpen ? lastPoint?.price : null
+  const livePnl = isOpen && livePrice != null && history.quantity
+    ? (history.order_type === "SELL" ? (history.entry_price - livePrice) : (livePrice - history.entry_price)) * history.quantity
+    : null
+
+  const badge = history.sl_price != null
+    ? { label: "breakeven locked", bg: "rgba(75,207,140,0.15)", fg: C.green }
+    : isOpen
+      ? { label: "open · no lock yet", bg: "rgba(91,141,239,0.15)", fg: C.blue }
+      : { label: "closed", bg: `${C.dim}80`, fg: C.muted }
+
   return (
-    <div style={{ width: "100%", overflowX: "auto" }}>
-      <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet" style={{ display: "block" }}>
-        {history.target_price != null && (
-          <>
-            <line x1={pad.left} y1={toY(history.target_price)} x2={pad.left+iw} y2={toY(history.target_price)} stroke={C.green} strokeWidth={1} strokeDasharray="5 3" opacity={0.6} />
-            <text x={pad.left+iw+4} y={toY(history.target_price)+3} fill={C.green} fontSize={9} fontFamily="monospace">TP {fmtRs(history.target_price)}</text>
-          </>
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <span style={{ background: badge.bg, color: badge.fg, fontSize: 10, padding: "3px 10px", borderRadius: 20, fontWeight: 600, letterSpacing: 0.3 }}>{badge.label}</span>
+      </div>
+      <div style={{ width: "100%", overflowX: "auto" }}>
+        <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet" style={{ display: "block" }}>
+          {history.target_price != null && (
+            <>
+              <line x1={pad.left} y1={toY(history.target_price)} x2={pad.left+iw} y2={toY(history.target_price)} stroke={C.green} strokeWidth={1} strokeDasharray="4 3" opacity={0.6} />
+              <text x={pad.left+iw+4} y={toY(history.target_price)+3} fill={C.green} fontSize={9} fontFamily="monospace">TP {fmtRs(history.target_price)}</text>
+            </>
+          )}
+          {history.sl_price != null && (
+            <>
+              <line x1={toX(lockIndex)} y1={toY(history.sl_price)} x2={pad.left+iw} y2={toY(history.sl_price)} stroke={C.orange} strokeWidth={1} strokeDasharray="4 3" opacity={0.7} />
+              <text x={pad.left+iw+4} y={toY(history.sl_price)+3} fill={C.orange} fontSize={9} fontFamily="monospace">SL {fmtRs(history.sl_price)}</text>
+              <circle cx={toX(lockIndex)} cy={toY(history.sl_price)} r={3} fill={C.orange} stroke={C.bg} strokeWidth={1.5} />
+              <text x={toX(lockIndex)} y={toY(history.sl_price)-8} fill={C.orange} fontSize={8} fontFamily="monospace" textAnchor="middle">lock</text>
+            </>
+          )}
+          <path d={pathD} fill="none" stroke={C.blue} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          {history.entry_price != null && (
+            <circle cx={toX(0)} cy={toY(history.entry_price)} r={5} fill={C.blue} stroke={C.bg} strokeWidth={1.5}>
+              <title>Entry @ {fmtRs(history.entry_price)}</title>
+            </circle>
+          )}
+          {history.exit_price != null && !isOpen && (
+            <circle cx={toX(points.length-1)} cy={toY(history.exit_price)} r={5} fill={C.purple} stroke={C.bg} strokeWidth={1.5}>
+              <title>Exit @ {fmtRs(history.exit_price)}</title>
+            </circle>
+          )}
+          {isOpen && livePrice != null && (
+            <>
+              <circle cx={toX(points.length-1)} cy={toY(livePrice)} r={5} fill={C.green} stroke={C.bg} strokeWidth={1.5}>
+                <title>Live @ {fmtRs(livePrice)}</title>
+              </circle>
+              <text x={toX(points.length-1)} y={toY(livePrice)-10} fill={C.green} fontSize={9} fontFamily="monospace" textAnchor="end">now {fmtRs(livePrice)}</text>
+            </>
+          )}
+        </svg>
+      </div>
+      <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border2}`, fontSize: 11, color: C.muted }}>
+        <span>Entry <span style={{ color: C.text, fontFamily: "monospace" }}>{fmtRs(history.entry_price)}</span></span>
+        <span>Target <span style={{ color: C.green, fontFamily: "monospace" }}>{history.target_price != null ? fmtRs(history.target_price) : "—"}</span></span>
+        <span>Stop <span style={{ color: C.orange, fontFamily: "monospace" }}>{history.sl_price != null ? fmtRs(history.sl_price) : "Not locked yet"}</span></span>
+        {isOpen && livePnl != null && (
+          <span>Unrealised <span style={{ color: pnlC(livePnl), fontFamily: "monospace" }}>{livePnl >= 0 ? "+" : ""}{fmtRs(livePnl)}</span></span>
         )}
-        {history.sl_price != null && (
-          <>
-            <line x1={pad.left} y1={toY(history.sl_price)} x2={pad.left+iw} y2={toY(history.sl_price)} stroke={C.red} strokeWidth={1} strokeDasharray="5 3" opacity={0.6} />
-            <text x={pad.left+iw+4} y={toY(history.sl_price)+3} fill={C.red} fontSize={9} fontFamily="monospace">SL {fmtRs(history.sl_price)}</text>
-          </>
-        )}
-        <path d={pathD} fill="none" stroke={C.cyan} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-        {history.entry_price != null && (
-          <circle cx={toX(0)} cy={toY(history.entry_price)} r={5} fill={C.cyan} stroke={C.bg} strokeWidth={1.5}>
-            <title>Entry @ {fmtRs(history.entry_price)}</title>
-          </circle>
-        )}
-        {history.exit_price != null && history.status === "CLOSED" && (
-          <circle cx={toX(points.length-1)} cy={toY(history.exit_price)} r={5} fill={C.purple} stroke={C.bg} strokeWidth={1.5}>
-            <title>Exit @ {fmtRs(history.exit_price)}</title>
-          </circle>
-        )}
-        {history.sl_price == null && (
-          <text x={pad.left} y={pad.top+ih+16} fill={C.muted} fontSize={8} fontFamily="monospace">SL not locked yet (breakeven-lock hasn't triggered)</text>
-        )}
-      </svg>
+      </div>
     </div>
   )
 }
@@ -752,10 +801,10 @@ function playLossAlarm() { for(let i=0;i<3;i++){setTimeout(()=>playTone(880,0.18
 function SoundControl({ enabled, onToggle }) {
   return (
     <button onClick={onToggle} style={{
-      background: enabled ? "#00e87a18" : "transparent",
-      border: `1px solid ${enabled ? "#00e87a40" : "#1a2840"}`,
+      background: enabled ? "#4bcf8c18" : "transparent",
+      border: `1px solid ${enabled ? "#4bcf8c40" : "#1c2436"}`,
       borderRadius: 6, padding: "4px 10px",
-      color: enabled ? "#00e87a" : "#3a5070",
+      color: enabled ? "#4bcf8c" : "#5b6b85",
       fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "monospace",
     }}>{enabled ? "🔊 SND" : "🔇 SND"}</button>
   )
@@ -935,13 +984,13 @@ function StratCard({ name, data, onStop, onReset, trades, stratCapital }) {
         {data.last_signal || "— no signal yet —"}
       </div>
       {data.error_message && (
-        <div style={{ color: C.red, fontSize: 10, background: "#ff3d5a10", borderRadius: 6, padding: "6px 10px" }}>⚠ {data.error_message}</div>
+        <div style={{ color: C.red, fontSize: 10, background: "#c2545410", borderRadius: 6, padding: "6px 10px" }}>⚠ {data.error_message}</div>
       )}
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={() => onStop(name)} disabled={data.state !== "RUNNING"}
-          style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: data.state === "RUNNING" ? `1px solid ${C.red}40` : `1px solid ${C.border}`, background: data.state === "RUNNING" ? "#ff3d5a18" : C.border, color: data.state === "RUNNING" ? C.red : C.muted, fontWeight: 700, cursor: data.state === "RUNNING" ? "pointer" : "not-allowed", fontSize: 11, fontFamily: "monospace" }}>STOP</button>
+          style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: data.state === "RUNNING" ? `1px solid ${C.red}40` : `1px solid ${C.border}`, background: data.state === "RUNNING" ? "#c2545418" : C.border, color: data.state === "RUNNING" ? C.red : C.muted, fontWeight: 700, cursor: data.state === "RUNNING" ? "pointer" : "not-allowed", fontSize: 11, fontFamily: "monospace" }}>STOP</button>
         <button onClick={() => onReset(name)} disabled={data.state !== "ERROR"}
-          style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: data.state === "ERROR" ? `1px solid ${C.orange}40` : `1px solid ${C.border}`, background: data.state === "ERROR" ? "#f59e0b18" : C.border, color: data.state === "ERROR" ? C.orange : C.muted, fontWeight: 700, cursor: data.state === "ERROR" ? "pointer" : "not-allowed", fontSize: 11, fontFamily: "monospace" }}>RESET</button>
+          style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: data.state === "ERROR" ? `1px solid ${C.orange}40` : `1px solid ${C.border}`, background: data.state === "ERROR" ? "#c9a24b18" : C.border, color: data.state === "ERROR" ? C.orange : C.muted, fontWeight: 700, cursor: data.state === "ERROR" ? "pointer" : "not-allowed", fontSize: 11, fontFamily: "monospace" }}>RESET</button>
       </div>
     </div>
   )
@@ -1083,13 +1132,13 @@ function BankNiftyPanel() {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
       {/* Header */}
-      <div style={{ background: "#1a1a2e", border: "1px solid #4a4a8a40", borderRadius: 10, padding: 16 }}>
+      <div style={{ background: "#11121f", border: "1px solid #35395c40", borderRadius: 10, padding: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: "#a78bfa" }}>📄 BANKNIFTY PAPER TRADING</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "#9d90e0" }}>📄 BANKNIFTY PAPER TRADING</div>
             <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>Paper mode — zero real capital risk</div>
           </div>
-          <div style={{ background: "#f59e0b20", border: "1px solid #f59e0b40", borderRadius: 6, padding: "4px 12px", fontSize: 11, fontWeight: 700, color: "#f59e0b" }}>PAPER ONLY</div>
+          <div style={{ background: "#c9a24b20", border: "1px solid #c9a24b40", borderRadius: 6, padding: "4px 12px", fontSize: 11, fontWeight: 700, color: "#c9a24b" }}>PAPER ONLY</div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px,1fr))", gap: 10 }}>
           {[
@@ -1108,13 +1157,13 @@ function BankNiftyPanel() {
 
       {/* Regime + Capital + Block Reasons */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div style={{ background: C.panel, borderRadius: 10, padding: 14, border: "1px solid #4a4a8a40" }}>
+        <div style={{ background: C.panel, borderRadius: 10, padding: 14, border: "1px solid #35395c40" }}>
           <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>REGIME / BLOCK REASONS</div>
           {opp ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {(opp.top_reasons || []).slice(0, 3).map((r, i) => (
-                <div key={i} style={{ background: C.card, borderRadius: 6, padding: "6px 10px", border: "1px solid #ef444420" }}>
-                  <div style={{ fontSize: 10, color: "#ef4444", fontWeight: 600 }}>{r.reason}</div>
+                <div key={i} style={{ background: C.card, borderRadius: 6, padding: "6px 10px", border: "1px solid #c2545420" }}>
+                  <div style={{ fontSize: 10, color: "#c25454", fontWeight: 600 }}>{r.reason}</div>
                   <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>{r.count}x blocked</div>
                 </div>
               ))}
@@ -1123,13 +1172,13 @@ function BankNiftyPanel() {
               )}
               <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
                 <div style={{ fontSize: 10, color: C.muted }}>Det: <span style={{ color: C.text, fontWeight: 700 }}>{opp.detected}</span></div>
-                <div style={{ fontSize: 10, color: C.muted }}>Blk: <span style={{ color: "#ef4444", fontWeight: 700 }}>{opp.blocked}</span></div>
+                <div style={{ fontSize: 10, color: C.muted }}>Blk: <span style={{ color: "#c25454", fontWeight: 700 }}>{opp.blocked}</span></div>
                 <div style={{ fontSize: 10, color: C.muted }}>Hit: <span style={{ color: C.green, fontWeight: 700 }}>{(opp.hit_rate * 100).toFixed(1)}%</span></div>
               </div>
             </div>
           ) : <div style={{ color: C.muted, fontSize: 11, textAlign: "center", padding: "8px 0" }}>Warming up...</div>}
         </div>
-        <div style={{ background: C.panel, borderRadius: 10, padding: 14, border: "1px solid #4a4a8a40" }}>
+        <div style={{ background: C.panel, borderRadius: 10, padding: 14, border: "1px solid #35395c40" }}>
           <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>CAPITAL POOL</div>
           {cap ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1142,14 +1191,14 @@ function BankNiftyPanel() {
                 <div style={{ fontSize: 13, fontWeight: 800, color: cap.deployed > 0 ? C.blue : C.muted, fontFamily: "monospace" }}>{"\u20b9"}{(cap.deployed/1000).toFixed(0)}k</div>
               </div>
               <div style={{ background: "#ffffff10", borderRadius: 4, height: 6, overflow: "hidden" }}>
-                <div style={{ width: `${Math.min(cap.pct, 100)}%`, height: "100%", background: cap.pct > 80 ? "#ef4444" : C.blue, borderRadius: 4 }} />
+                <div style={{ width: `${Math.min(cap.pct, 100)}%`, height: "100%", background: cap.pct > 80 ? "#c25454" : C.blue, borderRadius: 4 }} />
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <div style={{ fontSize: 11, color: C.muted }}>Free</div>
                 <div style={{ fontSize: 13, fontWeight: 800, color: C.green, fontFamily: "monospace" }}>{"\u20b9"}{(cap.free/1000).toFixed(0)}k</div>
               </div>
-              <div style={{ background: cap.status === "HEALTHY" ? "#22c55e20" : "#ef444420", borderRadius: 6, padding: "4px 10px", textAlign: "center" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: cap.status === "HEALTHY" ? C.green : "#ef4444" }}>{cap.status}</div>
+              <div style={{ background: cap.status === "HEALTHY" ? "#4bcf8c20" : "#c2545420", borderRadius: 6, padding: "4px 10px", textAlign: "center" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: cap.status === "HEALTHY" ? C.green : "#c25454" }}>{cap.status}</div>
               </div>
             </div>
           ) : <div style={{ color: C.muted, fontSize: 11, textAlign: "center", padding: "8px 0" }}>Warming up...</div>}
@@ -1213,7 +1262,7 @@ function AlertsPanel() {
   }, [])
 
   const levelColor = l => l === "🚨" ? C.red : l === "⚠️" ? C.orange : l === "✅" ? C.green : l === "🔴" ? C.red : C.blue
-  const levelBg   = l => l === "🚨" ? "#ff3d5a15" : l === "⚠️" ? "#f59e0b15" : l === "✅" ? "#00e87a10" : "#1a2840"
+  const levelBg   = l => l === "🚨" ? "#c2545415" : l === "⚠️" ? "#c9a24b15" : l === "✅" ? "#4bcf8c10" : "#1c2436"
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1535,7 +1584,7 @@ function OpenPositions({ trades }) {
 
       {/* ── Broker Sync Panel ── */}
       {brokerPos.length > 0 && (
-        <div style={{ background: mismatch ? "#ff3d5a15" : "#00e87a10", border: `1px solid ${mismatch ? C.red : C.green}30`, borderRadius: 10, padding: "10px 16px" }}>
+        <div style={{ background: mismatch ? "#c2545415" : "#4bcf8c10", border: `1px solid ${mismatch ? C.red : C.green}30`, borderRadius: 10, padding: "10px 16px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: mismatch ? C.red : C.green, letterSpacing: 1 }}>
               {mismatch ? "⚠ POSITION MISMATCH — BOT vs UPSTOX" : "✅ UPSTOX BROKER POSITIONS"}
@@ -1597,7 +1646,7 @@ function OpenPositions({ trades }) {
                     fontWeight: label === "DIR" ? 700 : 400 }}>{val}</div>
                 </div>
               ))}
-              {trailingArmed && <div style={{ background: "#00e87a20", border: "1px solid #00e87a40", borderRadius: 6, padding: "2px 8px", fontSize: 10, color: C.green, fontWeight: 700 }}>🔒 TRAILING ARMED | Floor: {fmtRs(trailingFloor)}</div>}
+              {trailingArmed && <div style={{ background: "#4bcf8c20", border: "1px solid #4bcf8c40", borderRadius: 6, padding: "2px 8px", fontSize: 10, color: C.green, fontWeight: 700 }}>🔒 TRAILING ARMED | Floor: {fmtRs(trailingFloor)}</div>}
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end", marginBottom: 2 }}>
@@ -1727,14 +1776,14 @@ function AICapitalAdvisor() {
     setTimeout(() => setMsg(null), 5000)
   }
 
-  const actionCol = { HOLD: C.green, REDUCE: "#ef4444", INCREASE: C.blue }
-  const confCol   = { HIGH: C.green, MEDIUM: "#f59e0b", LOW: "#ef4444" }
+  const actionCol = { HOLD: C.green, REDUCE: "#c25454", INCREASE: C.blue }
+  const confCol   = { HIGH: C.green, MEDIUM: "#c9a24b", LOW: "#c25454" }
 
   return (
-    <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: "1px solid #a78bfa30" }}>
+    <div style={{ background: C.panel, borderRadius: 10, padding: 16, border: "1px solid #9d90e030" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#a78bfa" }}>🤖 AI CAPITAL ADVISOR</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#9d90e0" }}>🤖 AI CAPITAL ADVISOR</div>
           <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>Regime-aware capital recommendation — review before applying</div>
         </div>
         {rec && <div style={{ background: `${actionCol[rec.action]}20`, border: `1px solid ${actionCol[rec.action]}40`, borderRadius: 6, padding: "4px 12px", fontSize: 11, fontWeight: 700, color: actionCol[rec.action] }}>{rec.action}</div>}
@@ -1768,7 +1817,7 @@ function AICapitalAdvisor() {
               ].map(({label, val}) => (
                 <div key={label} style={{ textAlign: "center" }}>
                   <div style={{ fontSize: 9, color: C.muted, marginBottom: 2 }}>{label}</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: val >= 1 ? C.green : val >= 0.7 ? "#f59e0b" : "#ef4444", fontFamily: "monospace" }}>{(val * 100).toFixed(0)}%</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: val >= 1 ? C.green : val >= 0.7 ? "#c9a24b" : "#c25454", fontFamily: "monospace" }}>{(val * 100).toFixed(0)}%</div>
                 </div>
               ))}
             </div>
@@ -1783,7 +1832,7 @@ function AICapitalAdvisor() {
 
           {/* Apply button */}
           {msg ? (
-            <div style={{ fontSize: 11, color: C.green, textAlign: "center", padding: "8px", background: "#22c55e15", borderRadius: 6 }}>{msg}</div>
+            <div style={{ fontSize: 11, color: C.green, textAlign: "center", padding: "8px", background: "#4bcf8c15", borderRadius: 6 }}>{msg}</div>
           ) : (
             <button onClick={applyRec} disabled={applying || rec.action === "HOLD"}
               style={{ background: rec.action === "HOLD" ? C.card : `${actionCol[rec.action]}20`, border: `1px solid ${actionCol[rec.action]}40`, borderRadius: 6, padding: "8px 16px", color: rec.action === "HOLD" ? C.muted : actionCol[rec.action], fontWeight: 700, fontSize: 11, cursor: rec.action === "HOLD" ? "default" : "pointer" }}>
@@ -1984,12 +2033,12 @@ function RiskPanel({ trades, global: g }) {
 }
 
 const REGIME_META = {
-  trending_bull:  { label: "▲ TREND BULL",    colour: "#00e87a" },
-  trending_bear:  { label: "▼ TREND BEAR",    colour: "#ff3d5a" },
-  range:          { label: "↔ RANGE",          colour: "#3b82f6" },
-  reversal_watch: { label: "⚡ REVERSAL",      colour: "#f59e0b" },
-  opening:        { label: "⏳ OPENING RANGE", colour: "#8b5cf6" },
-  closed:         { label: "○ CLOSED",         colour: "#3a5070" },
+  trending_bull:  { label: "▲ TREND BULL",    colour: "#4bcf8c" },
+  trending_bear:  { label: "▼ TREND BEAR",    colour: "#c25454" },
+  range:          { label: "↔ RANGE",          colour: "#5b8def" },
+  reversal_watch: { label: "⚡ REVERSAL",      colour: "#c9a24b" },
+  opening:        { label: "⏳ OPENING RANGE", colour: "#7c6bd9" },
+  closed:         { label: "○ CLOSED",         colour: "#5b6b85" },
 }
 
 function PcrGauge({ pcr = 1.0 }) {
@@ -1998,11 +2047,11 @@ function PcrGauge({ pcr = 1.0 }) {
   const rad = (angle * Math.PI) / 180
   const r = 28, cx = 36, cy = 36
   const nx = cx + r * Math.sin(rad), ny = cy - r * Math.cos(rad)
-  const col = pcr > 1.3 ? "#00e87a" : pcr < 0.7 ? "#ff3d5a" : "#3b82f6"
+  const col = pcr > 1.3 ? "#4bcf8c" : pcr < 0.7 ? "#c25454" : "#5b8def"
   const arcPath = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`
   return (
     <svg width={72} height={44} viewBox="0 0 72 44">
-      <path d={arcPath} fill="none" stroke="#1a2840" strokeWidth={5} strokeLinecap="round" />
+      <path d={arcPath} fill="none" stroke="#1c2436" strokeWidth={5} strokeLinecap="round" />
       <path d={arcPath} fill="none" stroke={col} strokeWidth={5} strokeLinecap="round" strokeDasharray={`${pct * 88} 88`} opacity={0.8} />
       <line x1={cx} y1={cy} x2={nx} y2={ny} stroke={col} strokeWidth={2} strokeLinecap="round" />
       <circle cx={cx} cy={cy} r={3} fill={col} />
@@ -2018,13 +2067,13 @@ function OiBar({ ceOi = 0, peOi = 0 }) {
   const fmtL  = n => n > 1e6 ? `${(n/1e6).toFixed(1)}M` : n > 1e3 ? `${(n/1e3).toFixed(0)}K` : String(n)
   return (
     <div style={{ width: 140 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: "#3a5070", marginBottom: 3 }}>
-        <span style={{ color: "#ff3d5a" }}>CE {fmtL(ceOi)}</span>
-        <span style={{ color: "#00e87a" }}>PE {fmtL(peOi)}</span>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: "#5b6b85", marginBottom: 3 }}>
+        <span style={{ color: "#c25454" }}>CE {fmtL(ceOi)}</span>
+        <span style={{ color: "#4bcf8c" }}>PE {fmtL(peOi)}</span>
       </div>
-      <div style={{ height: 6, borderRadius: 3, background: "#1a2840", overflow: "hidden", display: "flex" }}>
-        <div style={{ width: `${cePct}%`, background: "#ff3d5a", opacity: 0.8 }} />
-        <div style={{ width: `${pePct}%`, background: "#00e87a", opacity: 0.8 }} />
+      <div style={{ height: 6, borderRadius: 3, background: "#1c2436", overflow: "hidden", display: "flex" }}>
+        <div style={{ width: `${cePct}%`, background: "#c25454", opacity: 0.8 }} />
+        <div style={{ width: `${pePct}%`, background: "#4bcf8c", opacity: 0.8 }} />
       </div>
     </div>
   )
@@ -2032,48 +2081,48 @@ function OiBar({ ceOi = 0, peOi = 0 }) {
 
 function ContextBar({ marketCtx, astro }) {
   const ctx    = marketCtx || {}
-  const regime = REGIME_META[ctx.regime] || { label: ctx.regime || "—", colour: "#3a5070" }
+  const regime = REGIME_META[ctx.regime] || { label: ctx.regime || "—", colour: "#5b6b85" }
   const cell = (label, children) => (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <span style={{ fontSize: 8, color: "#3a5070", letterSpacing: 1, fontWeight: 700 }}>{label}</span>
+      <span style={{ fontSize: 8, color: "#5b6b85", letterSpacing: 1, fontWeight: 700 }}>{label}</span>
       {children}
     </div>
   )
   return (
-    <div style={{ marginBottom: 10, background: "#0a1220", borderRadius: 8, padding: "10px 16px", border: "1px solid #1a2840", display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap", overflowX: "auto" }}>
+    <div style={{ marginBottom: 10, background: "#0a0f1a", borderRadius: 8, padding: "10px 16px", border: "1px solid #1c2436", display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap", overflowX: "auto" }}>
       {cell("REGIME", <span style={{ fontSize: 11, fontWeight: 800, color: regime.colour, background: regime.colour + "18", borderRadius: 4, padding: "2px 8px", border: `1px solid ${regime.colour}30`, letterSpacing: 0.5, whiteSpace: "nowrap" }}>{regime.label}</span>)}
       {cell("PCR", <PcrGauge pcr={ctx.pcr} />)}
       {cell("OPEN INTEREST", <OiBar ceOi={ctx.total_ce_oi} peOi={ctx.total_pe_oi} />)}
       {cell("OI DELTA",
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <span style={{ fontSize: 9, color: (ctx.ce_oi_delta || 0) > 0 ? "#ff3d5a" : "#00e87a", fontWeight: 700 }}>CE {(ctx.ce_oi_delta || 0) > 0 ? "+" : ""}{ctx.ce_oi_delta?.toLocaleString() || "—"}</span>
-          <span style={{ fontSize: 9, color: (ctx.pe_oi_delta || 0) > 0 ? "#00e87a" : "#ff3d5a", fontWeight: 700 }}>PE {(ctx.pe_oi_delta || 0) > 0 ? "+" : ""}{ctx.pe_oi_delta?.toLocaleString() || "—"}</span>
+          <span style={{ fontSize: 9, color: (ctx.ce_oi_delta || 0) > 0 ? "#c25454" : "#4bcf8c", fontWeight: 700 }}>CE {(ctx.ce_oi_delta || 0) > 0 ? "+" : ""}{ctx.ce_oi_delta?.toLocaleString() || "—"}</span>
+          <span style={{ fontSize: 9, color: (ctx.pe_oi_delta || 0) > 0 ? "#4bcf8c" : "#c25454", fontWeight: 700 }}>PE {(ctx.pe_oi_delta || 0) > 0 ? "+" : ""}{ctx.pe_oi_delta?.toLocaleString() || "—"}</span>
         </div>
       )}
-      <div style={{ width: 1, height: 40, background: "#1a2840", flexShrink: 0 }} />
+      <div style={{ width: 1, height: 40, background: "#1c2436", flexShrink: 0 }} />
       {cell("OPENING RANGE",
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           {ctx.or_locked ? (
-            <><span style={{ fontSize: 9, color: "#00e87a", fontWeight: 700 }}>H: {ctx.or_high?.toFixed(0) || "—"}</span><span style={{ fontSize: 9, color: "#ff3d5a", fontWeight: 700 }}>L: {ctx.or_low?.toFixed(0) || "—"}</span></>
-          ) : <span style={{ fontSize: 9, color: "#f59e0b", fontWeight: 700 }}>NOT LOCKED</span>}
+            <><span style={{ fontSize: 9, color: "#4bcf8c", fontWeight: 700 }}>H: {ctx.or_high?.toFixed(0) || "—"}</span><span style={{ fontSize: 9, color: "#c25454", fontWeight: 700 }}>L: {ctx.or_low?.toFixed(0) || "—"}</span></>
+          ) : <span style={{ fontSize: 9, color: "#c9a24b", fontWeight: 700 }}>NOT LOCKED</span>}
         </div>
       )}
       {cell("PREV DAY H/L",
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <span style={{ fontSize: 9, fontWeight: 700, color: ctx.prev_day_breakout_bull ? "#00e87a" : "#3a5070" }}>H: {ctx.prev_day_high?.toFixed(0) || "—"}{ctx.prev_day_breakout_bull ? " ▲" : ""}</span>
-          <span style={{ fontSize: 9, fontWeight: 700, color: ctx.prev_day_breakout_bear ? "#ff3d5a" : "#3a5070" }}>L: {ctx.prev_day_low?.toFixed(0) || "—"}{ctx.prev_day_breakout_bear ? " ▼" : ""}</span>
+          <span style={{ fontSize: 9, fontWeight: 700, color: ctx.prev_day_breakout_bull ? "#4bcf8c" : "#5b6b85" }}>H: {ctx.prev_day_high?.toFixed(0) || "—"}{ctx.prev_day_breakout_bull ? " ▲" : ""}</span>
+          <span style={{ fontSize: 9, fontWeight: 700, color: ctx.prev_day_breakout_bear ? "#c25454" : "#5b6b85" }}>L: {ctx.prev_day_low?.toFixed(0) || "—"}{ctx.prev_day_breakout_bear ? " ▼" : ""}</span>
         </div>
       )}
       {cell("CONFIDENCE",
-        <span style={{ fontSize: 11, fontWeight: 800, color: ctx.confidence_label === "HIGH" ? "#00e87a" : ctx.confidence_label === "MEDIUM" ? "#f59e0b" : "#ff3d5a" }}>{ctx.confidence_label || "—"} {ctx.confidence != null ? `${ctx.confidence.toFixed(0)}%` : ""}</span>
+        <span style={{ fontSize: 11, fontWeight: 800, color: ctx.confidence_label === "HIGH" ? "#4bcf8c" : ctx.confidence_label === "MEDIUM" ? "#c9a24b" : "#c25454" }}>{ctx.confidence_label || "—"} {ctx.confidence != null ? `${ctx.confidence.toFixed(0)}%` : ""}</span>
       )}
       {cell("ATM / MAX PAIN",
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <span style={{ fontSize: 9, color: "#3b82f6", fontWeight: 700 }}>ATM: {ctx.atm_strike || "—"}</span>
-          <span style={{ fontSize: 9, color: "#8b5cf6", fontWeight: 700 }}>MP: {ctx.max_pain || "—"}</span>
+          <span style={{ fontSize: 9, color: "#5b8def", fontWeight: 700 }}>ATM: {ctx.atm_strike || "—"}</span>
+          <span style={{ fontSize: 9, color: "#7c6bd9", fontWeight: 700 }}>MP: {ctx.max_pain || "—"}</span>
         </div>
       )}
-      <div style={{ marginLeft: "auto", fontSize: 8, color: "#3a5070", textAlign: "right", whiteSpace: "nowrap" }}>OI: {ctx.oi_updated_at || "—"}</div>
+      <div style={{ marginLeft: "auto", fontSize: 8, color: "#5b6b85", textAlign: "right", whiteSpace: "nowrap" }}>OI: {ctx.oi_updated_at || "—"}</div>
     </div>
   )
 }
@@ -2704,8 +2753,8 @@ export default function App() {
         @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
-        ::-webkit-scrollbar-track { background: #060b14; }
-        ::-webkit-scrollbar-thumb { background: #1a2840; border-radius: 4px; }
+        ::-webkit-scrollbar-track { background: #070b12; }
+        ::-webkit-scrollbar-thumb { background: #1c2436; border-radius: 4px; }
         button { font-family: inherit; }
       `}</style>
 
@@ -2728,7 +2777,7 @@ export default function App() {
           <Pill label={`PAPER: ${g.paper_trade ? "ON" : "OFF"}`} colour={g.paper_trade ? C.orange : C.blue} />
           <SoundControl enabled={soundEnabled} onToggle={() => setSoundEnabled(p => !p)} />
           <button onClick={handleKillSwitch} disabled={killActive}
-            style={{ background: killActive ? "#888" : "#ff3d5a", color: "#fff", border: "none", borderRadius: 6, padding: "5px 14px", fontSize: 11, fontWeight: 800, cursor: killActive ? "not-allowed" : "pointer", letterSpacing: 0.5 }}>
+            style={{ background: killActive ? "#888" : "#c25454", color: "#fff", border: "none", borderRadius: 6, padding: "5px 14px", fontSize: 11, fontWeight: 800, cursor: killActive ? "not-allowed" : "pointer", letterSpacing: 0.5 }}>
             {killActive ? "STOPPING..." : "🚨 KILL"}
           </button>
         </div>
