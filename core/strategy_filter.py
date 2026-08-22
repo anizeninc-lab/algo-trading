@@ -165,13 +165,30 @@ class StrategyFilter:
                 f"this cycle for stability"
             )
 
-        # ── 6. Direction alignment check ──────────────────────────────────
+        
+        # ── 6. Direction alignment (diagnostic-only, not blocking) ─────────
+        # Logs when OI buildup on the "wrong" side (calls building in a bull
+        # trend / puts building in a bear trend) disagrees with the regime
+        # direction wave_extractor is about to trade. Log-only for now, not
+        # a hard block -- there isn't yet backtested evidence this signal
+        # reliably predicts bad entries, and turning it into a live block
+        # without that evidence would be adding new, untested trading
+        # behavior. Watch these logs; promote to a real check in
+        # can_trade() once there's a clear pattern.
         oi = market_context.oi
         if strategy_name == "wave_extractor" and oi.timestamp is not None:
             if regime == REGIME_TRENDING_BULL and getattr(oi, "ce_oi_delta", 0) > 0:
-                pass  # Trend warnings can be appended here if required for diagnostics
+                logger.info(
+                    f"[strategy_filter] wave_extractor: CE OI building up "
+                    f"(delta={oi.ce_oi_delta}) while regime={regime} — "
+                    f"call writers may be fading this bull trend (diagnostic only)"
+                )
             elif regime == REGIME_TRENDING_BEAR and getattr(oi, "pe_oi_delta", 0) > 0:
-                pass
+                logger.info(
+                    f"[strategy_filter] wave_extractor: PE OI building up "
+                    f"(delta={oi.pe_oi_delta}) while regime={regime} — "
+                    f"put writers may be fading this bear trend (diagnostic only)"
+                )
 
         # ── All checks passed ─────────────────────────────────────────────
         self._log_context_once(strategy_name, regime, pcr, plan)
