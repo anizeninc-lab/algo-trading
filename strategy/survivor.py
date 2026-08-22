@@ -87,7 +87,7 @@ class SurvivorAlgo(BaseStrategy):
         # Time-based trigger state
         self._time_based_pe_fired = False  
         self._time_based_ce_fired = False  
-        self._last_time_trigger_day = -1   
+        self._last_time_trigger_day = "1970-01-01"   
         # Idempotent order gate
         self._pending_orders: set = set()  
         # Exit precedence gate
@@ -1904,10 +1904,11 @@ class SurvivorAlgo(BaseStrategy):
         now = dt.now(pytz.timezone("Asia/Kolkata"))
 
         # Reset flags at start of each new day
-        if now.day != self._last_time_trigger_day:
+        today_str = now.strftime("%Y-%m-%d")
+        if today_str != self._last_time_trigger_day:
             self._time_based_pe_fired = False
             self._time_based_ce_fired = False
-            self._last_time_trigger_day = now.day
+            self._last_time_trigger_day = today_str
 
         # Only fire in 9:45 AM – 11:30 AM window
         from datetime import time as dtime
