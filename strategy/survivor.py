@@ -1481,22 +1481,32 @@ class SurvivorAlgo(BaseStrategy):
                 if curr_price == 0:
                     continue
 
-                # ── Calculate current P&L ─────────────────────────────────
+                               # ── Calculate current P&L (main leg only — used for display
+                # and logging; NOT used for the breakeven-arm decision below,
+                # since a hedge that's profitable on this tick can hold net
+                # P&L above the arm threshold while main-leg-only P&L sits
+                # under it) ──────────────────────────────────────────────
                 if trade["order_type"] == "SELL":
                     curr_pnl = (trade["entry"] - curr_price) * trade["quantity"]
                 else:
                     curr_pnl = (curr_price - trade["entry"]) * trade["quantity"]
 
                 # ── Breakeven Lock ────────────────────────────────────────
-                # Once profit reaches ₹400, lock SL at entry price (breakeven).
-                # This means the trade can never turn into a loss after this point.
-                if curr_pnl >= 400.0 and not trade.get("_be_locked"):
+                # Once NET profit (main leg + hedge, same figure that feeds
+                # peak_pnl/MFE tracking via record_mfe_mae) reaches ₹400,
+                # lock SL at entry price (breakeven). Previously this used
+                # the main-leg-only curr_pnl above, which could sit well
+                # under 400 on a tick where the hedge leg's gain pushed net
+                # P&L over 400 -- silently skipping the arm and leaving the
+                # trade fully exposed to the wide stop-loss.
+                _net_pnl_for_lock = risk_manager.get_mfe(trade.get("id", ""))
+                if _net_pnl_for_lock >= 400.0 and not trade.get("_be_locked"):
                     trade["_be_locked"] = True
                     trade["_sl_floor"] = trade["entry"]
                     trade_logger.update_trade_sl(trade.get("id", ""), trade["entry"])
                     self._signal(
                         f"🔒 BREAKEVEN LOCKED | {trade['symbol']} | "
-                        f"P&L: ₹{curr_pnl:.0f} — SL moved to entry ₹{trade['entry']:.2f}"
+                        f"P&L: ₹{_net_pnl_for_lock:.0f} — SL moved to entry ₹{trade['entry']:.2f}"
                     )
                     alert_breakeven_locked(trade['symbol'], curr_pnl)
 

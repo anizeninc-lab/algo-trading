@@ -102,7 +102,7 @@ class RiskManager:
         self._daily_pnl:      dict[str, float] = {}
         self._system_halted:  bool             = False
         self._halt_reason:    str              = ""
-        self._last_reset_day: int              = -1
+        self._last_reset_day: str              = "1970-01-01"
 
         # Capital tracking — tracks deployed capital per strategy
         self._deployed_capital: dict[str, float] = {}
@@ -189,10 +189,11 @@ class RiskManager:
     def _auto_reset_if_new_day(self) -> None:
         """Automatically reset counters at the start of each trading day."""
         now = datetime.now(pytz.timezone("Asia/Kolkata"))
-        if now.weekday() < 5 and now.day != self._last_reset_day:
+        today_str = now.strftime("%Y-%m-%d")
+        if now.weekday() < 5 and today_str != self._last_reset_day:
             self.reset_daily_counts()
-            self._last_reset_day = now.day
-            logger.info("[RiskManager] Auto daily reset completed")
+            self._last_reset_day = today_str
+            logger.info(f"[RiskManager] Auto daily reset completed | date={today_str}")
 
     # ─── Capital Guard ────────────────────────────────────────────────────────
 
@@ -780,7 +781,7 @@ class RiskManager:
                 return
             self._trade_counts     = state.get("trade_counts", {})
             self._daily_pnl        = state.get("daily_pnl", {})
-            self._last_reset_day   = state.get("last_reset_day", now.day)
+            self._last_reset_day   = state.get("last_reset_day", "1970-01-01")
             # Re-validate halt against today's actual DB P&L — don't blindly restore halted=True
             persisted_halt   = state.get("system_halted", False)
             persisted_reason = state.get("halt_reason", "")
@@ -962,28 +963,39 @@ class RiskManager:
         activation_threshold = round(
             premium_collected * (self.trailing_activation_pct / 100.0) + cost_of_trade, 2
         )
-        if net_pnl >= activation_threshold and trade_id:
-            prev_peak = self._pnl_watermarks.get(trade_id, 0.0)
-            if net_pnl > prev_peak:
-                self._pnl_watermarks[trade_id] = net_pnl
-                logger.debug(
-                    f"[RiskManager] Watermark updated | trade={trade_id} | "
-                    f"peak=Rs{net_pnl:.2f} | cost_of_trade=Rs{cost_of_trade:.2f} | "
-                    f"activation_threshold=Rs{activation_threshold:.2f}"
-                )
-            peak = self._pnl_watermarks.get(trade_id, net_pnl)
-            giveback_floor = round(peak * (self.trailing_profit_pct / 100.0), 2)
-            floor = max(cost_of_trade, giveback_floor)
-            if net_pnl < floor:
-                logger.debug(
-                    f"[RiskManager] Trailing stop triggered | trade={trade_id} | "
-                    f"peak=Rs{peak:.2f} | floor=Rs{floor:.2f} "
-                    f"(giveback=Rs{giveback_floor:.2f}, cost_floor=Rs{cost_of_trade:.2f}) | "
-                    f"current=Rs{net_pnl:.2f}"
-                )
-                if trade_id in self._pnl_watermarks:
+        if trade_id:
+            if net_pnl >= activation_threshold:
+                prev_peak = self._pnl_watermarks.get(trade_id, 0.0)
+                if net_pnl > prev_peak:
+                    self._pnl_watermarks[trade_id] = net_pnl
+                    logger.debug(
+                        f"[RiskManager] Watermark updated | trade={trade_id} | "
+                        f"peak=Rs{net_pnl:.2f} | cost_of_trade=Rs{cost_of_trade:.2f} | "
+                        f"activation_threshold=Rs{activation_threshold:.2f}"
+                    )
+
+            # Once armed, the floor check must run on EVERY subsequent tick,
+            # regardless of whether THIS tick's net_pnl still clears the
+            # activation threshold. Previously this whole block was nested
+            # inside "if net_pnl >= activation_threshold", so a single fast
+            # adverse tick that dropped net_pnl straight past the (lower)
+            # activation line -- skipping the (higher) giveback floor
+            # entirely -- silently fell through to return False, handing
+            # the trade to the plain stop-loss check with no memory that it
+            # had ever been trailing.
+            if trade_id in self._pnl_watermarks:
+                peak = self._pnl_watermarks[trade_id]
+                giveback_floor = round(peak * (self.trailing_profit_pct / 100.0), 2)
+                floor = max(cost_of_trade, giveback_floor)
+                if net_pnl < floor:
+                    logger.warning(
+                        f"[RiskManager] Trailing stop triggered | trade={trade_id} | "
+                        f"peak=Rs{peak:.2f} | floor=Rs{floor:.2f} "
+                        f"(giveback=Rs{giveback_floor:.2f}, cost_floor=Rs{cost_of_trade:.2f}) | "
+                        f"current=Rs{net_pnl:.2f}"
+                    )
                     del self._pnl_watermarks[trade_id]
-                return True
+                    return True
 
         return False
 
