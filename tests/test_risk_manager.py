@@ -21,6 +21,7 @@ def make_risk_manager(**kwargs):
         rm.max_daily_loss      = kwargs.get("max_daily_loss", -3000.0)
         rm.per_trade_loss      = kwargs.get("per_trade_loss", -800.0)
         rm.trailing_profit_pct = kwargs.get("trailing_profit_pct", 25.0)
+        rm.trailing_activation_pct = kwargs.get("trailing_activation_pct", 8.0)
         rm.max_trades_per_day  = kwargs.get("max_trades_per_day", 3)
         rm.auto_stop_hour      = kwargs.get("auto_stop_hour", 15)
         rm.auto_stop_minute    = kwargs.get("auto_stop_minute", 10)
@@ -30,6 +31,9 @@ def make_risk_manager(**kwargs):
         rm._system_halted      = False
         rm._halt_reason        = ""
         rm._last_reset_day     = -1
+        rm._pnl_watermarks     = {}
+        rm._mfe_watermarks     = {}
+        rm._mae_watermarks     = {}
         rm._deployed_capital   = {}
         rm._last_blocked       = {}
         rm._api_fail_times     = []
@@ -176,3 +180,57 @@ class TestCapitalGate:
         with patch("core.risk_manager.state_store"):
             ok, _ = rm.check_capital_limit("SELL")
         assert ok is True
+
+        
+class TestTrailingProfitFastReversal:
+    """Regression tests for the Aug 2026 bug: once trailing is armed, the
+    giveback-floor check must run on every subsequent tick, independent of
+    whether that tick's net_pnl still clears the (lower) activation
+    threshold. Previously the floor check was nested inside the activation
+    check, so a single fast adverse tick that jumped straight past
+    activation -- skipping the floor entirely -- silently returned False
+    and handed the trade to the plain stop-loss with no memory it had ever
+    been trailing. Cost ~Rs 11.5K across 7 trades in the first two weeks
+    of live trading before this fix.
+    """
+
+    def test_arms_on_favorable_move_past_activation(self):
+        rm = make_risk_manager(trailing_activation_pct=8.0, trailing_profit_pct=50.0)
+        entry, qty, trade_id = 126.0, 65, "test-arm"
+        result = rm.check_trailing_profit(entry, 145.0, "BUY", qty, trade_id=trade_id)
+        assert result is False, "Should not exit while still climbing"
+        assert rm.get_watermark(trade_id) > 0, "Trailing should be armed after clearing activation"
+
+    def test_floor_check_survives_a_tick_that_jumps_past_activation(self):
+        """The core regression: after arming on a favorable tick, a single
+        large adverse tick drops net_pnl from above-activation to
+        below-activation in one step (no intermediate tick in between).
+        The floor check must still fire using the already-recorded peak."""
+        rm = make_risk_manager(trailing_activation_pct=8.0, trailing_profit_pct=50.0)
+        entry, qty, trade_id = 126.0, 65, "test-fast-reversal"
+
+        assert rm.check_trailing_profit(entry, 170.0, "BUY", qty, trade_id=trade_id) is False
+        peak_after_arm = rm.get_watermark(trade_id)
+        assert peak_after_arm > 0
+
+        result = rm.check_trailing_profit(entry, 132.0, "BUY", qty, trade_id=trade_id)
+        assert result is True, (
+            "Trailing stop failed to fire on a fast reversal that jumped "
+            "straight past the activation threshold -- this is the exact "
+            "bug that cost ~Rs 11.5K in Aug 2026"
+        )
+        assert trade_id not in rm._pnl_watermarks, "Watermark should be cleared on exit"
+
+    def test_no_false_trigger_while_still_above_floor(self):
+        """Sanity check: a minor pullback that stays above the giveback
+        floor should NOT trigger an exit."""
+        rm = make_risk_manager(trailing_activation_pct=8.0, trailing_profit_pct=50.0)
+        entry, qty, trade_id = 126.0, 65, "test-minor-pullback"
+
+        assert rm.check_trailing_profit(entry, 170.0, "BUY", qty, trade_id=trade_id) is False
+        peak = rm.get_watermark(trade_id)
+        assert peak > 0
+
+        result = rm.check_trailing_profit(entry, 155.0, "BUY", qty, trade_id=trade_id)
+        assert result is False, "Should not exit on a minor pullback still above the floor"
+        assert rm.get_watermark(trade_id) == peak, "Peak should be unchanged, not reset"
