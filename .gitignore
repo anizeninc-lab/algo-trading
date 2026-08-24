@@ -29,3 +29,4 @@ _archive_review/
 .envy
 configs/backtest_risk_state.json
 backtest_trade_log.db
+logs/*.log
