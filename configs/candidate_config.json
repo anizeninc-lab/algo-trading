@@ -34,9 +34,9 @@
     "proposed_value": "False",
     "rationale": "10 trades, 0.0% win rate, net \u20b9-10,460.67 on the PE side of survivor -- at or below the concerning-pattern threshold. Corrects candidate 60c8b37c, which used pe_quantity (confirmed to have no effect on real trade size).",
     "evidence": "pattern_flags CONCERNING as of 2026-08-15T01:24:51 (dimension: strategy_regime=survivor|PE). pe_enabled is a NEW config field added 2026-08-15, gating all 4 PE sell trigger points in strategy/survivor.py (2 movement-based, 2 time-based). Requires a bot restart to take effect once set in saviour_combo.json, since config is only loaded at process startup.",
-    "status": "proposed",
-    "decided_at": null,
-    "decision_note": ""
+    "status": "rejected",
+    "decided_at": "2026-08-29T18:43:09.338321",
+    "decision_note": "Deferred, not disproven -- blocked on open PE/CE if/elif priority question, see lessons.md LESSON-001. Both backtest-gate attempts were confounded. Revisit once that design question is resolved."
   },
   {
     "id": "795b6591",
@@ -86,8 +86,8 @@
     "proposed_value": false,
     "rationale": "16 trades, 12.5% win rate, net \u20b9-19,411.82 on the CE side of survivor -- at or below the concerning-pattern threshold.",
     "evidence": "pattern_flags CONCERNING as of 2026-08-27T14:18:43.755696 (dimension: strategy_regime=survivor|CE). Current value dataclass default -- pe_enabled/ce_enabled = True in strategy/survivor.py's dataclass, and not present as an override in saviour_combo.json; verify no override exists elsewhere before applying. ce_enabled is checked directly at the CE entry trigger in strategy/survivor.py (self.cfg.ce_enabled guard) -- unlike pe_quantity/ce_quantity, which the order-quantity calculation does not read and is therefore a no-op. run_survivor_backtest.py already supports --ce-enabled for testing this via the Step 9 backtest gate.",
-    "status": "proposed",
-    "decided_at": null,
-    "decision_note": ""
+    "status": "rejected",
+    "decided_at": "2026-08-29T18:43:09.537203",
+    "decision_note": "Deferred, not disproven -- blocked on open PE/CE if/elif priority question, see lessons.md LESSON-001. Backtest-gate attempt showed zero CE trades in either run, confirming the same confound. Revisit once that design question is resolved."
   }
 ]

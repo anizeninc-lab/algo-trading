@@ -43,3 +43,24 @@ should the two checks be independent `if` statements?
 2026-08-29 -- not raised via the automated hypothesis pipeline)
 
 ---
+
+ADDENDUM (2026-08-29, same day): confirmed from the other direction. Ran
+candidate 4c47ab0e (survivor.ce_enabled True/False) over Aug 21-27, a
+window with real live CE trades on 4 separate days. Both baseline and
+candidate produced 6 trades each -- ALL SIX PE, ZERO CE, in both runs
+(research_archive.db backtest_runs, run at 2026-08-29T18:2x). This means
+CE's `elif` essentially never gets a turn in this backtest engine when PE
+is enabled -- consistent with, not a new bug beyond, the finding above.
+Candidate 4c47ab0e is equally blocked on the same open question.
+
+REVIEW NOTE (2026-08-29): checked git history for these lines
+(git log -p -L 375,415:strategy/survivor.py). The if/elif structure
+predates pe_enabled/ce_enabled entirely -- present as far back as commit
+a797e65f (Jul 11 2026), before the enable flags existed. Every commit
+touching these lines since (VIX sizing, overshoot scaling, capital
+tracking, adding pe_enabled/ce_enabled) is about something else --
+none mention PE-before-CE priority as a deliberate choice. Reviewed with
+Rahul (repo author) -- no clear intent recalled either way. Decision
+deliberately deferred, not resolved. Revisit before trusting any
+pe_enabled/ce_enabled backtest-gate result, or before generating further
+candidates for this dimension.
