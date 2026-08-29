@@ -41,6 +41,7 @@ from datetime import datetime
 
 from core.candidate_config import list_candidates
 from core.pattern_memory import DB_PATH as RESEARCH_DB_PATH
+from core import hypothesis_engine
 
 PARAMETER_TO_FLAG = {
     "pe_quantity": "--pe-quantity",
@@ -185,6 +186,19 @@ def gate(candidate_id: str, start: str, end: str, tick_sleep: float = 0.1) -> No
                        candidate["current_value"], candidate["proposed_value"],
                        baseline, candidate_result)
     print(f"[gate] Result saved to candidate_gate_results (window {start} to {end})")
+
+    # Step 12 hook: if this candidate is linked to a hypothesis, feed this
+    # gate result back as supporting/contradicting evidence and let the
+    # hypothesis's status/confidence recompute. No-op (returns None) for
+    # candidates that never had a matching hypothesis -- perfectly normal,
+    # see hypothesis_engine.record_gate_result's docstring.
+    updated_hyp = hypothesis_engine.record_gate_result(
+        candidate_id, favors_candidate=(diff > 0), diff=diff,
+        window_start=start, window_end=end,
+    )
+    if updated_hyp is not None:
+        print(f"[gate] Linked hypothesis {updated_hyp['hypothesis_id']} updated -> "
+              f"{updated_hyp['status']} ({updated_hyp['confidence']} confidence)")
     print()
     print("This is ONE day's data -- not a statistically meaningful sample. "
           "Treat as a sanity check, not a verdict. Run over more days as they "

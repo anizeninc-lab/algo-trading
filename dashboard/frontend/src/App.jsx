@@ -2129,6 +2129,167 @@ function ContextBar({ marketCtx, astro }) {
 
 
 // ── Strategy Lab Component ────────────────────────────────────────────────────
+function ResearchLab() {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [running, setRunning] = useState(false)
+  const [toast, setToast] = useState("")
+  const [showResolved, setShowResolved] = useState(false)
+
+  async function fetchSummary() {
+    try {
+      const r = await axios.get(`${API}/api/research/summary`)
+      setData(r.data)
+    } catch {
+      setData(null)
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    fetchSummary()
+    const id = setInterval(fetchSummary, 60000)
+    return () => clearInterval(id)
+  }, [])
+
+  async function runSessionNow() {
+    setRunning(true)
+    try {
+      const r = await axios.post(`${API}/api/research/run-session`)
+      if (r.data.status === "ok") {
+        setToast(`\u2705 Session complete: ${r.data.summary}`)
+        await fetchSummary()
+      } else {
+        setToast(`\u274c Session failed: ${r.data.error}`)
+      }
+    } catch (e) {
+      setToast(`\u274c Error: ${e.message}`)
+    }
+    setRunning(false)
+    setTimeout(() => setToast(""), 8000)
+  }
+
+  const confColour = (c) => c === "HIGH" ? C.green : c === "MEDIUM" ? C.orange : C.muted
+  const statusColour = (s) => s === "SUPPORTED" ? C.green : s === "DISPROVEN" ? C.red
+    : s === "TESTING" ? C.blue : C.muted
+
+  if (loading) return (
+    <div style={{ color: C.muted, textAlign: "center", padding: "40px 0", fontSize: 12 }}>
+      Loading research memory...
+    </div>
+  )
+
+  if (!data || data.status === "error") return (
+    <div style={{ color: C.muted, textAlign: "center", padding: "40px 0", fontSize: 12 }}>
+      Research API unavailable \u2014 add routes to dashboard/api.py
+    </div>
+  )
+
+  const { open_hypotheses = [], resolved_hypotheses = [], recent_sessions = [], counts = {} } = data
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {toast && (
+        <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", fontSize: 11, color: C.text }}>
+          {toast}
+        </div>
+      )}
+
+      {/* Counts + trigger */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px,1fr))", gap: 8, flex: 1 }}>
+          {[
+            { label: "OPEN HYPOTHESES", val: counts.open ?? 0, col: C.blue },
+            { label: "SUPPORTED",       val: counts.supported ?? 0, col: C.green },
+            { label: "DISPROVEN",       val: counts.disproven ?? 0, col: C.red },
+          ].map(({ label, val, col }) => (
+            <div key={label} style={{ background: C.panel, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1 }}>{label}</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: col, fontFamily: "monospace", marginTop: 3 }}>{val}</div>
+            </div>
+          ))}
+        </div>
+        <button onClick={runSessionNow} disabled={running}
+          style={{ background: running ? C.dim : C.blue + "22", color: running ? C.muted : C.blue, border: "none", borderRadius: 20, padding: "8px 18px", fontSize: 11, fontWeight: 500, cursor: running ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}>
+          {running ? "Running\u2026" : "Run research session now"}
+        </button>
+      </div>
+
+      {/* Open hypotheses, ranked */}
+      <div>
+        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>
+          OPEN / TESTING \u2014 RANKED BY PRIORITY
+        </div>
+        {open_hypotheses.length === 0 ? (
+          <div style={{ color: C.muted, fontSize: 12, padding: "12px 0" }}>No open hypotheses right now.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {open_hypotheses.map((h, i) => (
+              <div key={h.hypothesis_id} style={{ background: C.card, borderRadius: 8, padding: "12px 14px", border: `1px solid ${C.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 6 }}>
+                  <div style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>#{i + 1} \u00b7 {h.hypothesis_id}</div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <Pill label={h.status} colour={statusColour(h.status)} size={9} />
+                    <Pill label={h.confidence} colour={confColour(h.confidence)} size={9} />
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, color: C.text }}>{h.statement}</div>
+                <div style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>
+                  {h.source_dimension_type}={h.source_dimension_value}
+                  {(h.n_supporting > 0 || h.n_contradicting > 0) &&
+                    ` \u00b7 ${h.n_supporting} supporting / ${h.n_contradicting} contradicting`}
+                  {h.linked_candidate_id && ` \u00b7 candidate ${h.linked_candidate_id}`}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Resolved lessons, collapsible */}
+      <div>
+        <div onClick={() => setShowResolved(p => !p)}
+          style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 8, cursor: "pointer", userSelect: "none" }}>
+          {showResolved ? "\u25be" : "\u25b8"} RESOLVED LESSONS ({resolved_hypotheses.length})
+        </div>
+        {showResolved && (
+          resolved_hypotheses.length === 0 ? (
+            <div style={{ color: C.muted, fontSize: 12, padding: "12px 0" }}>No resolved lessons yet.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {resolved_hypotheses.map(h => (
+                <div key={h.hypothesis_id} style={{ background: C.panel, borderRadius: 8, padding: "10px 14px", border: `1px solid ${C.border2}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 4 }}>
+                    <Pill label={h.status} colour={statusColour(h.status)} size={9} />
+                    <div style={{ fontSize: 9, color: C.muted }}>{h.n_supporting} sup / {h.n_contradicting} con</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.text }}>{h.statement}</div>
+                </div>
+              ))}
+            </div>
+          )
+        )}
+      </div>
+
+      {/* Recent sessions */}
+      {recent_sessions.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>
+            RECENT RESEARCH SESSIONS
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {recent_sessions.map(s => (
+              <div key={s.session_id} style={{ fontSize: 10, color: C.muted, padding: "6px 0", borderBottom: `1px solid ${C.border2}` }}>
+                <span style={{ color: C.text }}>{s.session_id}</span> \u2014 {s.summary}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function StrategyLab({ nifty, vix }) {
   const [recs, setRecs] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -2744,6 +2905,7 @@ export default function App() {
     { key: "perf",      label: "PERFORMANCE" },
     { key: "risk",      label: "RISK & CAPITAL" },
     { key: "strategy",  label: "STRATEGY LAB" },
+    { key: "research",  label: "🧪 RESEARCH" },
     { key: "banknifty", label: "📄 BANKNIFTY PAPER" },
   ]
 
@@ -2835,7 +2997,7 @@ export default function App() {
 
       {/* ── Strategy cards ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, marginBottom: 16 }}>
-        {["saviour_combo", "survivor", "wave_extractor", "nifty_gex"].map(name => (
+        {["saviour_combo", "survivor", "wave_extractor", "nifty_gex", "put_calendar"].map(name => (
           <StratCard key={name} name={name} data={s[name]} onStop={handleStop} onReset={handleReset} trades={trades} stratCapital={stratCapital} />
         ))}
       </div>
@@ -2855,6 +3017,7 @@ export default function App() {
           {tab === "perf"      && <PerformancePanel trades={trades} />}
           {tab === "risk"      && <div style={{ display: "flex", flexDirection: "column", gap: 16 }}><AICapitalAdvisor /><OpportunityMeter /><CapitalIntelligencePanel trades={trades} /><RiskPanel trades={trades} global={g} /></div>}
           {tab === "strategy"  && <StrategyLab nifty={market?.nifty_price || 0} vix={vix?.value || 0} />}
+          {tab === "research"  && <ResearchLab />}
         </div>
       </div>
 

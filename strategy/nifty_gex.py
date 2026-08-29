@@ -191,7 +191,7 @@ class NiftyGex(BaseStrategy):
                 await self.broker.cancel_order(self._entry_order_id)
             except Exception as e:
                 logger.warning(f"[nifty_gex] Failed to cancel pending entry order on stop: {e}")
-        self.broker.unsubscribe_ticks([self.cfg.nifty_instrument_key])
+        self.broker.unsubscribe_ticks([self.cfg.nifty_instrument_key], callback=self._on_tick_sync)
 
     async def _on_recover_trade(self, row: dict) -> None:
         """Restore an orphaned OPEN trade from the DB (BaseStrategy._recover_open_positions)."""

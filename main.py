@@ -173,11 +173,14 @@ async def run_strategies(config: dict):
     _bn_enabled = os.getenv("ENABLE_BANKNIFTY", "false").lower() == "true"
     # Nifty GEX A+ Setup — new strategy, set ENABLE_NIFTY_GEX=true in .env to enable
     _gex_enabled = os.getenv("ENABLE_NIFTY_GEX", "false").lower() == "true"
+    # Put Calendar — new strategy, set ENABLE_PUT_CALENDAR=true in .env to enable
+    _put_calendar_enabled = os.getenv("ENABLE_PUT_CALENDAR", "false").lower() == "true"
     combo_cfg = SaviourComboConfig(
         wave=wave_cfg,
         survivor=survivor_cfg,
         banknifty_survivor=banknifty_cfg if _bn_enabled else None,
         enable_nifty_gex=_gex_enabled,
+        enable_put_calendar=_put_calendar_enabled,
         max_combined_loss=config.get("max_combined_loss", -5000.0),
         auto_start_survivor=config.get("auto_start_survivor", True),
         wave_net_threshold=config.get("wave_net_threshold", 2),

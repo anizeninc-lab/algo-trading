@@ -144,7 +144,7 @@ class WaveExtractor(BaseStrategy):
                 pass
 
         await self._cancel_active_bracket()
-        self.broker.unsubscribe_ticks([self.cfg.option_symbol])
+        self.broker.unsubscribe_ticks([self.cfg.option_symbol], callback=self._on_tick_sync)
 
     # ── Background Position Sync ──────────────────────────────────────────────
 

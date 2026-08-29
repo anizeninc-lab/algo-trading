@@ -1,5 +1,5 @@
 {
-  "regime": "range",
+  "regime": "trending",
   "confidence": "MEDIUM",
   "trending_direction": "",
   "survivor_active": true,
@@ -7,38 +7,37 @@
   "daily_loss_limit": -3500.0,
   "max_capital": 150000.0,
   "params": {
-    "pe_gap": 5.0,
-    "ce_gap": 5.0,
-    "pe_symbol_gap": 150.0,
-    "ce_symbol_gap": 150.0,
-    "min_premium": 12.0,
+    "pe_gap": 10.0,
+    "ce_gap": 10.0,
+    "pe_symbol_gap": 350.0,
+    "ce_symbol_gap": 350.0,
+    "min_premium": 15.0,
     "sell_gap": 20.0,
     "buy_gap": 20.0,
     "cool_off_time": 5.0,
     "position_size": 0.75
   },
   "scores": {
-    "range_score": 6.0,
-    "trending_score": 4.0,
+    "range_score": 1.0,
+    "trending_score": 3.0,
     "or_width": null,
     "or_width_signal": "OR data not collected",
-    "vix_level": 11.37,
-    "vix_signal": "VIX=11.4 LOW \u2192 calm market, range likely",
-    "gap_pct": 0.43,
-    "gap_signal": "small gap \u2192 neutral",
+    "vix_level": null,
+    "vix_signal": "VIX data unavailable",
+    "gap_pct": null,
+    "gap_signal": "gap data unavailable",
     "midpoint_crosses": 0,
     "crosses_signal": "0 crosses \u2192 strong directional move",
-    "pcr_at_open": 1.0,
-    "pcr_signal": "PCR=1.00 NEUTRAL \u2192 range bias",
-    "prev_close": 24048.55,
-    "today_open": 24152.05
+    "pcr_at_open": 0.807,
+    "pcr_signal": "PCR=0.81 SLIGHTLY BEARISH",
+    "prev_close": null,
+    "today_open": null
   },
-  "produced_at": "2026-08-19T15:16:11.937633+05:30",
+  "produced_at": "2026-08-28T09:30:06.066278+05:30",
   "plan_version": 1,
   "notes": [
     "OR data unavailable \u2014 defaulting to RANGE MEDIUM, Survivor ACTIVE",
-    "MEDIUM confidence \u2014 position size reduced to 75%",
-    "Low VIX (11.4) \u2014 tighter triggers applied"
+    "MEDIUM confidence \u2014 position size reduced to 75%"
   ],
   "is_ready": true,
   "low_confidence_hold_until": null

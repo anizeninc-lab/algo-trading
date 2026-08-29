@@ -50,5 +50,44 @@
     "status": "proposed",
     "decided_at": null,
     "decision_note": ""
+  },
+  {
+    "id": "7e16b7f2",
+    "created_at": "2026-08-27T14:18:44.129871",
+    "strategy": "survivor",
+    "parameter": "pe_quantity",
+    "current_value": 65,
+    "proposed_value": 0,
+    "rationale": "18 trades, 0.0% win rate, net \u20b9-24,230.85 on the PE side of survivor -- at or below the concerning-pattern threshold.",
+    "evidence": "pattern_flags CONCERNING as of 2026-08-27T14:18:43.755696 (dimension: strategy_regime=survivor|PE). Current value read live from saviour_combo.json. NOTE: pe_quantity must be 0 or a multiple of lot_size (65) -- strategy/survivor.py's order-placement path aborts any quantity that isn't (see 'QUANTITY MISMATCH' guard). A partial resize is NOT mechanically possible today; this proposal is binary -- disable this side (0) or leave it at 65+.",
+    "status": "rejected",
+    "decided_at": "2026-08-28T01:52:44.585947",
+    "decision_note": "Dead lever -- pe_quantity is not read by survivor.py's order-quantity calculation, confirmed via code trace. Replaced by pe_enabled/ce_enabled, the lever actually checked at the entry trigger. See candidate_generator.py's Aug 27 comment."
+  },
+  {
+    "id": "021ca1d6",
+    "created_at": "2026-08-27T14:18:44.245921",
+    "strategy": "survivor",
+    "parameter": "ce_quantity",
+    "current_value": 65,
+    "proposed_value": 0,
+    "rationale": "16 trades, 12.5% win rate, net \u20b9-19,411.82 on the CE side of survivor -- at or below the concerning-pattern threshold.",
+    "evidence": "pattern_flags CONCERNING as of 2026-08-27T14:18:43.755696 (dimension: strategy_regime=survivor|CE). Current value read live from saviour_combo.json. NOTE: ce_quantity must be 0 or a multiple of lot_size (65) -- strategy/survivor.py's order-placement path aborts any quantity that isn't (see 'QUANTITY MISMATCH' guard). A partial resize is NOT mechanically possible today; this proposal is binary -- disable this side (0) or leave it at 65+.",
+    "status": "rejected",
+    "decided_at": "2026-08-28T02:01:13.733578",
+    "decision_note": "Dead lever -- ce_quantity is not read by survivor.py's order-quantity calculation. Replaced by ce_enabled, candidate 4c47ab0e."
+  },
+  {
+    "id": "4c47ab0e",
+    "created_at": "2026-08-28T01:52:53.761763",
+    "strategy": "survivor",
+    "parameter": "ce_enabled",
+    "current_value": true,
+    "proposed_value": false,
+    "rationale": "16 trades, 12.5% win rate, net \u20b9-19,411.82 on the CE side of survivor -- at or below the concerning-pattern threshold.",
+    "evidence": "pattern_flags CONCERNING as of 2026-08-27T14:18:43.755696 (dimension: strategy_regime=survivor|CE). Current value dataclass default -- pe_enabled/ce_enabled = True in strategy/survivor.py's dataclass, and not present as an override in saviour_combo.json; verify no override exists elsewhere before applying. ce_enabled is checked directly at the CE entry trigger in strategy/survivor.py (self.cfg.ce_enabled guard) -- unlike pe_quantity/ce_quantity, which the order-quantity calculation does not read and is therefore a no-op. run_survivor_backtest.py already supports --ce-enabled for testing this via the Step 9 backtest gate.",
+    "status": "proposed",
+    "decided_at": null,
+    "decision_note": ""
   }
 ]

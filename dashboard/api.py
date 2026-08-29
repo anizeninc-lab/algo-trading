@@ -995,6 +995,7 @@ async def get_capital_intelligence():
         "bn_survivor":  {"name": "BankNifty Survivor", "cap": PER_STRATEGY_CAP, "lot_size": 15,  "margin_per_lot": 40000},
         "wave_extractor":{"name": "Wave Extractor",   "cap": PER_STRATEGY_CAP, "lot_size": 65,  "margin_per_lot": 40000},
         "nifty_gex":    {"name": "Nifty GEX",          "cap": PER_STRATEGY_CAP, "lot_size": 65,  "margin_per_lot": 15000},
+        "put_calendar": {"name": "Put Calendar",       "cap": PER_STRATEGY_CAP, "lot_size": 65,  "margin_per_lot": 75000},
     }
     deployed = risk_manager._deployed_capital
     total_cap = PER_STRATEGY_CAP * len(strategies)
@@ -1187,3 +1188,91 @@ async def get_opportunities():
         }
     except Exception as e:
         return {"error": str(e), "strategies": [], "total_detected": 0, "total_executed": 0, "total_blocked": 0}
+# ── Research Memory API (Step 12/13/15 self-learning layer) ──────────────────
+@app.get("/api/research/summary")
+async def get_research_summary():
+    """
+    Snapshot for the dashboard's Research panel: open/testing hypotheses
+    ranked by priority, resolved lessons (most recent first), and the
+    last few research sessions. Read-only -- same isolation boundary as
+    the modules it calls (never touches trade_log.db, risk_manager, or
+    any strategy file).
+    """
+    try:
+        from core import hypothesis_engine, research_memory
+        import run_research_session as rrs
+        import sqlite3
+
+        open_hyps = (hypothesis_engine.list_hypotheses(status="OPEN") +
+                     hypothesis_engine.list_hypotheses(status="TESTING"))
+        open_hyps.sort(key=research_memory._priority_rank)
+
+        supported = hypothesis_engine.list_hypotheses(status="SUPPORTED")
+        disproven = hypothesis_engine.list_hypotheses(status="DISPROVEN")
+        resolved = sorted(supported + disproven, key=lambda h: h["updated_at"], reverse=True)
+
+        with sqlite3.connect(rrs.DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            try:
+                sessions = [dict(r) for r in conn.execute(
+                    "SELECT * FROM research_sessions ORDER BY started_at DESC LIMIT 5"
+                ).fetchall()]
+            except sqlite3.OperationalError:
+                sessions = []  # table doesn't exist yet -- no session has run
+
+        def _slim_hyp(h):
+            return {
+                "hypothesis_id": h["hypothesis_id"],
+                "statement": h["statement"],
+                "status": h["status"],
+                "confidence": h["confidence"],
+                "source_dimension_type": h["source_dimension_type"],
+                "source_dimension_value": h["source_dimension_value"],
+                "linked_candidate_id": h.get("linked_candidate_id"),
+                "n_supporting": len(h["supporting_experiments"]),
+                "n_contradicting": len(h["contradicting_experiments"]),
+                "updated_at": h["updated_at"],
+            }
+
+        return {
+            "status": "ok",
+            "open_hypotheses": [_slim_hyp(h) for h in open_hyps],
+            "resolved_hypotheses": [_slim_hyp(h) for h in resolved[:15]],
+            "recent_sessions": sessions,
+            "counts": {
+                "open": len(open_hyps),
+                "supported": len(supported),
+                "disproven": len(disproven),
+            },
+        }
+    except Exception as e:
+        logger.error(f"research-summary error: {e}", exc_info=True)
+        return {"status": "error", "error": str(e), "open_hypotheses": [],
+                "resolved_hypotheses": [], "recent_sessions": [], "counts": {}}
+
+
+@app.get("/api/research/lessons")
+async def get_research_lessons():
+    """Raw lessons.md content, for a 'view full lesson log' expand in the dashboard."""
+    try:
+        from core import research_memory
+        text = research_memory.LESSONS_PATH.read_text() if research_memory.LESSONS_PATH.exists() else ""
+        return {"status": "ok", "lessons_md": text}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "lessons_md": ""}
+
+
+@app.post("/api/research/run-session")
+async def trigger_research_session():
+    """
+    Manually triggers one research session from the dashboard (equivalent
+    to running `python3 run_research_session.py` by hand). Read-only w.r.t.
+    live trading -- same isolation boundary as the CLI script.
+    """
+    try:
+        import run_research_session as rrs
+        result = rrs.run()
+        return {"status": "ok", "summary": result["summary"], "session_id": result["session_id"]}
+    except Exception as e:
+        logger.error(f"run-session error: {e}", exc_info=True)
+        return {"status": "error", "error": str(e)}

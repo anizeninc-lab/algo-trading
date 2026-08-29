@@ -681,9 +681,35 @@ class UpstoxAdapter(AbstractBrokerGateway):
         self._order_poll_thread.start()
         logger.info("Order polling thread started")
 
-    def unsubscribe_ticks(self, symbols: list) -> None:
+    def unsubscribe_ticks(self, symbols: list, callback=None) -> None:
+        """Remove a callback's subscription to the given symbols.
+
+        If `callback` is given, only that callback is removed from each
+        symbol's list -- other strategies still watching the same symbol
+        (e.g. shared NSE_INDEX|Nifty 50) keep receiving ticks. The symbol
+        entry itself is only dropped once its callback list is empty.
+
+        If `callback` is omitted (legacy behavior, kept for any caller not
+        yet updated), the whole symbol entry is wiped -- this is the old
+        buggy behavior that could silently cut off other strategies sharing
+        the same symbol, so a warning is logged to make that visible.
+        """
         for sym in symbols:
-            self._tick_callbacks.pop(sym, None)
+            if callback is None:
+                self._tick_callbacks.pop(sym, None)
+                logger.warning(
+                    f"unsubscribe_ticks({sym}) called without a callback -- "
+                    f"removing ALL subscribers for this symbol, which may "
+                    f"silently cut off other strategies sharing it."
+                )
+                continue
+            callbacks = self._tick_callbacks.get(sym)
+            if not callbacks:
+                continue
+            if callback in callbacks:
+                callbacks.remove(callback)
+            if not callbacks:
+                self._tick_callbacks.pop(sym, None)
         logger.info(f"Unsubscribed from ticks: {symbols}")
 
     def on_order_update(self, callback) -> None:

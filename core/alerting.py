@@ -151,7 +151,20 @@ def alert_capital_pool_low(deployed: float, pool: float) -> None:
             LEVEL_WARNING
     )
 
+_last_start_alert_time = 0.0
+_START_ALERT_COOLDOWN_S = 120.0  # don't spam "BOT STARTED" more than once per 2 min
+
 def alert_system_start(nifty_price: float, regime: str, paper: bool) -> None:
+    global _last_start_alert_time
+    import time as _time
+    _now = _time.time()
+    if _now - _last_start_alert_time < _START_ALERT_COOLDOWN_S:
+        logger.info(
+            f"[alerting] Suppressed duplicate BOT STARTED alert "
+            f"({_now - _last_start_alert_time:.0f}s since last one)"
+        )
+        return
+    _last_start_alert_time = _now
     mode = "📄 PAPER" if paper else "💰 LIVE"
     send_telegram(
         f"*🚀 BOT STARTED — {mode}*\n"

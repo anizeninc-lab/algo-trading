@@ -1,0 +1,21 @@
+{
+  "_note": "Tags each real, currently-running strategy with a family for future family-level rollups (Phase 14 concept, scoped down). With ~1 strategy per family today, family-level stats trivially equal strategy-level stats -- this just makes the schema ready for when a second strategy joins an existing family, without a later rewrite. Not read by any live trading code -- research layer only (core/hypothesis_engine.py, core/research_memory.py).",
+  "strategies": {
+    "survivor": {
+      "family": "range_options_selling",
+      "description": "Nifty weekly OTM CE/PE selling on range-bound moves from anchor."
+    },
+    "bn_survivor": {
+      "family": "range_options_selling",
+      "description": "Same logic as survivor, applied to BankNifty. Paper mode only."
+    },
+    "wave_extractor": {
+      "family": "trend_scalping",
+      "description": "Trend-based scalping, active outside range regimes."
+    },
+    "nifty_gex": {
+      "family": "gamma_momentum",
+      "description": "Nifty options bought on GEX/EMA A+ setups."
+    }
+  }
+}

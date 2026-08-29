@@ -51,6 +51,7 @@ from pathlib import Path
 
 from core.candidate_config import propose_change, list_candidates
 from core.pattern_memory import DB_PATH as PATTERN_DB_PATH
+from core import hypothesis_engine
 import sqlite3
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,43 @@ def _current_quantity(strategy: str, side: str) -> tuple:
     return None, None
 
 
+# ADDED Aug 27 2026, after run_candidate_backtest_gate.py caught a real bug via
+# two identical-result backtest-gate runs (candidate 7e16b7f2): the order-
+# quantity calculation in strategy/survivor.py's _get_vix_adjusted_quantity
+# IGNORES pe_quantity/ce_quantity entirely (computes purely from
+# lot_size x VIX multiplier), and the PE/CE entry trigger is gated by
+# self.cfg.pe_enabled/ce_enabled (a bool), NOT by pe_quantity/ce_quantity. So
+# a pe_quantity: 65 -> 0 proposal is a mechanical no-op -- it can never
+# change what the strategy actually does. pe_enabled/ce_enabled IS checked
+# directly at the entry trigger (strategy/survivor.py lines ~381, ~410) and
+# run_survivor_backtest.py already supports --pe-enabled/--ce-enabled
+# overrides for testing it via the Step 9 gate. This is now the lever the
+# "disable this losing side" proposal actually uses. _current_quantity()
+# above is left in place, unused, as the historical record of why.
+def _current_enabled(strategy: str, side: str) -> tuple:
+    """Returns (current_value, source_note) for {side}_enabled, or
+    (None, None) if we don't have a reliable way to know it."""
+    key = f"{side.lower()}_enabled"
+
+    if strategy == "survivor" and LIVE_CONFIG_PATH.exists():
+        try:
+            with open(LIVE_CONFIG_PATH) as f:
+                cfg = json.load(f)
+            if key in cfg:
+                return cfg[key], f"read live from {LIVE_CONFIG_PATH.name}"
+        except Exception as e:
+            logger.warning(f"[candidate_generator] Could not read {LIVE_CONFIG_PATH}: {e}")
+
+    if strategy in KNOWN_LOT_SIZE:
+        return (True,
+                "dataclass default -- pe_enabled/ce_enabled = True in "
+                "strategy/survivor.py's dataclass, and not present as an override "
+                f"in {LIVE_CONFIG_PATH.name}; verify no override exists elsewhere "
+                "before applying")
+
+    return None, None
+
+
 def _already_proposed(strategy: str, parameter: str) -> str:
     """Returns an existing candidate id if a 'proposed' (undecided) one
     already exists for this (strategy, parameter), else ''."""
@@ -126,8 +164,8 @@ def generate(db_path: Path = PATTERN_DB_PATH) -> dict:
         if dtype == "strategy_regime" and "|" in dvalue:
             strategy, side = dvalue.split("|", 1)
             if side in ("PE", "CE") and strategy in KNOWN_LOT_SIZE:
-                parameter = f"{side.lower()}_quantity"
-                current, source_note = _current_quantity(strategy, side)
+                parameter = f"{side.lower()}_enabled"
+                current, source_note = _current_enabled(strategy, side)
                 if current is None:
                     manual_review.append((f, "matched a known lever shape but couldn't "
                                               "determine the current value safely"))
@@ -138,7 +176,7 @@ def generate(db_path: Path = PATTERN_DB_PATH) -> dict:
                     skipped_duplicate.append((f, existing_id))
                     continue
 
-                lot_size = KNOWN_LOT_SIZE[strategy]
+                flag_name = "--pe-enabled" if side == "PE" else "--ce-enabled"
                 rationale = (
                     f"{f['trade_count']} trades, {f['win_rate']}% win rate, "
                     f"net \u20b9{f['net_pnl']:,.2f} on the {side} side of {strategy} -- "
@@ -147,17 +185,27 @@ def generate(db_path: Path = PATTERN_DB_PATH) -> dict:
                 evidence = (
                     f"pattern_flags CONCERNING as of {f['flagged_at']} "
                     f"(dimension: strategy_regime={dvalue}). Current value {source_note}. "
-                    f"NOTE: {parameter} must be 0 or a multiple of lot_size ({lot_size}) -- "
-                    f"strategy/survivor.py's order-placement path aborts any quantity that "
-                    f"isn't (see 'QUANTITY MISMATCH' guard). A partial resize is NOT "
-                    f"mechanically possible today; this proposal is binary -- disable this "
-                    f"side (0) or leave it at {lot_size}+."
+                    f"{parameter} is checked directly at the {side} entry trigger in "
+                    f"strategy/survivor.py (self.cfg.{parameter} guard) -- unlike "
+                    f"pe_quantity/ce_quantity, which the order-quantity calculation does "
+                    f"not read and is therefore a no-op. run_survivor_backtest.py already "
+                    f"supports {flag_name} for testing this via the Step 9 backtest gate."
                 )
                 cid = propose_change(
                     strategy=strategy, parameter=parameter,
-                    current_value=current, proposed_value=0,
+                    current_value=current, proposed_value=False,
                     rationale=rationale, evidence=evidence,
                 )
+                # Step 12 hook: if this flag has a live (OPEN) hypothesis,
+                # link this proposal to it and move it to TESTING -- so a
+                # subsequent backtest-gate result (Step 9) has something to
+                # attach evidence to. A candidate with no matching
+                # hypothesis (e.g. flag was below hypothesis_engine's
+                # min_trades threshold) is perfectly normal and just stays
+                # unlinked -- see hypothesis_engine.record_gate_result.
+                hyp = hypothesis_engine.find_hypothesis_for_flag(dtype, dvalue, db_path=db_path)
+                if hyp is not None:
+                    hypothesis_engine.link_candidate(hyp["hypothesis_id"], cid, db_path=db_path)
                 proposed.append((f, cid))
                 continue
 

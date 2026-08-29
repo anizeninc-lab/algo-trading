@@ -30,6 +30,7 @@ MAX_CAPITAL_DEPLOYED = 250000.0  # ₹2,50,000 — raised for paper trading (Nif
 # Estimated margin required per lot for options SELL (conservative estimate)
 MARGIN_PER_SELL_LOT  = 40000.0  # ₹40,000 per SELL lot
 MARGIN_PER_BUY_LOT   = 15000.0  # ₹15,000 per BUY lot (premium only)
+PUT_CALENDAR_CAPITAL = 100000.0  # ₹1,00,000 — put_calendar's own independent pool
 LOT_SIZE             = 65       # Nifty lot size
 
 # ─── P&L-linked capital base (dynamic, trailing-window) ────────────────────────
@@ -200,6 +201,10 @@ class RiskManager:
     def get_total_deployed_capital(self) -> float:
         """Returns total capital currently deployed across all strategies."""
         return sum(self._deployed_capital.values())
+    def get_shared_pool_deployed_capital(self) -> float:
+        """Same as get_total_deployed_capital(), but excludes put_calendar,
+        which has its own fully independent capital pool."""
+        return sum(v for k, v in self._deployed_capital.items() if k != "put_calendar")
 
     def _compute_ground_truth_deployed_capital(self) -> dict:
         """Ground truth: rebuilds deployed capital per strategy directly from
@@ -407,6 +412,20 @@ class RiskManager:
         Returns (False, reason) if limit would be breached.
         """
         margin_needed = (MARGIN_PER_SELL_LOT if order_type == "SELL" else MARGIN_PER_BUY_LOT) * multiplier
+
+        if strategy_name == "put_calendar":
+            strategy_deployed = self._deployed_capital.get(strategy_name, 0.0)
+            projected = strategy_deployed + margin_needed
+            if projected > PUT_CALENDAR_CAPITAL:
+                reason = (
+                    f"put_calendar capital limit breach — deployed: ₹{strategy_deployed:,.0f} + "
+                    f"new: ₹{margin_needed:,.0f} = ₹{projected:,.0f} "
+                    f"exceeds its independent cap of ₹{PUT_CALENDAR_CAPITAL:,.0f}"
+                )
+                logger.info(f"[RiskManager] CAPITAL GUARD: {reason}")
+                return False, reason
+            return True, ""
+
         PER_STRATEGY_CAP = self.get_effective_per_strategy_cap()
         strategy_deployed = self._deployed_capital.get(strategy_name, 0.0)
         projected = strategy_deployed + margin_needed
@@ -419,10 +438,8 @@ class RiskManager:
             logger.info(f"[RiskManager] CAPITAL GUARD: {reason}")
             return False, reason
 
-        # NEW: account-wide total pool check — the combined total across ALL
-        # strategies, not just this one, must also fit.
         total_pool     = self.get_effective_total_pool()
-        total_deployed = self.get_total_deployed_capital()
+        total_deployed = self.get_shared_pool_deployed_capital()
         projected_total = total_deployed + margin_needed
         if projected_total > total_pool:
             reason = (
@@ -599,11 +616,17 @@ class RiskManager:
             return True, self._halt_reason
         return False, ""
 
-    def is_trading_blocked(self) -> tuple[bool, str]:
+    def is_trading_blocked(self, strategy_name: str = "") -> tuple[bool, str]:
         """Single pre-trade gate. Returns (blocked: bool, reason: str).
         Checks in priority order: system halted → auto-stop time → VIX halt.
         Strategies call this once at the top of on_tick and bail early if blocked.
+
+        put_calendar is fully exempt (own capital pool, own weekly cycle,
+        own SL/exit rules) -- including circuit breaker and VIX halt, per
+        explicit decision to run it fully independently of shared risk gates.
         """
+        if strategy_name == "put_calendar":
+            return False, ""
         if self._system_halted:
             return True, self._halt_reason or "System halted"
         _cb_tripped, _cb_reason = self.check_api_circuit_breaker()
@@ -658,20 +681,44 @@ class RiskManager:
         """
         self._auto_reset_if_new_day()
 
-        if self._system_halted:
-            reason = f"System halted: {self._halt_reason}"
-            self._log_blocked_once(strategy_name, reason)
-            return False, reason
+        # put_calendar: fully independent of shared halt/auto-stop/daily-loss
+        # checks (weekly strategy, own capital pool, own SL rules). Only
+        # capital_limit and its own strategy logic govern its entries/exits.
+        # It can still be stopped manually via /api/strategy/put_calendar/stop.
+        if strategy_name != "put_calendar":
+            if self._system_halted:
+                reason = f"System halted: {self._halt_reason}"
+                self._log_blocked_once(strategy_name, reason)
+                return False, reason
 
-        if self.check_auto_stop():
-            reason = "Auto-stop time reached (3:10 PM)"
-            self._log_blocked_once(strategy_name, reason)
-            return False, reason
+            if self.check_auto_stop():
+                reason = "Auto-stop time reached (3:10 PM)"
+                self._log_blocked_once(strategy_name, reason)
+                return False, reason
 
-        if self.check_max_daily_loss():
-            reason = "Max daily loss breached"
-            self._log_blocked_once(strategy_name, reason)
-            return False, reason
+            if self.check_max_daily_loss():
+                reason = "Max daily loss breached"
+                self._log_blocked_once(strategy_name, reason)
+                return False, reason
+
+        # ── Early-warning buffer ─────────────────────────────────────────
+        # Blocks NEW entries once we're within striking distance of the
+        # hardcoded -3000 floor, rather than only blocking after it's
+        # already been breached. put_calendar is excluded -- it runs on
+        # its own weekly cycle, not this daily reset, so it shouldn't be
+        # blocked by same-day losses from the other strategies.
+        _EARLY_WARNING_FLOOR = -2500.0
+        if strategy_name != "put_calendar":
+            _summary = state_store.get_global_summary()
+            _today_pnl = _summary.get("total_pnl", 0.0)
+            if _today_pnl <= _EARLY_WARNING_FLOOR:
+                reason = (
+                    f"Early-warning buffer: today's P&L ₹{_today_pnl:.2f} "
+                    f"has crossed ₹{_EARLY_WARNING_FLOOR:.2f} -- blocking new "
+                    f"entries to stay clear of the ₹{self.max_daily_loss:.2f} hard floor"
+                )
+                self._log_blocked_once(strategy_name, reason)
+                return False, reason
 
         count = self._trade_counts.get(strategy_name, 0)
         if count >= self.max_trades_per_day:
