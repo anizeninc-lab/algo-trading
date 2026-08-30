@@ -47,9 +47,9 @@
     "proposed_value": 65.0,
     "rationale": "Code audit found survivor.py entry gates check regime CATEGORY (regime in [\"range\",\"reversal_watch\"]) but never regime STABILITY, despite regime_engine.get_regime_stability() already existing and being unused. REGIME_CHANGE/HEDGE_EXIT_REGIME_CHANGE exits account for approx -22,139 of survivor total -31,362 loss over 20 days (~71%). Backfilled stability-at-entry (last 10 regime polls, same formula as engine): trades later exited via REGIME_CHANGE averaged 63.9 stability at entry (n~16 distinct, range 50-100); other exits averaged 70.8 (n~7 distinct, range 50-90). Signal is directionally supportive but noisy/overlapping -- not a confident cutoff by itself. Proposed 65.0 sits between the two group averages as a starting point for real gate-testing, not a data-derived optimum. All 4 sell trigger points (2 movement, 2 time-based) now gated behind this threshold, default 0.0 (off) so no behavior change until explicitly raised.",
     "evidence": "backfill_regime_stability.py (reconstructs get_regime_stability() against 17,417 logged regime polls, Jul 20 - Aug 17): REGIME_CHANGE-exit group avg=63.9 min=50.0 max=100.0 n=31 rows (~16 distinct entries, primary+hedge legs double-counted); other-exits avg=70.8 min=50.0 max=90.0 n=13 rows (~7 distinct). Code: strategy/survivor.py lines ~358,387 (movement triggers), ~1866 (shared time-based trigger gate). core/regime_engine.py:485 get_regime_stability(). Caveat: one entry (2026-08-13T10:58:51) has mismatched primary/hedge exit reasons (REGIME_CHANGE vs TP_HIT), indicating leg-level notes are an imperfect proxy for entry-level outcome.",
-    "status": "proposed",
-    "decided_at": null,
-    "decision_note": ""
+    "status": "rejected",
+    "decided_at": "2026-08-30T14:08:06.846151",
+    "decision_note": "Not disproven -- backtest gate result is invalid. Traced cause: get_regime_stability() always returns a flat 50.0 during backtests (regime_engine's polling loop never runs in the harness), so any threshold above 50.0 mechanically blocks all trades regardless of real conditions. See lessons.md LESSON-002. Revisit once regime_engine is properly wired into the backtest tick loop."
   },
   {
     "id": "7e16b7f2",

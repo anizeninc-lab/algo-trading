@@ -1,13 +1,9 @@
 {
-  "date": "2026-08-28",
-  "trade_counts": {
-    "survivor": 2,
-    "wave_extractor": 3,
-    "bn_survivor": 1
-  },
+  "date": "2026-08-30",
+  "trade_counts": {},
   "daily_pnl": {},
   "system_halted": true,
   "halt_reason": "API circuit breaker tripped: 5 failures in 60s window \u2014 trading halted for 300s",
   "deployed_capital": {},
-  "last_reset_day": "2026-08-27"
+  "last_reset_day": "1970-01-01"
 }

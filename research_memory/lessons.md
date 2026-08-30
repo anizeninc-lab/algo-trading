@@ -147,3 +147,49 @@ trade exits at a different price between the two priority modes before
 running further comparisons. Infrastructure (the --pe-ce-priority flag,
 the extracted method, the date-range fix) is sound and reusable once that
 question is answered.
+
+
+## LESSON-002
+
+Observation:
+The backtest harness (core/research/survivor_backtest.py,
+run_survivor_backtest.py) never calls anything on regime_engine -- zero
+references to it anywhere in either file. core/regime_engine.py's
+_regime_history list (which get_regime_stability() depends on) starts
+empty and is only ever appended to by the live/paper polling loop's
+classification method (core/regime_engine.py line ~390), which the
+backtest never drives. Since get_regime_stability() explicitly returns a
+flat default of 50.0 whenever len(_regime_history) < 2 (core/regime_engine.py
+line 491-492), and that condition is permanently true throughout any
+backtest run, get_regime_stability() returns exactly 50.0 for every tick
+of every backtest, unconditionally.
+
+Evidence:
+Ran candidate 795b6591 (survivor.min_regime_stability 0.0 -> 65.0) via
+the backtest gate over 2026-08-19 to 2026-08-28 (5,785 candles). Result:
+baseline 6 trades/-981.36, candidate 0 trades/+0.00 -- every single trade
+across all 10 days was blocked. Traced the cause: any threshold above
+50.0 will ALWAYS produce zero trades in this backtest, regardless of real
+market conditions, because of the gap described above. This is a backtest-
+fidelity artifact, not evidence about whether 65.0 is a good real-world
+threshold. Confirmed via grep -- zero references to regime_engine in
+either backtest file, and _regime_history's only writer is the live/paper
+polling method.
+
+Confidence:
+HIGH (structural code-tracing finding, not statistical)
+
+Status:
+Open -- infrastructure gap, not a strategy question. candidate 795b6591
+(the single most promising untested lead from the 2026-08-17 code audit,
+potentially explaining ~71% of survivor's 20-day loss) CANNOT be validly
+backtest-gated until this is fixed. Fix requires wiring regime_engine's
+actual classification logic into the backtest tick loop, feeding it the
+same candle stream already used for market_context -- real engineering
+work, not a quick patch, deliberately not started today given session
+length. This is the highest-priority infrastructure fix for next session.
+
+(source: manual investigation following an anomalous 0-trades gate
+result, 2026-08-30)
+
+---
