@@ -218,12 +218,23 @@ class IndexReplay:
         # archived format before comparing. NOTE: backtest_engine.py's
         # CandleReplaySource has this exact same bug -- flagged separately,
         # not fixed here since that file isn't part of today's change.
+        #
+        # SECOND BUG, found 2026-08-29: a BARE end date with no time
+        # component (e.g. "2026-08-25", the normal/documented way to call
+        # this script) normalizes to "2026-08-25" and is compared as
+        # ts <= "2026-08-25". Every real candle that day is stored as
+        # "2026-08-25 09:15" etc, which is LEXICALLY GREATER than the bare
+        # date (longer string, same prefix) -- so the entire final day
+        # gets silently excluded, every time, with no error. This affected
+        # every multi-day backtest run earlier today (2026-08-29): the
+        # last day of each window was silently missing. Fix: if end_ts has
+        # no time component, treat it as end-of-day, not start-of-day.
         if self.start_ts:
             query += " AND ts >= ?"
             params.append(self._normalize_ts(self.start_ts))
         if self.end_ts:
             query += " AND ts <= ?"
-            params.append(self._normalize_ts(self.end_ts))
+            params.append(self._normalize_end_ts(self.end_ts))
         query += " ORDER BY ts ASC"
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(query, params).fetchall()
@@ -239,6 +250,19 @@ class IndexReplay:
         ts = ts.strip().replace("T", " ")
         ts = ts[:16]  # trim any seconds/timezone suffix down to 'YYYY-MM-DD HH:MM'
         return ts
+
+    @classmethod
+    def _normalize_end_ts(cls, ts: str) -> str:
+        """Same as _normalize_ts, EXCEPT: a bare date with no time
+        component (length 10, 'YYYY-MM-DD') is end-of-day-anchored to
+        '23:59' rather than left as midnight -- see the bug note above
+        _load_candles. A caller who explicitly passes a time component
+        (e.g. '2026-08-13 12:00') still gets exactly that boundary,
+        unchanged."""
+        normalized = cls._normalize_ts(ts)
+        if len(normalized) == 10:  # bare 'YYYY-MM-DD', no time given
+            normalized += " 23:59"
+        return normalized
 
     async def run(self) -> int:
         import asyncio
@@ -264,3 +288,4 @@ class IndexReplay:
                 # below rather than silently producing an empty backtest.
                 await asyncio.sleep(max(self.tick_sleep_sec, 0.02))
         return len(candles)
+

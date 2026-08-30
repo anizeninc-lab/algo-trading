@@ -377,63 +377,19 @@ class SurvivorAlgo(BaseStrategy):
             _open_pe = sum(1 for t in self._open_trades_data if t["direction"] == "PE")
             if can_trade:
                 # ── TRIGGER 1: Movement-based (overshoot-scaled, master port) ──
-                # PE SELL — Nifty moved up enough from last PE anchor
-                if self.cfg.pe_enabled and nifty_price - self._pe_last_value >= current_pe_gap and not self._pe_sold_flag and _open_pe == 0 \
-                        and regime_engine.get_regime_stability() >= self.cfg.min_regime_stability:
-                    _pe_diff = round(nifty_price - self._pe_last_value, 0)
-                    _pe_raw_mult = int(_pe_diff / current_pe_gap) if current_pe_gap else 1
-                    _pe_mult = max(1, min(_pe_raw_mult, self.cfg.sell_multiplier_threshold))
-                    if _pe_raw_mult > self.cfg.sell_multiplier_threshold:
-                        logger.warning(f"[survivor] PE overshoot multiplier capped: raw={_pe_raw_mult} -> {_pe_mult}")
-                    _vix_qty = self._get_vix_adjusted_quantity(self.cfg.pe_quantity)
-                    _adj_qty = _vix_qty * _pe_mult if _vix_qty > 0 else 0
-                    if _adj_qty == 0:
-                        self._signal(f"⚠ VIX HIGH — PE trade skipped (qty=0 risk gate)")
-                    else:
-                        _cap_ok, _cap_reason = risk_manager.check_capital_limit("SELL", self.name, multiplier=_pe_mult)
-                        if not _cap_ok:
-                            self._signal(f"⚠ CAPITAL LIMIT — PE overshoot trade skipped | {_cap_reason}")
-                        else:
-                            await self._sell_option(
-                                direction="PE",
-                                nifty_price=nifty_price,
-                                gap=pe_symbol_gap,
-                                quantity=_adj_qty,
-                                overshoot_multiplier=_pe_mult,
-                            )
-                    self._pe_last_value += current_pe_gap * _pe_mult
-                    self._pe_sold_flag  = True
-                    self._time_based_pe_fired = True  # block time trigger same side
-                    self._update_position(Direction.SHORT)
-
-                # CE SELL — Nifty moved down enough from last CE anchor
-                elif self.cfg.ce_enabled and self._ce_last_value - nifty_price >= current_ce_gap and not self._ce_sold_flag and _open_ce == 0 \
-                        and regime_engine.get_regime_stability() >= self.cfg.min_regime_stability:
-                    _ce_diff = round(self._ce_last_value - nifty_price, 0)
-                    _ce_raw_mult = int(_ce_diff / current_ce_gap) if current_ce_gap else 1
-                    _ce_mult = max(1, min(_ce_raw_mult, self.cfg.sell_multiplier_threshold))
-                    if _ce_raw_mult > self.cfg.sell_multiplier_threshold:
-                        logger.warning(f"[survivor] CE overshoot multiplier capped: raw={_ce_raw_mult} -> {_ce_mult}")
-                    _vix_qty = self._get_vix_adjusted_quantity(self.cfg.ce_quantity)
-                    _adj_qty = _vix_qty * _ce_mult if _vix_qty > 0 else 0
-                    if _adj_qty == 0:
-                        self._signal(f"⚠ VIX HIGH — CE trade skipped (qty=0 risk gate)")
-                    else:
-                        _cap_ok, _cap_reason = risk_manager.check_capital_limit("SELL", self.name, multiplier=_ce_mult)
-                        if not _cap_ok:
-                            self._signal(f"⚠ CAPITAL LIMIT — CE overshoot trade skipped | {_cap_reason}")
-                        else:
-                            await self._sell_option(
-                                direction="CE",
-                                nifty_price=nifty_price,
-                                gap=ce_symbol_gap,
-                                quantity=_adj_qty,
-                                overshoot_multiplier=_ce_mult,
-                            )
-                    self._ce_last_value -= current_ce_gap * _ce_mult
-                    self._ce_sold_flag  = True
-                    self._time_based_ce_fired = True  # block time trigger same side
-                    self._update_position(Direction.SHORT)
+                # PE/CE entry evaluation extracted into its own method
+                # (2026-08-29) purely so a backtest-only research harness can
+                # swap in an alternative priority variant (see
+                # core/research/legacy_priority_variant.py) for controlled
+                # A/B testing of the if/elif PE-before-CE coupling flagged in
+                # lessons.md LESSON-001, without ever touching this file's
+                # live-loaded behaviour. Logic below is IDENTICAL to what was
+                # inline here before -- verified byte-identical backtest
+                # output before/after this extraction.
+                await self._evaluate_pe_ce_entries(
+                    nifty_price, current_pe_gap, current_ce_gap,
+                    pe_symbol_gap, ce_symbol_gap,
+                )
 
                 # ── TRIGGER 2: Time-based (flat market catcher) ───────────
                 # Fires once per side per session in 9:45–11:30 AM window
@@ -459,6 +415,81 @@ class SurvivorAlgo(BaseStrategy):
 
         except Exception as e:
             logger.exception(f"[survivor] ERROR in on_tick: {e}")
+
+    async def _evaluate_pe_ce_entries(
+        self, nifty_price: float, current_pe_gap: float, current_ce_gap: float,
+        pe_symbol_gap: float, ce_symbol_gap: float,
+    ) -> None:
+        """
+        Extracted 2026-08-29 from the body of _on_tick_sync, verbatim --
+        pure extraction, no logic change. See the call site's comment.
+        PRODUCTION BEHAVIOUR: PE is checked first; if PE's full condition
+        is met, CE is NOT evaluated this tick (elif). This is the exact
+        coupling documented in lessons.md LESSON-001 -- left unchanged
+        here on purpose, pending the deferred design decision. A backtest-
+        only subclass overrides this method to test the alternative
+        (independent, non-exclusive) variant without touching this file.
+        """
+        _open_ce = sum(1 for t in self._open_trades_data if t["direction"] == "CE")
+        _open_pe = sum(1 for t in self._open_trades_data if t["direction"] == "PE")
+
+        # PE SELL — Nifty moved up enough from last PE anchor
+        if self.cfg.pe_enabled and nifty_price - self._pe_last_value >= current_pe_gap and not self._pe_sold_flag and _open_pe == 0 \
+                and regime_engine.get_regime_stability() >= self.cfg.min_regime_stability:
+            _pe_diff = round(nifty_price - self._pe_last_value, 0)
+            _pe_raw_mult = int(_pe_diff / current_pe_gap) if current_pe_gap else 1
+            _pe_mult = max(1, min(_pe_raw_mult, self.cfg.sell_multiplier_threshold))
+            if _pe_raw_mult > self.cfg.sell_multiplier_threshold:
+                logger.warning(f"[survivor] PE overshoot multiplier capped: raw={_pe_raw_mult} -> {_pe_mult}")
+            _vix_qty = self._get_vix_adjusted_quantity(self.cfg.pe_quantity)
+            _adj_qty = _vix_qty * _pe_mult if _vix_qty > 0 else 0
+            if _adj_qty == 0:
+                self._signal(f"⚠ VIX HIGH — PE trade skipped (qty=0 risk gate)")
+            else:
+                _cap_ok, _cap_reason = risk_manager.check_capital_limit("SELL", self.name, multiplier=_pe_mult)
+                if not _cap_ok:
+                    self._signal(f"⚠ CAPITAL LIMIT — PE overshoot trade skipped | {_cap_reason}")
+                else:
+                    await self._sell_option(
+                        direction="PE",
+                        nifty_price=nifty_price,
+                        gap=pe_symbol_gap,
+                        quantity=_adj_qty,
+                        overshoot_multiplier=_pe_mult,
+                    )
+            self._pe_last_value += current_pe_gap * _pe_mult
+            self._pe_sold_flag  = True
+            self._time_based_pe_fired = True  # block time trigger same side
+            self._update_position(Direction.SHORT)
+
+        # CE SELL — Nifty moved down enough from last CE anchor
+        elif self.cfg.ce_enabled and self._ce_last_value - nifty_price >= current_ce_gap and not self._ce_sold_flag and _open_ce == 0 \
+                and regime_engine.get_regime_stability() >= self.cfg.min_regime_stability:
+            _ce_diff = round(self._ce_last_value - nifty_price, 0)
+            _ce_raw_mult = int(_ce_diff / current_ce_gap) if current_ce_gap else 1
+            _ce_mult = max(1, min(_ce_raw_mult, self.cfg.sell_multiplier_threshold))
+            if _ce_raw_mult > self.cfg.sell_multiplier_threshold:
+                logger.warning(f"[survivor] CE overshoot multiplier capped: raw={_ce_raw_mult} -> {_ce_mult}")
+            _vix_qty = self._get_vix_adjusted_quantity(self.cfg.ce_quantity)
+            _adj_qty = _vix_qty * _ce_mult if _vix_qty > 0 else 0
+            if _adj_qty == 0:
+                self._signal(f"⚠ VIX HIGH — CE trade skipped (qty=0 risk gate)")
+            else:
+                _cap_ok, _cap_reason = risk_manager.check_capital_limit("SELL", self.name, multiplier=_ce_mult)
+                if not _cap_ok:
+                    self._signal(f"⚠ CAPITAL LIMIT — CE overshoot trade skipped | {_cap_reason}")
+                else:
+                    await self._sell_option(
+                        direction="CE",
+                        nifty_price=nifty_price,
+                        gap=ce_symbol_gap,
+                        quantity=_adj_qty,
+                        overshoot_multiplier=_ce_mult,
+                    )
+            self._ce_last_value -= current_ce_gap * _ce_mult
+            self._ce_sold_flag  = True
+            self._time_based_ce_fired = True  # block time trigger same side
+            self._update_position(Direction.SHORT)
 
     # ── Option Selling ────────────────────────────────────────────────────────
 

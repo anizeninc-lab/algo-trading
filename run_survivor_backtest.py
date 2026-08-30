@@ -175,6 +175,14 @@ async def main():
     parser.add_argument("--ce-enabled", type=_str2bool, default=None, help="Override ce_enabled for this run")
     parser.add_argument("--min-regime-stability", type=float, default=None,
                          help="Override min_regime_stability for this run (0-100) -- 0 = off")
+    parser.add_argument("--pe-ce-priority", type=str, choices=["elif", "independent"], default="elif",
+                         help="'elif' (default) = current production behaviour: PE checked first, "
+                              "CE only evaluated if PE's condition wasn't met that tick. "
+                              "'independent' = backtest-only research variant matching "
+                              "original_strategies/survivor_original.py's design: PE and CE checked "
+                              "independently every tick, either or both can fire. See "
+                              "core/research/legacy_priority_variant.py and lessons.md LESSON-001. "
+                              "Never affects live/paper trading -- this flag only exists here.")
     args = parser.parse_args()
     tick_sleep = 0.0 if args.fast else args.tick_sleep
 
@@ -216,6 +224,17 @@ async def main():
 
     config = SurvivorConfig(paper_trade_override=True, **live_defaults)
     survivor = SurvivorAlgo(broker=broker, config=config)
+
+    # --pe-ce-priority independent: backtest-only, instance-level patch.
+    # Does NOT alter strategy/survivor.py -- this survivor instance only
+    # exists inside this one backtest process. See
+    # core/research/legacy_priority_variant.py for what changes and why.
+    if args.pe_ce_priority == "independent":
+        import types
+        from core.research.legacy_priority_variant import independent_pe_ce_entries
+        survivor._evaluate_pe_ce_entries = types.MethodType(independent_pe_ce_entries, survivor)
+        print("[run_survivor_backtest] --pe-ce-priority independent: using backtest-only "
+              "PE/CE variant (both sides can fire per tick). Production code is unchanged.")
 
     # Disable real broker instrument-key lookup -- see module docstring.
     # Always use the deterministic text symbol survivor_backtest.py's
@@ -260,6 +279,7 @@ async def main():
     print(f"\n=== Survivor Backtest Summary ({run_id}) ===")
     print(f"pe_quantity:       {config.pe_quantity}   ce_quantity: {config.ce_quantity}")
     print(f"pe_enabled:        {config.pe_enabled}   ce_enabled:  {config.ce_enabled}")
+    print(f"pe_ce_priority:    {args.pe_ce_priority}")
     print(f"Candles replayed:  {candles_replayed}")
     print(f"Trades:            {total_trades}")
     print(f"Simulated P&L:     {realised_pnl:+.2f}")

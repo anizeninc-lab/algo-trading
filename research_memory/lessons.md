@@ -64,3 +64,86 @@ Rahul (repo author) -- no clear intent recalled either way. Decision
 deliberately deferred, not resolved. Revisit before trusting any
 pe_enabled/ce_enabled backtest-gate result, or before generating further
 candidates for this dimension.
+
+STRONG UPDATE (2026-08-29, later same day): the user provided the ORIGINAL
+reference implementation of this strategy (original_strategies/survivor_original.py,
+saved to the repo for comparison). This resolves the open question above with
+much higher confidence.
+
+In the original design, PE and CE were two fully INDEPENDENT method calls,
+both run unconditionally every tick:
+    self._handle_pe_trade(current_price)
+    self._handle_ce_trade(current_price)
+No elif, no priority, no coupling between the two sides at all.
+
+The current strategy/survivor.py combines both into a single
+if pe_enabled and <PE conditions>: ... elif ce_enabled and <CE conditions>: ...
+block -- this coupling was introduced during the port to the current
+architecture, not part of the original design. Given the original author
+never intended one side to block the other, this looks like an
+unintentional regression rather than a deliberate choice.
+
+Revised status: this is now a probable BUG, not a genuine open design
+question -- but it is still LIVE STRATEGY CODE and has NOT been changed.
+Any fix requires explicit human sign-off and careful paper-mode testing
+before going anywhere near live capital, same safety boundary as always.
+
+SEPARATE FINDING from the same comparison: the current strategy also adds
+a full daily re-anchoring step (reset_daily_strategy_state(), re-anchors
+PE/CE reference points to the morning open price every day) that does not
+exist anywhere in the original. This is a second, independent behavioral
+difference worth investigating on its own -- not necessarily wrong, but a
+real design change from the original that has not been evaluated for its
+own effect on the losing streak.
+
+CONTROLLED EXPERIMENT RESULTS (2026-08-29, later same day): built a
+backtest-only --pe-ce-priority independent flag (core/research/
+legacy_priority_variant.py, wired into run_survivor_backtest.py) that
+tests the "independent" (original-design) PE/CE behaviour against current
+production ("elif") behaviour, with zero changes to live-loaded code.
+strategy/survivor.py's PE/CE block was extracted into its own method
+(_evaluate_pe_ce_entries) purely to make this possible -- pure refactor,
+verified via a same-day backtest producing normal, expected trades
+(2 trades, -234.33) before any comparison testing began.
+
+Also fixed a second, independent, previously-undiscovered bug found while
+building this: core/research/survivor_backtest.py's date-range filter
+compared a bare end date (e.g. "2026-08-25", the normal way to call this
+script) as a raw string against timestamped rows -- "2026-08-25 09:15" is
+LEXICALLY GREATER than "2026-08-25", so the <= comparison silently
+excluded the entire final day of every backtest window run earlier today,
+with no error. Fixed via _normalize_end_ts() (anchors a bare end date to
+23:59 instead of implicit midnight). This means EVERY multi-day backtest-
+gate result from earlier today (both PE and CE candidates) was run
+against a window silently missing its last day -- on top of being
+confounded by the if/elif issue itself. Neither prior result should be
+treated as informative for any purpose.
+
+TWO real A/B comparisons run after both fixes, same historical data,
+only --pe-ce-priority changed:
+
+  Window Aug 21-27 (3,939 candles): elif -1265.40 vs independent -972.83
+    (independent better by +292.57)
+  Window Aug 19-28 (5,785 candles, superset of the above): elif -981.36
+    vs independent -1378.04 (independent WORSE by -396.68)
+
+These two results DISAGREE in direction. Not enough evidence either way
+yet -- two windows is too small a sample, and one specific finding
+suggests the comparison may not be as clean as intended: in the Aug19-28
+runs, a PE trade with IDENTICAL entry setup (same anchor, same strike
+23800PE, same entry price Rs58.40) closed at different exit prices
+between the two runs (Rs59.6 elif vs Rs65.7 independent), turning a
+-Rs210.67 trade into a -Rs607.35 trade on what should have been the exact
+same position. This suggests changing the PE/CE entry control-flow may be
+having a downstream ripple effect on exit-price determinism that wasn't
+anticipated when this was designed as a "clean, single-variable" test --
+worth understanding BEFORE trusting any further pe_ce_priority
+comparisons.
+
+Status:
+OPEN -- inconclusive. Do not decide the if/elif question from these two
+results. Next step (not started): understand why an identically-entered
+trade exits at a different price between the two priority modes before
+running further comparisons. Infrastructure (the --pe-ce-priority flag,
+the extracted method, the date-range fix) is sound and reusable once that
+question is answered.
