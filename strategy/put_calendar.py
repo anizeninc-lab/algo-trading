@@ -17,13 +17,18 @@
 #     employed (net debit paid to open the spread)
 #   - Forced exit forced_exit_days_before_expiry calendar days before the
 #     FRONT expiry, to avoid front-leg gamma risk into expiry
-#   - ASSUMPTION FLAGGED: the spec says "exit Friday/Monday before expiry",
-#     which described the OLD Thursday-expiry Nifty weekly cycle. This repo's
-#     weekly expiry is now Tuesday (see core/auto_config.py), so "Friday/
-#     Monday before Tuesday" doesn't map cleanly. Implemented instead as a
-#     configurable N calendar days before front expiry (default 1 = exits
-#     Monday for a Tuesday expiry, which is the closest honest equivalent).
-#     Revisit forced_exit_days_before_expiry if that's not what you meant.
+#   - CONFIRMED WITH USER 2026-09 (Phase 4 audit fixes): the original spec
+#     said "exit Friday/Monday before expiry", written for the OLD
+#     Thursday-expiry Nifty weekly cycle. This repo's weekly expiry is now
+#     Tuesday (see core/auto_config.py), so "Friday/Monday before Tuesday"
+#     didn't map cleanly -- user confirmed Monday (1 day before front
+#     expiry) is correct. forced_exit_days_before_expiry=1 (below) is
+#     confirmed, not a guess.
+#   - Manual override: the scheduled exit above is not the only way to
+#     close this position -- POST /api/put_calendar/close-now (dashboard
+#     button "Close Put Calendar", or Telegram /close_put_calendar) closes
+#     both legs on demand, on top of the scheduled exit conditions, not
+#     instead of them. Added 2026-09 per explicit user request.
 #
 # ADJUSTMENT:
 #   - "Roll" the calendar (close both legs, reopen new ATM legs at current
@@ -234,6 +239,7 @@ class PutCalendar(BaseStrategy):
             if tick.symbol == self.cfg.nifty_instrument_key or "Nifty" in tick.symbol:
                 self._current_spot = tick.mid_price
             self._ltp_cache[tick.symbol] = tick.last_price
+            self._record_tick(tick.symbol)
 
             # Exits/adjustment checked unconditionally, every tick -- must
             # never be skipped by entry-side throttling or gating.
@@ -381,6 +387,8 @@ class PutCalendar(BaseStrategy):
 
         front_premium = front_leg.get("pe_ltp", 0.0)
         back_premium  = back_leg.get("pe_ltp", 0.0)
+        front_bid     = front_leg.get("pe_bid", 0.0) or 0.0
+        front_ask     = front_leg.get("pe_ask", 0.0) or 0.0
 
         try:
             if self._is_paper:
@@ -481,12 +489,52 @@ class PutCalendar(BaseStrategy):
             "capital_employed": capital_employed,
             "front_expiry": front_expiry.isoformat(),
             "back_expiry": back_expiry.isoformat(),
+            "front_bid": front_bid,
+            "front_ask": front_ask,
         }
         self._update_position("SHORT_CALENDAR")
         self._signal(
             f"CALENDAR OPENED | strike={strike:.0f} | SELL {front_symbol}@{front_sell_price} / "
             f"BUY {back_symbol}@{back_buy_price} | net debit=₹{net_debit} | "
             f"capital employed=₹{capital_employed:,.0f}{' [ROLLED]' if forced else ''}"
+        )
+
+        # Broker-side GTT tail-risk backstop (Phase 2 audit fix, 2026-09) --
+        # front (short) leg ONLY, deliberately. A calendar spread's net P&L
+        # is protected in normal operation by the software-side monitor
+        # above (sl_pct_of_capital=20% of net debit, evaluated on the
+        # COMBINED front+back position) -- that's the primary exit and
+        # should virtually always fire first.
+        #
+        # This GTT is a pure tail-risk backstop for the scenario the
+        # software SL can't cover: the bot process itself is down (crash,
+        # VPS reboot, daily-token-refresh restart window) when a genuine
+        # blowup happens. It only covers the front leg -- deliberately NOT
+        # a second independent GTT on the back leg -- because:
+        #   - The front (short) leg carries the dangerous, theoretically
+        #     much larger loss potential on a gap/IV spike -- exactly what
+        #     needs a backstop.
+        #   - The back (long) leg's worst case is already bounded to the
+        #     premium paid for it -- a known, sunk-cost-like exposure. If
+        #     this GTT ever fires while the process is down, the back leg
+        #     is left orphaned (no longer hedged), but its downside from
+        #     there is small and bounded, not a runaway risk.
+        #   - An independent GTT on the back leg would risk closing it on
+        #     ordinary theta decay between the two expiries (normal,
+        #     expected calendar-spread behavior), which would prematurely
+        #     unwind the hedge for no real protective benefit.
+        #
+        # Trigger is set wide (50% front-leg premium rise, well above the
+        # net-debit-based 20% software SL) so it stays out of the way of
+        # normal spread P&L noise and only fires on an actual blowup.
+        await self._arm_broker_stop_loss(
+            ikey=front_symbol,
+            quantity=quantity,
+            entry_price=front_sell_price,
+            symbol=front_symbol,
+            order_type="SELL",
+            sl_pct=0.50,
+            on_failure=lambda: self._close_active_trade("GTT_FAILED_AUTOCLOSE"),
         )
 
     # ── Monitoring / exit / adjustment ──────────────────────────────────
@@ -498,6 +546,13 @@ class PutCalendar(BaseStrategy):
         t = self._active_trade
         if not t:
             return
+
+        # Per-instrument tick-staleness check (Phase 4 audit fix, 2026-09).
+        # Both legs matter here -- the SL below is evaluated on the COMBINED
+        # spread value, so a stale tick on either leg (front or back) can
+        # distort that combined P&L calculation even if the other leg is fine.
+        self._check_tick_staleness(t["front_symbol"])
+        self._check_tick_staleness(t["back_symbol"])
 
         front_ltp = self._current_leg_ltp(t["front_symbol"]) or await self.broker.get_ltp(t["front_symbol"])
         back_ltp  = self._current_leg_ltp(t["back_symbol"])  or await self.broker.get_ltp(t["back_symbol"])
