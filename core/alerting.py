@@ -113,6 +113,46 @@ def alert_websocket_down(error: str) -> None:
         LEVEL_WARNING
     )
 
+_ws_cap_alert_last_sent = 0.0
+
+def alert_ws_instrument_cap(existing: int, requested: int, cap: int) -> None:
+    # Rate-limited to once per 5 minutes (2026-09 fix, same day this was
+    # first deployed): this fires on EVERY refused subscribe_ticks() call,
+    # and if the cap is being hit repeatedly (e.g. stale subscriptions
+    # accumulated over a session, or a strategy retrying subscribes), that
+    # means unbounded Telegram spam with zero limit -- unlike every other
+    # alert in this file, which either fires once per real event or has an
+    # explicit cooldown (see alert_tick_stale).
+    global _ws_cap_alert_last_sent
+    import time as _time
+    now = _time.time()
+    if now - _ws_cap_alert_last_sent < 300:
+        return
+    _ws_cap_alert_last_sent = now
+    send_telegram(
+        f"*WS INSTRUMENT CAP HIT*\n"
+        f"Existing: `{existing}` | New requested: `{requested}` | Cap: `{cap}`\n"
+        f"🚨 New symbols REFUSED — some strikes will NOT receive live ticks. "
+        f"SL/trailing logic for those symbols will not fire until unsubscribed "
+        f"capacity frees up. (This alert is rate-limited to once per 5 min — "
+        f"if you're seeing this repeatedly, the cap is being hit continuously, "
+        f"which likely means stale subscriptions from closed positions are "
+        f"never being unsubscribed. Check brokers/upstox.py's _tick_callbacks "
+        f"size and consider a bot restart to clear it.)",
+        LEVEL_CRITICAL
+    )
+
+def alert_tick_stale(symbol: str, seconds_stale: float) -> None:
+    send_telegram(
+        f"*TICK FEED STALE*\n"
+        f"Symbol: `{symbol}` | No tick for `{seconds_stale:.0f}s`\n"
+        f"⚠️ This is per-instrument staleness (distinct from a full WS "
+        f"disconnect) — SL/trailing logic for this symbol may not be "
+        f"reacting to current price. Check the strike's liquidity and "
+        f"the WS subscription for it.",
+        LEVEL_WARNING
+    )
+
 def alert_vix_stale(minutes_stale: float, last_known_vix: float) -> None:
     send_telegram(
         f"*VIX FEED STALE*\n"
