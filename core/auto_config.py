@@ -98,19 +98,45 @@ def round_to_strike(price: float, step: int = 50) -> int:
     return int(round(price / step) * step)
 
 
-def fetch_instruments() -> list:
-    """Download and parse Upstox instruments CSV."""
+_instruments_cache: list = []
+_instruments_cache_time: "datetime | None" = None
+_INSTRUMENTS_CACHE_TTL_SEC = 300  # 5 minutes -- avoids re-downloading/re-parsing
+                                  # 75k+ rows on every call within the same
+                                  # startup burst or tick cycle (multiple
+                                  # strategies each call fetch_instruments()
+                                  # independently -- this makes them share
+                                  # one copy instead of each holding their own)
+
+
+def fetch_instruments(force_refresh: bool = False) -> list:
+    """Download and parse Upstox instruments CSV. Cached for
+    _INSTRUMENTS_CACHE_TTL_SEC seconds and shared across all callers to
+    avoid redundant downloads/parses -- each one costs a full 75k+ row
+    CSV fetch and list-of-dicts build, and several strategies call this
+    independently."""
+    global _instruments_cache, _instruments_cache_time
+    now = datetime.now()
+    if (
+        not force_refresh
+        and _instruments_cache
+        and _instruments_cache_time is not None
+        and (now - _instruments_cache_time).total_seconds() < _INSTRUMENTS_CACHE_TTL_SEC
+    ):
+        logger.info(f"[AutoConfig] Using cached instruments ({len(_instruments_cache)} rows)")
+        return _instruments_cache
     try:
         logger.info("[AutoConfig] Downloading instruments file...")
         r = requests.get(INSTRUMENTS_URL, timeout=30)
-        content = gzip.decompress(r.content).decode("utf-8")
-        reader = csv.DictReader(io.StringIO(content))
+        decompressed = gzip.decompress(r.content).decode("utf-8")
+        reader = csv.DictReader(io.StringIO(decompressed))
         rows = list(reader)
         logger.info(f"[AutoConfig] Loaded {len(rows)} instruments")
+        _instruments_cache = rows
+        _instruments_cache_time = now
         return rows
     except Exception as e:
         logger.error(f"[AutoConfig] Failed to fetch instruments: {e}")
-        return []
+        return _instruments_cache  # fall back to stale cache rather than empty list, if we have one
 
 
 def find_symbol_from_instruments(instruments: list, expiry: date, strike: int, option_type: str, underlying: str = "NIFTY", name_out: dict = None) -> str:
