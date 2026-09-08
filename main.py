@@ -183,6 +183,15 @@ async def run_strategies(config: dict):
         pe_start=config.get("pe_start", 0.0),
         ce_start=config.get("ce_start", 0.0),
         min_price_to_sell=config.get("min_price_to_sell", 15.0),
+        # Wired 2026-09-08 -- previously this dataclass field existed but was
+        # never read from saviour_combo.json here, so candidate 795b6591
+        # (min_regime_stability 0.0 -> 65.0, validated via backtest gate the
+        # same day: +6775.98 P&L over 24 archived trading days) could never
+        # actually be applied by editing the JSON file alone, contrary to
+        # its own "Apply manually" note. Defaults to 0.0 (off) if absent from
+        # the JSON, so this line itself changes no behavior until the key is
+        # actually added to configs/saviour_combo.json.
+        min_regime_stability=config.get("min_regime_stability", 0.0),
     )
 
     # ── BankNifty Survivor Config (PAPER MODE always) ──────────────────────
@@ -212,6 +221,11 @@ async def run_strategies(config: dict):
         lot_size             = 15,
         paper_trade_override = True,   # ALWAYS paper for BankNifty
         strategy_name        = "bn_survivor",  # separate name — own DB records, own risk counters
+        # Same wiring as survivor_cfg above, but bn_survivor's config block
+        # doesn't read from saviour_combo.json at all (everything here is a
+        # hardcoded literal) -- so this reads a SEPARATE key,
+        # "bn_min_regime_stability", also defaulting to 0.0 (off).
+        min_regime_stability = config.get("bn_min_regime_stability", 0.0),
     )
 
     # BankNifty paused on request — set ENABLE_BANKNIFTY=true in .env to re-enable
