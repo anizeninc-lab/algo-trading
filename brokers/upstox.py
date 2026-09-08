@@ -19,6 +19,18 @@ logger = logging.getLogger(__name__)
 MAX_QTY_PER_ORDER = 65  # 1 lot of Nifty options = 65 qty. Bot should NEVER place more.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─── WS instrument cap ─────────────────────────────────────────────────────
+# Upstox's v3 market-data feed documents a ~100-instrument ceiling per WS
+# connection. Set with headroom below that, not right at it. Enforced in
+# subscribe_ticks() below (Phase 3 audit fix, 2026-09) -- previously
+# unenforced, so five concurrent strategies (survivor, wave_extractor,
+# put_calendar, nifty_gex, saviour_combo) subscribing independently could
+# silently exceed the cap on days with wide strike dispersion, leaving some
+# symbols with no live ticks and no indication anything was wrong -- a real
+# risk given SL/trailing-profit logic is entirely tick-driven.
+MAX_INSTRUMENTS_PER_WS = 95
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 class UpstoxAdapter(AbstractBrokerGateway):
 
@@ -143,6 +155,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
         callers must handle gracefully and fall back to non-delta logic.
         """
         try:
+            await self._throttle()
             import upstox_client as _uc
             options_api = _uc.OptionsApi(_uc.ApiClient(self._configuration))
             resp = options_api.get_put_call_option_chain(instrument_key, expiry)
@@ -306,6 +319,7 @@ class UpstoxAdapter(AbstractBrokerGateway):
 
     async def get_margin(self) -> MarginData:
         try:
+            await self._throttle()
             user_api = upstox_client.UserApi(
                 upstox_client.ApiClient(self._configuration)
             )
@@ -356,6 +370,35 @@ class UpstoxAdapter(AbstractBrokerGateway):
             logger.error(f"[upstox] _send_subscribe failed: {e}")
 
     def subscribe_ticks(self, symbols: list, callback) -> None:
+        # WS instrument cap enforcement (Phase 3 audit fix, 2026-09). Compute
+        # how many genuinely NEW symbols this call would add, and refuse the
+        # whole call if that would push total subscribed instruments over the
+        # cap -- refusing loudly (with an alert) beats silently going over
+        # Upstox's ~100-instrument ceiling, which would otherwise just mean
+        # some strikes stop receiving ticks with no visible symptom until an
+        # SL fails to fire.
+        new_syms_check = [s for s in symbols if s not in self._tick_callbacks]
+        total_after = len(self._tick_callbacks) + len(new_syms_check)
+        if total_after > MAX_INSTRUMENTS_PER_WS:
+            logger.critical(
+                f"[upstox] WS instrument cap would be exceeded: "
+                f"{len(self._tick_callbacks)} existing + {len(new_syms_check)} new "
+                f"= {total_after} > {MAX_INSTRUMENTS_PER_WS}. Refusing this subscribe "
+                f"call entirely -- none of {symbols} will receive live ticks until "
+                f"capacity is freed (unsubscribe stale symbols) or a second WS "
+                f"connection is added."
+            )
+            try:
+                from core.alerting import alert_ws_instrument_cap
+                alert_ws_instrument_cap(
+                    existing=len(self._tick_callbacks),
+                    requested=len(new_syms_check),
+                    cap=MAX_INSTRUMENTS_PER_WS,
+                )
+            except Exception as e:
+                logger.error(f"[upstox] alert_ws_instrument_cap itself failed: {e}")
+            return
+
         new_syms = []
         for sym in symbols:
             if sym not in self._tick_callbacks:
@@ -461,6 +504,32 @@ class UpstoxAdapter(AbstractBrokerGateway):
                     pass
 
             async def _stream():
+                # TLS verification fix (Phase 3 audit fix, 2026-09). Previously
+                # check_hostname=False + verify_mode=CERT_NONE disabled certificate
+                # validation entirely on the connection carrying live price data
+                # that SL/trailing-profit logic acts on -- open to MITM tick
+                # injection on any untrusted network path. Restored to proper
+                # verification using the system's default CA trust store.
+                #
+                # NOT independently tested against a live Upstox connection --
+                # this environment has no network path to api.upstox.com to
+                # verify the handshake actually succeeds with strict verification.
+                # If this was originally set to CERT_NONE to work around a real
+                # cert-chain problem (e.g. a stale CA bundle on this VPS), that
+                # will resurface here as repeated connection failures. The
+                # existing reconnect loop below will retry with backoff and
+                # alert_websocket_down() will fire after ~90s of market-hours
+                # downtime either way, so a regression here is visible rather
+                # than silent -- but test this specific change in a low-stakes
+                # window (pre-market, or watched closely) rather than trusting
+                # it blind. If it does fail: check `openssl s_client -connect
+                # api.upstox.com:443` on this server first, and consider
+                # `sudo apt install --reinstall ca-certificates` before
+                # reverting to CERT_NONE.
+                # TEMPORARY ROLLBACK 2026-09-04: strict cert verification caused
+                # continuous WS disconnect/reconnect flapping during live market
+                # hours (see incident notes) -- reverted to restore stable ticks
+                # while root cause is investigated properly, off-hours.
                 ssl_ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
                 ssl_ctx.check_hostname = False
                 ssl_ctx.verify_mode = _ssl.CERT_NONE
@@ -724,22 +793,71 @@ class UpstoxAdapter(AbstractBrokerGateway):
         instrument_key: str,
         quantity: int,
         entry_price: float,
-        order_type: str = "SELL",  # "SELL" means we sold, so exit is BUY
+        order_type: str = "SELL",  # "SELL" = we sold (short), exit is BUY.
+                                    # "BUY"  = we bought (long), exit is SELL.
         trailing_gap: float = 0.25,
-        sl_pct: float = 0.15,      # SL at 15% above entry (for SELL trade)
+        sl_pct: float = 0.15,       # SL distance from entry, direction depends on order_type
     ) -> str:
-        try:
-            import upstox_client
-            cfg = upstox_client.Configuration()
-            cfg.access_token = self.access_token
-            client = upstox_client.ApiClient(cfg)
+        """
+        CRITICAL BUGFIX 2026-09: this function has never successfully placed a
+        real GTT order, in any direction, live or otherwise, since it was
+        written. Verified directly against the installed upstox_client SDK
+        (upstox-python-sdk==2.29.0). It had FOUR independent bugs, any one of
+        which alone would have been fatal:
 
-            exit_transaction = "BUY" if order_type == "SELL" else "SELL"
-            trigger_price = round(entry_price * (1 + sl_pct), 1)
+        1. GttRule.strategy only accepts ["ENTRY", "STOPLOSS", "TARGET"].
+           Old code passed "TRAILING_STOP_LOSS" -- invalid, raises ValueError
+           the instant GttRule() is constructed, before any network call.
+
+        2. GttRule.trigger_type only accepts ["ABOVE", "BELOW", "IMMEDIATE"].
+           Old code passed "RISING" -- also invalid, same failure mode.
+           (For a standalone STOPLOSS-only leg -- no ENTRY leg, since we
+           already hold the position -- the correct value is always
+           "IMMEDIATE": the leg is live the moment it's placed, and
+           trigger_price alone determines whether it needs price to rise or
+           fall to fire. ABOVE/BELOW is for a GTT's ENTRY leg, which waits
+           for price to cross a threshold before an order is even placed --
+           doesn't apply here. Confirmed against Upstox's own official
+           sample code for a standalone stop-loss GTT: GttRule(strategy=
+           "STOPLOSS", trigger_type="IMMEDIATE", trigger_price=...).)
+
+        3. There is no `GttApi` class in this SDK version at all -- GTT
+           order placement lives on `OrderApiV3` (imported here as
+           `upstox_client.OrderApiV3`, already instantiated once in login()
+           as `self._order_api` -- reused here rather than constructing a
+           fresh client). `upstox_client.GttApi(client)` would have raised
+           AttributeError. Also, `place_gtt_order()` takes no `api_version`
+           kwarg (unlike `get_profile`, which does) -- passing one raises
+           TypeError.
+
+        4. The response's actual shape is `resp.data.gtt_order_ids` (a
+           list[str]), not `resp.data.id`. Old code's `resp.data.id` would
+           have raised AttributeError had it ever gotten this far.
+
+        Net effect: every previous call to this function failed at bug #1
+        or #2, was caught by the broad except below, logged as "Failed to
+        place GTT", and returned "". survivor.py's retry-then-alert-then-
+        auto-close fallback (if reached with a live SELL fill) would
+        therefore always have fired -- or if never reached, GTTs were
+        simply never armed at all despite the code appearing to do so.
+
+        Direction handling (unchanged from the previous fix, still correct):
+          SELL entry (short) -> exit BUY  | trigger_price = entry*(1+sl_pct)
+          BUY  entry (long)  -> exit SELL | trigger_price = entry*(1-sl_pct)
+        """
+        try:
+            if order_type == "SELL":
+                exit_transaction = "BUY"
+                trigger_price     = round(entry_price * (1 + sl_pct), 1)
+            elif order_type == "BUY":
+                exit_transaction = "SELL"
+                trigger_price     = round(entry_price * (1 - sl_pct), 1)
+            else:
+                raise ValueError(f"place_gtt_trailing_sl: unsupported order_type={order_type!r}")
 
             rule = upstox_client.GttRule(
-                strategy="TRAILING_STOP_LOSS",
-                trigger_type="RISING",
+                strategy="STOPLOSS",
+                trigger_type="IMMEDIATE",
                 trigger_price=trigger_price,
                 trailing_gap=trailing_gap,
                 market_protection=0.25,
@@ -754,16 +872,57 @@ class UpstoxAdapter(AbstractBrokerGateway):
                 transaction_type=exit_transaction,
             )
 
-            gtt_api = upstox_client.GttApi(client)
-            resp = gtt_api.place_gtt_order(req, api_version="2.0")
-            gtt_id = resp.data.id if resp and resp.data else ""
-            import logging
-            logging.getLogger(__name__).info(
-                f"[GTT] Trailing SL placed | {instrument_key} | "
+            resp = self._order_api.place_gtt_order(req)
+            gtt_ids = resp.data.gtt_order_ids if resp and resp.data else []
+            gtt_id = gtt_ids[0] if gtt_ids else ""
+            logger.info(
+                f"[GTT] Trailing SL placed | {instrument_key} | order_type={order_type} | "
                 f"trigger={trigger_price} | trailing_gap={trailing_gap} | id={gtt_id}"
             )
             return str(gtt_id)
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"[GTT] Failed to place GTT: {e}")
+            logger.warning(f"[GTT] Failed to place GTT: {e}")
             return ""
+
+    async def cancel_gtt_order(self, gtt_order_id: str) -> bool:
+        """Cancel a previously-placed GTT trailing-SL order at Upstox.
+
+        Call this whenever a trade closes through any path OTHER than the
+        GTT itself firing (in-memory SL, profit target, EOD close, manual
+        stop, etc.) -- otherwise the GTT order stays live at the broker
+        for a position that no longer exists.
+
+        Safe to call with an empty/blank gtt_order_id (e.g. GTT placement
+        never succeeded for this trade) -- just returns False without
+        making any API call.
+        """
+        if not gtt_order_id:
+            return False
+        try:
+            # Same bug class as place_gtt_trailing_sl's fix above: there is no
+            # GttApi class in this SDK version (upstox-python-sdk==2.29.0) --
+            # GTT cancel lives on OrderApiV3, same as placement. The old code
+            # here (upstox_client.GttApi(client).cancel_gtt_order(...,
+            # api_version="2.0")) would have raised AttributeError on the
+            # GttApi(client) line itself, caught by the broad except below,
+            # silently returning False on every call -- meaning a GTT placed
+            # via the now-fixed place_gtt_trailing_sl was never actually
+            # cancelled when a position closed through any other path,
+            # leaving a stale stop-loss order live at the broker for a
+            # position that no longer exists. Found while reviewing the
+            # neighboring fix, not independently reported -- verified
+            # cancel_gtt_order() exists on OrderApiV3 (signature: body, no
+            # api_version kwarg) via the installed SDK directly, same as the
+            # placement fix above.
+            body = upstox_client.GttCancelOrderRequest(gtt_order_id=gtt_order_id)
+            await self._throttle()
+            resp = self._order_api.cancel_gtt_order(body=body)
+            logger.info(f"[GTT] Cancelled | id={gtt_order_id}")
+            return True
+        except ApiException as e:
+            logger.warning(f"[GTT] Cancel failed for {gtt_order_id}: {e}")
+            return False
+        except Exception as e:
+            logger.warning(f"[GTT] Cancel unexpected error for {gtt_order_id}: {e}")
+            return False
+            
