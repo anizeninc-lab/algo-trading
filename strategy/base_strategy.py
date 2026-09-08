@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+import traceback
 from abc import ABC, abstractmethod
 from datetime import datetime
 import pytz
@@ -21,10 +22,25 @@ class BaseStrategy(ABC):
         self.name = name
         self.broker = broker
         self.config = config
-        self._stop_flag = False
+        self.__stop_flag_value = False
         self._session_id: str = ""
+        self._last_tick_time: dict = {}
+        self._staleness_alerted: dict = {}
         state_store.register_strategy(name=self.name, broker=type(broker).__name__)
         logger.info(f"[{self.name}] Initialised with config: {config}")
+
+    @property
+    def _stop_flag(self):
+        return self.__stop_flag_value
+
+    @_stop_flag.setter
+    def _stop_flag(self, value):
+        if value and not self.__stop_flag_value:
+            logger.warning(
+                f"[{self.name}] _stop_flag set True -- call stack:\n"
+                f"{''.join(traceback.format_stack())}"
+            )
+        self.__stop_flag_value = value
 
     async def _recover_open_positions(self) -> None:
         """
@@ -233,3 +249,157 @@ class BaseStrategy(ABC):
                 )
         # Fallback: treat every Tuesday as expiry (Nifty weekly expiry)
         return datetime.now().weekday() == 1
+
+    async def _arm_broker_stop_loss(
+        self,
+        ikey: str,
+        quantity: int,
+        entry_price: float,
+        symbol: str,
+        on_failure=None,
+        sl_pct: float = 0.15,
+        trailing_gap: float = 0.25,
+        order_type: str = "SELL",
+    ) -> bool:
+        """
+        Shared broker-side GTT trailing stop-loss arming, lifted from the
+        pattern already proven in survivor.py (Phase 2 of the audit fixes,
+        2026-09).
+
+        `order_type` must match the entry direction of the POSITION being
+        protected, not necessarily "SELL": pass "SELL" for a short-option
+        entry (exit is BUY, stop triggers on a price rise) and "BUY" for a
+        long-option entry (exit is SELL, stop triggers on a price fall) --
+        see brokers/upstox.py's place_gtt_trailing_sl for the direction
+        logic. Defaulting to "SELL" matches every strategy wired so far
+        except nifty_gex, which holds long options and must pass "BUY"
+        explicitly.
+
+        This is a BACKSTOP, not the primary exit mechanism -- each strategy's
+        own tick-driven software SL/trailing-profit logic should still fire
+        first under normal conditions and is expected to win that race. The
+        GTT only matters if the bot process itself is down, crashed, or
+        disconnected when a position needs to exit -- e.g. across the daily
+        token-refresh restart window, a VPS reboot, or a WS/process crash.
+
+        Deliberately does NOT assume a uniform _close_trade(trade, reason,
+        price) signature across strategies -- survivor.py, wave_extractor.py,
+        put_calendar.py, and nifty_gex.py all have different close-method
+        names and signatures (some track a list of open trades, some track
+        one active trade). Callers pass their own `on_failure` async callable
+        (typically a small lambda wrapping their own close method) so this
+        stays a thin, safe-to-reuse helper rather than forcing a large
+        cross-file signature refactor.
+
+        Returns True if a GTT was armed (or paper mode / broker doesn't
+        support GTTs, in which case there's nothing to arm and this is a
+        no-op success). Returns False if arming failed after retries --
+        callers should treat False as "this position currently has no
+        broker-side protection" and decide whether to auto-close or just
+        alert, via on_failure.
+        """
+        if self._is_paper or not hasattr(self.broker, "place_gtt_trailing_sl"):
+            return True
+
+        for attempt in range(2):
+            try:
+                gtt_id = await self.broker.place_gtt_trailing_sl(
+                    instrument_key=ikey,
+                    quantity=quantity,
+                    entry_price=entry_price,
+                    order_type=order_type,
+                    trailing_gap=trailing_gap,
+                    sl_pct=sl_pct,
+                )
+                if gtt_id:
+                    self._signal(f"🛡 GTT armed | {symbol} | id={gtt_id}")
+                    return True
+            except Exception as e:
+                logger.warning(f"[{self.name}] GTT arm attempt {attempt + 1} failed for {symbol}: {e}")
+            await asyncio.sleep(2)
+
+        logger.error(
+            f"[{self.name}] GTT arming FAILED after retries for {symbol} -- "
+            f"position has no broker-side protection."
+        )
+        try:
+            from core.alerting import alert_gtt_failed
+            alert_gtt_failed(symbol, "GTT failed after 2 attempts")
+        except Exception as e:
+            logger.error(f"[{self.name}] alert_gtt_failed itself failed: {e}")
+
+        if on_failure is not None:
+            try:
+                await on_failure()
+            except Exception as e:
+                logger.error(f"[{self.name}] on_failure callback (post-GTT-fail) raised: {e}")
+
+        return False
+
+    def _record_tick(self, symbol: str) -> None:
+        """
+        Call from _on_tick_sync whenever a tick for `symbol` arrives. Powers
+        _check_tick_staleness() below (Phase 4 audit fix, 2026-09).
+
+        Deliberately independent of whatever per-strategy price cache each
+        strategy already maintains (_ltp_cache, _current_price, etc.) --
+        this only tracks *when* a tick last arrived, not the price itself,
+        so it doesn't need to understand or touch each strategy's existing
+        (differently-shaped) price-caching logic.
+        """
+        import time as _time
+        self._last_tick_time[symbol] = _time.time()
+
+    def _check_tick_staleness(self, symbol: str, threshold_sec: float = 45.0) -> None:
+        """
+        Call periodically (alongside SL/trailing-profit checks) for any
+        symbol with an open position. Alerts -- does NOT auto-close -- if no
+        tick has been received for `symbol` in over threshold_sec, during
+        market hours (Phase 4 audit fix, 2026-09).
+
+        This is a DIFFERENT signal from the existing WS-level heartbeat
+        monitor in brokers/upstox.py (which tracks the whole connection via
+        the INDEX tick and can look perfectly healthy while a single
+        illiquid STRIKE goes quiet) -- this one is per-instrument, which
+        matters because SL/trailing-profit evaluation is entirely tick-driven.
+
+        Policy is alert-only, deliberately -- not auto-close. Staleness
+        detection can have false positives (e.g. genuinely zero trading
+        activity on a deep OTM strike for a stretch), and auto-closing a
+        position on an unreliable signal is its own risk. Revisit auto-close
+        only after this has been observed alert-only for a while and proven
+        not to be noisy.
+        """
+        import time as _time
+        last = self._last_tick_time.get(symbol)
+        if last is None:
+            return  # no tick recorded yet for this symbol -- nothing to compare against
+
+        staleness = _time.time() - last
+        if staleness <= threshold_sec:
+            return
+
+        try:
+            import pytz
+            from datetime import datetime as _dt, time as _dtime
+            now = _dt.now(pytz.timezone("Asia/Kolkata"))
+            market_open = _dtime(9, 15) <= now.time() <= _dtime(15, 30) and now.weekday() < 5
+            if not market_open:
+                return
+        except Exception:
+            pass  # if market-hours check itself fails, fail open and still alert
+
+        last_alerted = self._staleness_alerted.get(symbol, 0)
+        if _time.time() - last_alerted < 60:
+            return  # rate-limit: at most one alert per symbol per 60s
+        self._staleness_alerted[symbol] = _time.time()
+
+        logger.warning(
+            f"[{self.name}] Tick staleness: no tick for {symbol} in "
+            f"{staleness:.0f}s (threshold {threshold_sec:.0f}s)"
+        )
+        try:
+            from core.alerting import alert_tick_stale
+            alert_tick_stale(symbol, staleness)
+        except Exception as e:
+            logger.error(f"[{self.name}] alert_tick_stale itself failed: {e}")
