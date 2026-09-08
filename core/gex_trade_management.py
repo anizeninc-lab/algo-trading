@@ -143,6 +143,17 @@ def compute_position_size(
     raw_qty = int(risk_amount // risk_per_unit)
     quantity = (raw_qty // lot_size) * lot_size
 
+    # Hard cap at 1 lot, deliberately -- risk-based sizing above can mathematically
+    # call for multiple lots on large account_equity or a tight stop, but trading
+    # >1 lot per order distorts per-trade cost economics. Raise this deliberately
+    # only if you also re-check MAX_QTY_PER_ORDER in brokers/upstox.py.
+    if quantity > lot_size:
+        logger.info(
+            f"[gex_trade_management] Risk-based sizing computed {quantity} qty "
+            f"({quantity // lot_size} lots) -- capped to 1 lot ({lot_size}) by policy"
+        )
+        quantity = lot_size
+
     if quantity == 0:
         one_lot_risk = risk_per_unit * lot_size
         within_tolerance = one_lot_risk <= (risk_amount * MIN_LOT_TOLERANCE_MULTIPLE)
@@ -163,17 +174,32 @@ def compute_position_size(
     return quantity, risk_amount, risk_per_unit
 
 
-def apply_regime_adjustment(target_distance: float, quantity: int, regime: str) -> tuple:
+def apply_regime_adjustment(target_distance: float, quantity: int, regime: str,
+                             lot_size: int = NIFTY_LOT_SIZE) -> tuple:
     """
     Per spec section 5: positive gamma -> tighter targets, smaller size;
-    negative gamma -> wider/larger targets, reduced size. See module
-    docstring for the multiplier-tuning caveat.
+    negative gamma -> wider/larger targets, reduced size.
+
+    Bugfix 2026-09-02: quantity is re-floored to the nearest lot_size after
+    the multiplier is applied. int(65 * 0.8) = 52 is not a valid NSE lot
+    multiple. Since size is capped at exactly 1 lot by policy, a reduction
+    below 1 lot has nowhere valid to floor to except 0, which would disable
+    trading entirely in net_positive/net_negative regimes. So the reduction
+    is a no-op once quantity is already at or below 1 lot.
     """
     if regime == "net_positive":
-        return target_distance * POSITIVE_GAMMA_TARGET_MULTIPLE, int(quantity * POSITIVE_GAMMA_SIZE_MULTIPLE)
+        mult, target_mult = POSITIVE_GAMMA_SIZE_MULTIPLE, POSITIVE_GAMMA_TARGET_MULTIPLE
     elif regime == "net_negative":
-        return target_distance * NEGATIVE_GAMMA_TARGET_MULTIPLE, int(quantity * NEGATIVE_GAMMA_SIZE_MULTIPLE)
-    return target_distance, quantity
+        mult, target_mult = NEGATIVE_GAMMA_SIZE_MULTIPLE, NEGATIVE_GAMMA_TARGET_MULTIPLE
+    else:
+        return target_distance, quantity
+
+    if quantity <= lot_size:
+        adj_qty = quantity
+    else:
+        adj_qty = max(lot_size, (int(quantity * mult) // lot_size) * lot_size)
+
+    return target_distance * target_mult, adj_qty
 
 
 def build_trade_plan(
@@ -202,13 +228,13 @@ def build_trade_plan(
                           regime, False, "no qualifying GEX level ahead in trade direction")
 
     target_distance = abs(target1 - entry_price)
-    target_distance, _ = apply_regime_adjustment(target_distance, 0, regime)
+    target_distance, _ = apply_regime_adjustment(target_distance, 0, regime, lot_size)
     adjusted_target1 = entry_price + target_distance if direction == "bullish" else entry_price - target_distance
 
     reward_to_risk = abs(adjusted_target1 - entry_price) / risk_per_unit
 
     quantity, risk_amount, _ = compute_position_size(account_equity, entry_price, stop_price, risk_pct, lot_size)
-    _, quantity = apply_regime_adjustment(0, quantity, regime)
+    _, quantity = apply_regime_adjustment(0, quantity, regime, lot_size)
 
     if reward_to_risk < MIN_RISK_REWARD:
         return TradePlan(direction, entry_price, stop_price, adjusted_target1, target2,
