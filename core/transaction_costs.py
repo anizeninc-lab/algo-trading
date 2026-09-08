@@ -45,3 +45,30 @@ def calculate_order_cost(premium: float, quantity: int, side: str) -> float:
     gst          = (brokerage + exchange_txn) * GST_PCT
 
     return round(brokerage + exchange_txn + sebi + stt + stamp_duty + gst, 2)
+
+
+def estimate_slippage_cost(bid: float, ask: float, quantity: int) -> float:
+    """
+    Estimated one-sided market-impact cost from crossing the bid-ask spread,
+    added 2026-09 (Phase 4 audit fix). Previously this cost model covered
+    only regulatory/broker fees -- brokerage, STT, exchange charges, GST,
+    stamp duty -- none of which account for the fact that a marketable
+    order on an OTM weekly option typically fills a few paise to a few
+    rupees through the quoted mid, especially on wide-spread strikes or in
+    the first/last 15 minutes of the session.
+
+    Uses half the quoted spread as a simple, conservative estimate of one
+    fill's slippage (the other half is the market maker's take, not a cost
+    you pay directly, but crossing the full spread on both entry and exit
+    is a reasonable worst-case if you call this once per leg per side).
+
+    Returns 0.0 if bid/ask aren't available or look invalid (e.g. ask < bid,
+    which happens on stale/crossed quotes) -- callers should treat that as
+    "no spread data available" and fall back to fee-only costing, not as
+    "confirmed zero slippage."
+    """
+    if bid <= 0 or ask <= 0 or ask < bid:
+        return 0.0
+    spread = ask - bid
+    return round((spread / 2.0) * quantity, 2)
+
