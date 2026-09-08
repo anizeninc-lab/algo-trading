@@ -232,6 +232,14 @@ class NiftyGex(BaseStrategy):
 
             self._current_spot = tick.mid_price
 
+            # Per-instrument tick-staleness check (Phase 4 audit fix, 2026-09).
+            # nifty_gex's own SL/target logic is index-spot-driven (see
+            # _monitor_active_trade), not option-premium-driven like other
+            # strategies -- but still track the traded option's own tick
+            # feed for consistency and to catch a broken subscription.
+            if self._active_trade and tick.symbol == self._active_trade.get("symbol"):
+                self._record_tick(tick.symbol)
+
             # Monitor any active trade FIRST, unconditionally -- same rule as
             # wave_extractor: exits must never be skipped by entry-side gating.
             if self._active_trade:
@@ -504,12 +512,31 @@ class NiftyGex(BaseStrategy):
             self._entry_order_id = ""
             self._pending_trade = {}
 
+            # Broker-side GTT trailing SL backstop (Phase 2 audit fix, 2026-09).
+            # nifty_gex holds long options (BUY entries) -- order_type="BUY"
+            # tells place_gtt_trailing_sl to arm a FALLING-direction stop
+            # (exit SELL below entry), not the SELL-entry/RISING-direction
+            # stop survivor.py uses. See brokers/upstox.py for the direction
+            # fix and the (larger, now-fixed) underlying GTT construction bug.
+            await self._arm_broker_stop_loss(
+                ikey=pt["symbol"],
+                quantity=filled_qty or pt["quantity"],
+                entry_price=price,
+                symbol=pt["symbol"],
+                order_type="BUY",
+                on_failure=lambda: self._close_active_trade("GTT_FAILED_AUTOCLOSE"),
+            )
+
     # ── Exit Monitoring ───────────────────────────────────────────────────
 
     async def _monitor_active_trade(self) -> None:
         trade = self._active_trade
         plan  = trade.get("plan")
         spot  = self._current_spot
+
+        # Per-instrument tick-staleness check (Phase 4 audit fix, 2026-09).
+        if trade.get("symbol"):
+            self._check_tick_staleness(trade["symbol"])
 
         if plan is None:
             # Restored/recovered trade with no persisted plan -- time-stop
