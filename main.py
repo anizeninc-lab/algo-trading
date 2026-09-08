@@ -86,6 +86,51 @@ async def run_strategies(config: dict):
     # Share broker with dashboard API for funds endpoint
     import dashboard.api as dashboard_api
     dashboard_api.broker_ref = broker
+
+    # ── Startup token-validation gate (Phase 4 audit fix, 2026-09) ──
+    # Previously broker.login() was never called anywhere in this file --
+    # the bot would proceed straight to rollover/strategies/WS subscription
+    # using whatever token happened to be in .env, discovering a stale or
+    # invalid token only when individual API calls started failing
+    # mid-session, with no single clear signal at startup. This matters
+    # most right after the 8:45 AM daily token-refresh window: if that
+    # didn't complete (auto_token.py failed, or the operator hasn't replied
+    # to /token yet), the bot should NOT start trading blind on yesterday's
+    # dead token.
+    #
+    # Now: validate the token via a real API call (login() -> get_profile())
+    # BEFORE anything else runs. If it fails, alert once and enter a safe
+    # idle loop -- retries every 2 min, never arms strategies, places
+    # orders, or subscribes to ticks while blocked. Deliberately does NOT
+    # just exit and let pm2 restart-loop this process: that would burn
+    # through ecosystem.config.js's max_restarts within minutes and leave
+    # the bot fully STOPPED with no clear signal why. Staying alive in an
+    # idle loop keeps pm2 seeing a healthy `online` process throughout.
+    #
+    # In practice, the existing /token flow (tg_commander.py -> auto_token.py)
+    # already does a full `pm2 restart trading-bot --update-env` once a new
+    # token is written, so the realistic resolution path is a fresh process
+    # starting clean with a valid token -- this loop's own retries are a
+    # secondary safety net for the less common case where .env changes
+    # without a full restart, not the primary recovery path.
+    from core.alerting import send_telegram, LEVEL_CRITICAL, LEVEL_PROFIT
+    login_ok = await broker.login()
+    if not login_ok:
+        dashboard_api.startup_block_reason = "Upstox login failed — waiting for valid token"
+        send_telegram(
+            "*BOT NOT TRADING*\n"
+            "Upstox login failed — token invalid or expired.\n"
+            "Reply /token <code> to fix. Retrying login every 2 min until it succeeds.",
+            LEVEL_CRITICAL,
+        )
+        logger.critical("[main] Startup blocked: broker.login() failed. Entering idle retry loop.")
+        while not login_ok:
+            await asyncio.sleep(120)
+            login_ok = await broker.login()
+        dashboard_api.startup_block_reason = ""
+        logger.info("[main] Startup unblocked: broker.login() succeeded.")
+        send_telegram("Upstox login succeeded — proceeding with normal startup.", LEVEL_PROFIT)
+
     # Wire market_context to the broker directly here rather than relying on
     # dashboard's startup() event, which can fire before broker_ref is set
     # (uvicorn server setup happens earlier than this line) — calling it
@@ -259,7 +304,7 @@ async def main():
     try:
         await run_strategies(config)
     except Exception as e:
-        logger.error(f"[main] Strategies task ended: {e}")
+        logger.error(f"[main] Strategies task ended: {e}", exc_info=True)
 
 if __name__ == "__main__":
     # Auto-free port 8081 (Windows only — on Linux PM2 handles this)
