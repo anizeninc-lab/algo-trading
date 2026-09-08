@@ -16,7 +16,7 @@ import pytz
 
 from core.state_store import StrategyState, state_store
 from core.trade_log import trade_logger
-from core.transaction_costs import calculate_order_cost
+from core.transaction_costs import calculate_order_cost, estimate_slippage_cost
 
 RISK_STATE_FILE = Path("configs/risk_state.json")
 
@@ -104,6 +104,15 @@ class RiskManager:
         self._system_halted:  bool             = False
         self._halt_reason:    str              = ""
         self._last_reset_day: str              = "1970-01-01"
+        # Manual pause (Phase 4 audit fix, 2026-09) -- distinct from
+        # _system_halted: this is a deliberate user action via /pause
+        # (Telegram), stops NEW entries across all strategies (including
+        # put_calendar) but does NOT close existing open positions -- their
+        # own SL/exit logic keeps running normally. Deliberately NOT
+        # persisted across restarts -- a fresh RiskManager instance each
+        # process start naturally resets this to False, so a pause never
+        # silently carries over to a new session.
+        self._manually_paused: bool             = False
 
         # Capital tracking — tracks deployed capital per strategy
         self._deployed_capital: dict[str, float] = {}
@@ -621,11 +630,38 @@ class RiskManager:
         Checks in priority order: system halted → auto-stop time → VIX halt.
         Strategies call this once at the top of on_tick and bail early if blocked.
 
-        put_calendar is fully exempt (own capital pool, own weekly cycle,
-        own SL/exit rules) -- including circuit breaker and VIX halt, per
-        explicit decision to run it fully independently of shared risk gates.
+        put_calendar exemption narrowed (Phase 4 audit fix, 2026-09): it keeps
+        its exemption from the shared daily-loss halt (_system_halted), weekly
+        drawdown, and auto-stop-time checks -- those are genuinely tied to its
+        own separate capital pool (PUT_CALENDAR_CAPITAL) and its own weekly
+        cycle, and that part of the original design is sound. It NO LONGER
+        skips the API circuit breaker or the VIX-extreme halt, both of which
+        are session-health signals rather than strategy-specific risk budget:
+        - API circuit breaker firing means the broker connection itself is
+          unreliable (repeated place_order/get_ltp failures) -- put_calendar
+          has no way to know that on its own and would otherwise keep trying
+          to trade through a broken connection.
+        - VIX-extreme is exactly the regime a calendar spread (long vega on
+          the back month, short vega on the front) is most exposed to --
+          exempting it from the one halt built for that exact condition was
+          the sharper gap, not a deliberate risk choice.
+
+        Manual pause (Phase 4 audit fix, 2026-09) is checked FIRST, before
+        even the put_calendar branch -- unlike VIX/circuit-breaker/daily-loss,
+        which are risk-budget or session-health signals with legitimate
+        per-strategy nuance, a manual /pause is a deliberate blanket "stop
+        taking new trades" user action that should apply uniformly to every
+        strategy with no exceptions.
         """
+        if self._manually_paused:
+            return True, "Manually paused via /pause"
         if strategy_name == "put_calendar":
+            _cb_tripped, _cb_reason = self.check_api_circuit_breaker()
+            if _cb_tripped:
+                return True, _cb_reason
+            from core.vix_manager import vix_manager as _vm_pc
+            if _vm_pc.get_params().get("halt_trading", False):
+                return True, "VIX EXTREME — trading halted by vix_manager"
             return False, ""
         if self._system_halted:
             return True, self._halt_reason or "System halted"
@@ -931,6 +967,8 @@ class RiskManager:
         hedge_current_price:   float = 0.0,
         hedge_quantity:        int   = 0,
         hedge_entry_cost:      float = 0.0,
+        entry_bid:             float = 0.0,
+        entry_ask:             float = 0.0,
     ) -> bool:
         """
         Two-stage exit logic, cost-aware and hedge-aware:
@@ -950,6 +988,18 @@ class RiskManager:
         was already computed once at trade open (avoids recomputing against
         a possibly-stale current hedge premium), plus an estimated hedge
         exit cost (hedge is always BUY-to-open, SELL-to-close).
+
+        Spread-aware (Phase 4 audit fix, 2026-09): entry_bid/entry_ask are
+        OPTIONAL and default to 0.0, which keeps every existing call site
+        working unchanged -- callers that don't have chain data (no
+        get_option_chain call at entry) simply don't pass these and get the
+        exact same fee-only costing as before. When provided, an estimated
+        one-sided slippage cost (half the quoted spread, see
+        estimate_slippage_cost) is folded into cost_of_trade, making the
+        40%-of-premium target and trailing floor slightly more conservative
+        on wide-spread strikes -- which is the point: a target computed
+        against fee-only costs can look reachable on paper while actually
+        requiring a fill better than the market currently offers.
         """
         if entry_price <= 0:
             return False
@@ -988,6 +1038,9 @@ class RiskManager:
         if hedge_quantity > 0:
             hedge_exit_cost = calculate_order_cost(hedge_current_price, hedge_quantity, "SELL")
             cost_of_trade += hedge_entry_cost + hedge_exit_cost
+
+        if entry_bid > 0.0 and entry_ask > 0.0:
+            cost_of_trade += estimate_slippage_cost(entry_bid, entry_ask, quantity)
 
         premium_collected = entry_price * quantity
         if fixed_target > 0:
