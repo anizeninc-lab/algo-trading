@@ -7,6 +7,15 @@
 #   /status  — current P&L, open trades, regime
 #   /resume  — clear halt, restart bot
 #   /token <code> — exchange Upstox auth code (used by auto_token.py flow)
+#   /addcapital <amount> — top up capital pool
+#   /close_put_calendar — manually close the put_calendar spread on demand
+#     (separate from the scheduled Monday-before-expiry forced exit; this is
+#     purely a manual override, added 2026-09 per explicit request)
+#   /pause — stop all strategies from taking new entries; existing open
+#     positions keep running their own SL/exit logic normally. Softer than
+#     /kill, which closes everything immediately. Added 2026-09.
+#   /unpause — clear a /pause (does not affect /kill's halt -- use /resume
+#     for that)
 
 import os
 import time
@@ -152,10 +161,43 @@ def handle_token(code: str) -> str:
         return f"❌ Token exchange error: {e}"
 
 
+def handle_close_put_calendar() -> str:
+    try:
+        resp = requests.post(f"{DASHBOARD_URL}/api/put_calendar/close-now", timeout=15)
+        data = resp.json()
+        if data.get("status") == "ok":
+            return "✅ <b>put_calendar position closed</b> — both legs unwound."
+        return f"❌ Close failed: {data.get('error', 'unknown error')}"
+    except Exception as e:
+        return f"❌ Close failed: {e}"
+
+
+def handle_pause() -> str:
+    try:
+        resp = requests.post(f"{DASHBOARD_URL}/api/pause", timeout=15)
+        data = resp.json()
+        if data.get("status") == "ok":
+            return "⏸ <b>Trading paused</b> — no new entries across any strategy. Existing open positions keep running their own SL/exit logic normally. Reply /unpause to resume."
+        return f"❌ Pause failed: {data.get('error', 'unknown error')}"
+    except Exception as e:
+        return f"❌ Pause failed: {e}"
+
+
+def handle_unpause() -> str:
+    try:
+        resp = requests.post(f"{DASHBOARD_URL}/api/pause/clear", timeout=15)
+        data = resp.json()
+        if data.get("status") == "ok":
+            return "▶️ <b>Trading resumed</b> — new entries allowed again."
+        return f"❌ Unpause failed: {data.get('error', 'unknown error')}"
+    except Exception as e:
+        return f"❌ Unpause failed: {e}"
+
+
 # ── Main loop ─────────────────────────────────────────────────────────────────
 def main():
     print("[tg_commander] Started — listening for commands...")
-    tg_send("🤖 <b>Telegram Commander online</b>\nCommands: /kill /status /resume /token &lt;code&gt; /addcapital &lt;amount&gt;")
+    tg_send("🤖 <b>Telegram Commander online</b>\nCommands: /kill /status /resume /token &lt;code&gt; /addcapital &lt;amount&gt; /close_put_calendar /pause /unpause")
 
     offset = 0
     # Skip old messages on startup
@@ -195,6 +237,13 @@ def main():
                 amount_str = text.split("/addcapital ", 1)[1].strip()
                 tg_send("⏳ Adding capital...")
                 tg_send(handle_add_capital(amount_str))
+            elif text == "/close_put_calendar":
+                tg_send("⏳ Closing put_calendar position...")
+                tg_send(handle_close_put_calendar())
+            elif text == "/pause":
+                tg_send(handle_pause())
+            elif text == "/unpause":
+                tg_send(handle_unpause())
             elif text.startswith("/"):
                 tg_send(
                     "❓ Unknown command. Available:\n"
@@ -202,7 +251,10 @@ def main():
                     "/status — P&amp;L and position summary\n"
                     "/resume — clear halt and restart\n"
                     "/token &lt;code&gt; — refresh Upstox token\n"
-                    "/addcapital &lt;amount&gt; — top up capital pool"
+                    "/addcapital &lt;amount&gt; — top up capital pool\n"
+                    "/close_put_calendar — manually close the put_calendar spread now\n"
+                    "/pause — stop new entries, keep existing positions running\n"
+                    "/unpause — resume new entries"
                 )
 
         time.sleep(POLL_INTERVAL)
