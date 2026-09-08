@@ -266,6 +266,25 @@ def evaluate_entry(spot: float, candles: List[Candle], gex_regime: dict,
             f"target_strike={checklist.target_strike} structure={checklist.structure_type}"
         )
     else:
-        logger.debug(f"[gex_entry_rules] No entry — failed: {checklist.reasons_failed}")
+        # Bumped from DEBUG to INFO (found 2026-09-08 while investigating zero
+        # trades since this strategy started running): main.py's logging level
+        # is INFO, so this line -- the ONLY place a skipped setup's checklist
+        # state was recorded -- had never been visible in any log, for any of
+        # this strategy's ~60s-interval evaluations since it started. This also
+        # directly violates NIFTY_GEX_STRATEGY_SPEC.md section 6's explicit
+        # requirement: "Every signal (taken or skipped) logged with full
+        # checklist state." Safe to log at INFO every call (not spam) since
+        # this only runs once per gex_poll_interval (60s), not per-tick.
+        logger.info(
+            f"[gex_entry_rules] No entry | direction={checklist.direction} "
+            f"target_strike={checklist.target_strike} | "
+            f"ema_stack_aligned={checklist.ema_stack_aligned} "
+            f"gex_level_proximity={checklist.gex_level_proximity} "
+            f"structure_ok={checklist.structure_ok} ({checklist.structure_type}) "
+            f"volume_confirmed={checklist.volume_confirmed} "
+            f"time_window_ok={checklist.time_window_ok} "
+            f"option_liquidity_ok={checklist.option_liquidity_ok} | "
+            f"failed={checklist.reasons_failed}"
+        )
 
     return checklist
