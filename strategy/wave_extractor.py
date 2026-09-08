@@ -229,6 +229,7 @@ class WaveExtractor(BaseStrategy):
             # because NEW entries are currently blocked, e.g. capital-limit hit)
             self._current_price = tick.mid_price
             self._record_price_sample(tick.mid_price)
+            self._record_tick(tick.symbol)
 
             if "INDEX" in tick.symbol:
                 state_store.update_nifty_price(tick.last_price)
@@ -347,6 +348,19 @@ class WaveExtractor(BaseStrategy):
                 "quantity":    filled_qty,
                 "symbol":      self.cfg.option_symbol,
             })
+            # Broker-side GTT trailing SL backstop (Phase 2 audit fix, 2026-09).
+            # Only for SELL (short option) legs -- a long/BUY option's max loss
+            # is already capped at premium paid, so the same "naked exposure
+            # against process failure" risk doesn't apply the same way there.
+            _gtt_trade_ref = self._open_trades_data[-1]
+            await self._arm_broker_stop_loss(
+                ikey=self.cfg.option_symbol,
+                quantity=filled_qty,
+                entry_price=price,
+                symbol=self.cfg.option_symbol,
+                order_type="SELL",
+                on_failure=lambda: self._close_trade(_gtt_trade_ref, "GTT_FAILED_AUTOCLOSE"),
+            )
             if self._buy_order_id:
                 await self.broker.cancel_order(self._buy_order_id)
                 self._signal(f"Opposing BUY bracket cancelled: {self._buy_order_id}")
@@ -476,6 +490,9 @@ class WaveExtractor(BaseStrategy):
             otype = trade["order_type"]
             qty   = trade["quantity"]
             price = self._current_price
+
+            # Per-instrument tick-staleness check (Phase 4 audit fix, 2026-09).
+            self._check_tick_staleness(trade.get("symbol", self.cfg.option_symbol))
 
             risk_manager.record_mfe_mae(
                 entry, price, otype, qty, trade_id=trade.get("id", "")
