@@ -266,9 +266,98 @@ class IndexReplay:
 
     async def run(self) -> int:
         import asyncio
+        from datetime import time as _dtime
+        from core.regime_engine import regime_engine, Candle
+        import core.market_context as _mc
+
         candles = self._load_candles()
         print(f"[survivor_backtest] {len(candles)} NIFTY index candles found")
+
+        # ── Real regime classification driven by replayed candles ────────
+        # FIXED 2026-09-07, see run_survivor_backtest.py's STEP 1b comment
+        # for the full story -- this used to never run at all, forcing a
+        # permanent flat regime_stability of 50.0. Mirrors what
+        # core/market_context.py's live polling loop does (_classify_regime,
+        # every POLL_INTERVAL_SEC=30s), except once per replayed 1-min
+        # candle here since that's the granularity archived data actually
+        # has -- a coarser cadence than live, and a stated approximation,
+        # not an attempt to match it exactly.
+        OR_START, OR_END = _dtime(9, 15), _dtime(9, 30)
+        session_date = None       # 'YYYY-MM-DD' of the day currently being replayed
+        session_candles: list = []  # real Candle objects for today so far
+        or_high = or_low = None
+        or_locked = False
+
         for ts, o, h, l, c in candles:
+            # candles_1min has mixed timestamp formats across different
+            # archiving sources -- most rows are 'YYYY-MM-DD HH:MM' but some
+            # are ISO 'YYYY-MM-DDTHH:MM:SS+05:30'. Normalize 'T' -> ' ' and
+            # tolerate a missing time component (defaults to midnight, which
+            # naturally falls before OR_START and is otherwise harmless)
+            # instead of assuming exactly one space, which crashed on the
+            # ISO rows. hh/mm parsing below already tolerates a trailing
+            # ':SS+05:30' since it only takes the first two ':'-split parts.
+            _parts = ts.replace("T", " ").split(" ", 1)
+            date_part = _parts[0]
+            time_part = _parts[1] if len(_parts) > 1 else "00:00"
+            hh, mm = time_part.split(":")[:2]
+            candle_time = _dtime(int(hh), int(mm))
+
+            if date_part != session_date:
+                # New trading day in a multi-day window -- reset session
+                # state exactly like a fresh morning would, so one day's
+                # regime/OR data never bleeds into the next. Live doesn't
+                # need this (the bot restarts fresh each real morning);
+                # a single long-running backtest process replaying several
+                # days back to back does.
+                session_date = date_part
+                session_candles = []
+                or_high = or_low = None
+                or_locked = False
+                regime_engine._bull_count = 0
+                regime_engine._bear_count = 0
+                regime_engine._last_regime = "range"
+                regime_engine._regime_history = []
+                regime_engine._stable_since_count = 0
+                _mc.market_context._regime = _mc.REGIME_OPENING
+                _mc.market_context._opening_range.locked = False
+
+            candle_obj = Candle(ts=ts, open=o, high=h, low=l, close=c)
+            session_candles.append(candle_obj)
+
+            if OR_START <= candle_time < OR_END:
+                or_high = h if or_high is None else max(or_high, h)
+                or_low = l if or_low is None else min(or_low, l)
+            elif not or_locked and candle_time >= OR_END:
+                # Lock using real replayed 9:15-9:30 high/low, same as
+                # market_context._lock_opening_range() does live. Falls
+                # back to this candle's own high/low only if the window
+                # started later than 9:15 (so no OR candles were replayed).
+                or_high = or_high if or_high is not None else h
+                or_low = or_low if or_low is not None else l
+                _mc.market_context._opening_range.high = or_high
+                _mc.market_context._opening_range.low = or_low
+                _mc.market_context._opening_range.locked = True
+                or_locked = True
+
+            if or_locked and len(session_candles) >= 5:
+                # pcr/oi_delta/pcr_spike are neutral placeholders: OI/PCR
+                # aren't archived (see this file's module docstring), and
+                # these are confirmation-only signals in regime_engine's
+                # scoring, not the primary VWAP/EMA/OR/ADX/swing signals,
+                # which run on real replayed price data here.
+                new_regime, _ = regime_engine.classify(
+                    candles=session_candles[-30:],
+                    or_high=_mc.market_context._opening_range.high,
+                    or_low=_mc.market_context._opening_range.low,
+                    spot=c,
+                    pcr=1.0,
+                    ce_oi_delta=0.0,
+                    pe_oi_delta=0.0,
+                    pcr_spike=False,
+                )
+                _mc.market_context._regime = new_regime
+
             for price in (o, h, l, c):
                 self.broker.note_index_tick(ts)
                 tick = Tick(symbol=self.emit_symbol, last_price=price, timestamp=ts)

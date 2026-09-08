@@ -81,20 +81,53 @@ _risk_manager_module.risk_manager._trade_counts = {}
 _risk_manager_module.risk_manager._daily_pnl = {}
 _risk_manager_module.risk_manager._deployed_capital = {}
 
-# ── STEP 1b: force market_context into a tradeable regime ─────────────────
-# survivor only trades REGIME_RANGE / REGIME_REVERSAL_WATCH (see
-# core/strategy_filter.py STRATEGY_ALLOWED_REGIMES["survivor"]) -- NOT
-# trending, which is what run_backtest.py forces for wave_extractor.
-# Same caveat as run_backtest.py: this is a fixed approximation, not a
-# historically accurate regime replay (real regime depends on live OI/PCR
-# data we don't archive) -- results reflect survivor's spot-driven entry
-# logic under an assumed-ranging market, not regime-timing accuracy.
+# ── STEP 1b: drive REAL regime classification from replayed candles ───────
+# FIXED 2026-09-07 (see research_memory/lessons.md LESSON-002): this used
+# to permanently force market_context._regime = REGIME_RANGE and never
+# call regime_engine.classify() at all, which meant
+# regime_engine.get_regime_stability() could only ever return its flat
+# default of 50.0 for the entire backtest -- any min_regime_stability
+# threshold above 50 mechanically blocked EVERY trade, and any threshold
+# at/below 50 was a complete no-op. That made LESSON-002's own candidate
+# (795b6591, min_regime_stability 0.0 -> 65.0) impossible to gate-test
+# honestly. It also meant every backtest ever run against this file only
+# ever tested survivor's behavior under an assumed-permanently-ranging
+# market, regardless of what the real replayed day actually looked like.
+#
+# Real classification now happens once per replayed candle inside
+# IndexReplay.run() (core/research/survivor_backtest.py), using an actual
+# opening range locked from the real replayed 9:15-9:30 candles and real
+# VWAP/EMA/ADX/OR/swing-structure signals computed from real replayed
+# price data. OI/PCR aren't archived (see this file's module docstring)
+# so those inputs stay neutral placeholders there -- a stated, minor
+# approximation on confirmation-only signals, not the primary ones.
+#
+# SAFETY: regime_engine is a shared, stateful singleton that (a) loads
+# real live hysteresis counters from configs/regime_state.json at
+# process-import time if that file is dated today, and (b) writes to that
+# SAME file on every single classify() call. Left alone, a same-day
+# backtest would both inherit live production state AND overwrite it with
+# backtest-derived numbers, which the live bot would then load as valid
+# "today" state on its own next restart. Neutralized below so this
+# backtest process can never read or write that file -- found while
+# building this fix, not the thing being fixed, but too dangerous to
+# leave alone once seen.
 import core.market_context as _market_context_module
-_market_context_module.market_context._regime = _market_context_module.REGIME_RANGE
-_market_context_module.market_context._opening_range.locked = True
-_market_context_module.market_context._opening_range.high = _market_context_module.market_context._opening_range.high or 24400.0
-_market_context_module.market_context._opening_range.low  = _market_context_module.market_context._opening_range.low  or 24200.0
-print("[run_survivor_backtest] market_context regime forced to REGIME_RANGE + opening_range seeded (approximation, see docstring)")
+from core.regime_engine import regime_engine as _regime_engine_singleton
+_regime_engine_singleton._save_state = lambda: None
+_regime_engine_singleton._load_state = lambda: None
+_regime_engine_singleton._bull_count = 0
+_regime_engine_singleton._bear_count = 0
+_regime_engine_singleton._last_regime = "range"
+_regime_engine_singleton._regime_history = []
+_regime_engine_singleton._stable_since_count = 0
+_market_context_module.market_context._regime = _market_context_module.REGIME_OPENING
+_market_context_module.market_context._opening_range.locked = False
+_market_context_module.market_context._opening_range.high = 0.0
+_market_context_module.market_context._opening_range.low = 0.0
+print("[run_survivor_backtest] regime_engine reset + isolated from configs/regime_state.json "
+      "(no live-state read/write); real classification now driven per-candle by IndexReplay "
+      "(approximation on OI/PCR inputs only, see docstring)")
 
 # ── STEP 1c: neutralize real-wall-clock gates ──────────────────────────────
 # Two separate checks in the live code path compare datetime.now() against
