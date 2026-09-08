@@ -216,6 +216,66 @@ async def kill_switch_reset():
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
+@app.post("/api/put_calendar/close-now")
+async def put_calendar_close_now():
+    """
+    Manual override -- immediately closes the current put_calendar position
+    (both legs) regardless of P&L or the strategy's own exit conditions
+    (stop-loss / pre-expiry forced exit). Added per explicit user request
+    (Phase 4 audit fixes, 2026-09): scheduled forced exit stays at Monday
+    before front-week expiry, but the user wants the ability to close the
+    spread manually at any time on top of that, not instead of it.
+
+    Does NOT touch risk_manager._system_halted or any other strategy --
+    this is scoped to put_calendar's own open position only, unlike the
+    global kill switch above.
+    """
+    try:
+        if combo_ref is None or getattr(combo_ref, "put_calendar", None) is None:
+            return {"status": "error", "error": "put_calendar strategy is not running or not enabled"}
+        if not combo_ref.put_calendar._active_trade:
+            return {"status": "error", "error": "No open put_calendar position to close"}
+        await combo_ref.put_calendar._close_active_trade("MANUAL")
+        logger.info("[dashboard] put_calendar position closed via manual close-now endpoint")
+        return {"status": "ok", "message": "put_calendar position closed"}
+    except Exception as e:
+        logger.exception(f"[dashboard] Manual put_calendar close failed: {e}")
+        return {"status": "error", "error": str(e)}
+
+@app.post("/api/pause")
+async def pause_trading():
+    """
+    Soft pause (Phase 4 audit fix, 2026-09) -- stops ALL strategies from
+    taking new entries (via risk_manager._manually_paused, checked first in
+    is_trading_blocked() before any strategy-specific logic), but does NOT
+    close existing open positions -- their own SL/exit logic keeps running
+    normally. Deliberately softer than /api/killswitch, which halts AND
+    closes everything immediately. Distinct trigger for a distinct need:
+    this is for "I want to stop new risk but let what's open play out,"
+    not "get me out of everything right now."
+    """
+    try:
+        from core.risk_manager import risk_manager
+        risk_manager._manually_paused = True
+        logger.info("[dashboard] Trading paused via /api/pause")
+        return {"status": "ok", "paused": True}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.post("/api/pause/clear")
+async def unpause_trading():
+    """Clears a manual pause set via /api/pause. Does not affect
+    risk_manager._system_halted or any other halt mechanism -- if the bot
+    is also halted for an unrelated reason (daily loss, VIX, etc.), this
+    alone will not resume trading; use /api/killswitch/reset for that."""
+    try:
+        from core.risk_manager import risk_manager
+        risk_manager._manually_paused = False
+        logger.info("[dashboard] Trading un-paused via /api/pause/clear")
+        return {"status": "ok", "paused": False}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
 @app.post("/api/strategy/{name}/stop")
 async def stop_strategy(name: str):
     status = state_store.get_strategy(name)
@@ -547,6 +607,10 @@ async def get_trades_performance():
 # Global broker reference — set by main.py on startup
 broker_ref = None
 combo_ref  = None   # reference to SaviourCombo instance for kill switch
+startup_block_reason = ""  # set by main.py while blocked on login() at startup
+                            # (Phase 4 audit fix, 2026-09) -- empty string means
+                            # not blocked; non-empty means strategies have not
+                            # been armed yet and won't be until login() succeeds.
 
 
 @app.get("/api/trades/analytics")
@@ -757,6 +821,9 @@ async def get_bot_status():
     if risk_manager.is_halted():
         status = "HALTED"
         status_col = "red"
+    elif getattr(risk_manager, "_manually_paused", False):
+        status = "PAUSED"
+        status_col = "orange"
     elif vix_halted:
         status = "VIX BLOCKED"
         status_col = "orange"
@@ -771,6 +838,9 @@ async def get_bot_status():
         "trading_status":   status,
         "status_colour":    status_col,
         "is_halted":        risk_manager.is_halted(),
+        "is_paused":        getattr(risk_manager, "_manually_paused", False),
+        "startup_blocked":  bool(startup_block_reason),
+        "startup_block_reason": startup_block_reason,
         "halt_reason":      risk_manager._halt_reason if hasattr(risk_manager, "_halt_reason") else "",
         "block_reason":     block_reason,
         "capital_deployed": round(deployed, 2),
