@@ -214,7 +214,21 @@ def evaluate_entry(spot: float, candles: List[Candle], gex_regime: dict,
         checklist.ema_stack_aligned = True
         checklist.direction = ema_stack.direction
     else:
+        # BUG FOUND 2026-09-09: this early return completely bypassed the
+        # 2026-09-08 logging fix at the bottom of this function -- for the
+        # single most common rejection reason (EMA stack not aligned across
+        # both timeframes, which is a genuinely strict condition and often
+        # won't hold), NOTHING was logged at all, at any level, defeating
+        # yesterday's fix for the majority of real evaluations. Confirmed
+        # live: zero "gex_entry_rules" log lines ever appeared despite the
+        # flow clearly reaching this function every ~60s since the previous
+        # fix deployed.
         checklist.reasons_failed.append("ema_stack_not_aligned")
+        logger.info(
+            f"[gex_entry_rules] No entry | ema_stack_aligned=False "
+            f"(agreement={ema_stack.agreement} direction={ema_stack.direction}) | "
+            f"failed={checklist.reasons_failed}"
+        )
         return checklist
 
     if len(candles) >= 15:
