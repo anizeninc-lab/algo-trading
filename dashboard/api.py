@@ -95,6 +95,17 @@ class BasicAuthASGIMiddleware:
         auth_header = headers.get(b"authorization", b"").decode("latin-1")
 
         if not self._valid(auth_header):
+            # BUG FOUND 2026-09-11: for scope["type"] == "websocket", ASGI
+            # protocol expects the app to receive() the initial
+            # "websocket.connect" handshake event BEFORE sending anything
+            # back -- sending websocket.close directly, without consuming
+            # that event first, causes uvicorn to hang rather than close
+            # cleanly. Confirmed live: both an unauthenticated AND a
+            # correctly-authenticated raw WS client both got "Connection
+            # timed out" (not a clean rejection/acceptance) when this
+            # bug was present. Consuming the connect event first fixes it.
+            if scope["type"] == "websocket":
+                await receive()
             await self._deny(scope, send, "Unauthorized")
             return
 
