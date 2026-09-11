@@ -42,6 +42,96 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+class BasicAuthASGIMiddleware:
+    """
+    Raw ASGI middleware (added 2026-09-11), closing a real security gap
+    found live: this dashboard -- including trading-control endpoints like
+    /api/killswitch, /api/pause, /api/capital/add -- was reachable from the
+    entire public internet with zero authentication, confirmed via a real
+    external request from a phone on mobile data on 2026-09-09.
+
+    Deliberately NOT the simpler @app.middleware("http") decorator (or
+    Starlette's BaseHTTPMiddleware) -- neither runs for WebSocket
+    connections (scope["type"] == "websocket"), which would leave
+    /ws/updates completely unprotected. This checks both "http" and
+    "websocket" scopes uniformly. Browsers automatically attach any
+    already-cached HTTP Basic credentials for this origin to a WebSocket
+    handshake's underlying HTTP GET request (browser HTTP-layer behavior,
+    not something JS's WebSocket() constructor does itself -- it can't set
+    custom headers), so authenticating once on the main page load also
+    covers the WS connection the page's own JS opens afterward.
+
+    Fails CLOSED, not open: if DASHBOARD_USER/DASHBOARD_PASSWORD aren't
+    set in .env, every request is denied rather than silently running
+    with no auth -- the exact class of mistake that caused this gap in
+    the first place.
+
+    Must be added via app.add_middleware() AFTER the CORSMiddleware call
+    above, not before -- the LAST middleware added becomes the OUTERMOST
+    layer in Starlette (runs first on the way in), so this needs to wrap
+    around CORS, not sit inside it.
+    """
+
+    def __init__(self, app):
+        self.app = app
+        self.user = os.getenv("DASHBOARD_USER", "")
+        self.password = os.getenv("DASHBOARD_PASSWORD", "")
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        if not self.user or not self.password:
+            logger.critical(
+                "[dashboard] DASHBOARD_USER/DASHBOARD_PASSWORD not set in .env "
+                "-- denying all dashboard requests until configured."
+            )
+            await self._deny(scope, send, "Dashboard auth not configured")
+            return
+
+        headers = dict(scope.get("headers") or [])
+        auth_header = headers.get(b"authorization", b"").decode("latin-1")
+
+        if not self._valid(auth_header):
+            await self._deny(scope, send, "Unauthorized")
+            return
+
+        await self.app(scope, receive, send)
+
+    def _valid(self, auth_header: str) -> bool:
+        import base64
+        import secrets
+        if not auth_header.startswith("Basic "):
+            return False
+        try:
+            decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
+            user, _, pwd = decoded.partition(":")
+        except Exception:
+            return False
+        return secrets.compare_digest(user, self.user) and secrets.compare_digest(pwd, self.password)
+
+    async def _deny(self, scope, send, reason: str) -> None:
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 4401})
+            return
+        await send({
+            "type": "http.response.start",
+            "status": 401,
+            "headers": [
+                (b"www-authenticate", b'Basic realm="Trading Dashboard"'),
+                (b"content-type", b"application/json"),
+            ],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": json.dumps({"detail": reason}).encode("utf-8"),
+        })
+
+
+app.add_middleware(BasicAuthASGIMiddleware)
+
 _ws_clients: list[WebSocket] = []
 
 
