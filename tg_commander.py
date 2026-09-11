@@ -28,6 +28,13 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT  = os.getenv("TELEGRAM_CHAT")
 DASHBOARD_URL  = "http://localhost:8081"
+# BUG FOUND 2026-09-11: every dashboard API call below was made with no
+# credentials, silently getting 401'd since Basic Auth was added to
+# dashboard/api.py earlier today -- including /api/killswitch, the actual
+# Telegram emergency-stop command. Confirmed live: /status returned all
+# zeros/"unknown" instead of an error, because handle_status()'s except
+# block defaults to empty dicts rather than surfacing the failure.
+DASHBOARD_AUTH = (os.getenv("DASHBOARD_USER", ""), os.getenv("DASHBOARD_PASSWORD", ""))
 POLL_INTERVAL  = 3   # seconds
 
 # ── Telegram helpers ──────────────────────────────────────────────────────────
@@ -62,6 +69,7 @@ def handle_kill() -> str:
             f"{DASHBOARD_URL}/api/killswitch",
             json={"flatten": True},
             timeout=15,
+            auth=DASHBOARD_AUTH,
         )
         data = resp.json()
         closed = data.get("closed", 0)
@@ -72,18 +80,18 @@ def handle_kill() -> str:
 
 def handle_status() -> str:
     try:
-        resp = requests.get(f"{DASHBOARD_URL}/api/bot-status", timeout=10)
+        resp = requests.get(f"{DASHBOARD_URL}/api/bot-status", timeout=10, auth=DASHBOARD_AUTH)
         data = resp.json()
         status    = data.get("trading_status", "unknown")
         reason    = data.get("halt_reason", "")
         deployed  = data.get("capital_deployed", 0)
         remaining = data.get("capital_remaining", 0)
         trades    = data.get("trades_today", 0)
-        greeks = requests.get(f"{DASHBOARD_URL}/api/greeks", timeout=10).json()
+        greeks = requests.get(f"{DASHBOARD_URL}/api/greeks", timeout=10, auth=DASHBOARD_AUTH).json()
         delta  = greeks.get("total_delta", 0)
         theta  = greeks.get("total_theta", 0)
         n_trades = greeks.get("trade_count", 0)
-        trades_resp = requests.get(f"{DASHBOARD_URL}/api/trades", timeout=10).json()
+        trades_resp = requests.get(f"{DASHBOARD_URL}/api/trades", timeout=10, auth=DASHBOARD_AUTH).json()
         open_trades = [t for t in trades_resp.get("trades", []) if t.get("status") == "OPEN"]
         total_unrealised = sum(t.get("unrealised_pnl", 0) or 0 for t in open_trades)
         from datetime import date as _date
@@ -118,7 +126,7 @@ def handle_status() -> str:
 def handle_resume() -> str:
     try:
         # Clear halt via killswitch reset endpoint
-        requests.post(f"{DASHBOARD_URL}/api/killswitch/reset", timeout=10)
+        requests.post(f"{DASHBOARD_URL}/api/killswitch/reset", timeout=10, auth=DASHBOARD_AUTH)
         # Restart bot
         subprocess.run(["pm2", "restart", "trading-bot", "--update-env"], timeout=15)
         return "✅ <b>Bot resumed</b> — halt cleared and restarted."
@@ -136,6 +144,7 @@ def handle_add_capital(amount_str: str) -> str:
             f"{DASHBOARD_URL}/api/capital/add",
             params={"amount": amount},
             timeout=15,
+            auth=DASHBOARD_AUTH,
         )
         data = resp.json()
         if data.get("status") == "ok":
@@ -163,7 +172,7 @@ def handle_token(code: str) -> str:
 
 def handle_close_put_calendar() -> str:
     try:
-        resp = requests.post(f"{DASHBOARD_URL}/api/put_calendar/close-now", timeout=15)
+        resp = requests.post(f"{DASHBOARD_URL}/api/put_calendar/close-now", timeout=15, auth=DASHBOARD_AUTH)
         data = resp.json()
         if data.get("status") == "ok":
             return "✅ <b>put_calendar position closed</b> — both legs unwound."
@@ -174,7 +183,7 @@ def handle_close_put_calendar() -> str:
 
 def handle_pause() -> str:
     try:
-        resp = requests.post(f"{DASHBOARD_URL}/api/pause", timeout=15)
+        resp = requests.post(f"{DASHBOARD_URL}/api/pause", timeout=15, auth=DASHBOARD_AUTH)
         data = resp.json()
         if data.get("status") == "ok":
             return "⏸ <b>Trading paused</b> — no new entries across any strategy. Existing open positions keep running their own SL/exit logic normally. Reply /unpause to resume."
@@ -185,7 +194,7 @@ def handle_pause() -> str:
 
 def handle_unpause() -> str:
     try:
-        resp = requests.post(f"{DASHBOARD_URL}/api/pause/clear", timeout=15)
+        resp = requests.post(f"{DASHBOARD_URL}/api/pause/clear", timeout=15, auth=DASHBOARD_AUTH)
         data = resp.json()
         if data.get("status") == "ok":
             return "▶️ <b>Trading resumed</b> — new entries allowed again."
