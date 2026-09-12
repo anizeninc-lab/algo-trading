@@ -110,7 +110,21 @@ class RegimeEngine:
     Stateful regime classifier. Call classify() every 30s during market hours.
     """
 
-    def __init__(self):
+    def __init__(self, symbol: str = "NIFTY"):
+        """
+        symbol: which index this instance tracks (2026-09-12, added to
+        support bn_survivor eventually getting its own real BankNifty
+        regime instead of sharing NIFTY's -- see backfill_banknifty_
+        candles.py's docstring for the full story). Defaults to "NIFTY"
+        so the existing module-level singleton below is 100% unchanged
+        for every current caller (survivor.py, wave_extractor.py,
+        put_calendar.py, nifty_gex.py all import the same `regime_engine`
+        as before). classify() itself was already generic -- it only ever
+        operates on the candles/spot/etc. passed into it -- so this alone
+        is enough to support a second, independent instance; only the
+        state file needed to stop being a hardcoded shared path.
+        """
+        self._symbol: str = symbol
         self._bull_count:    int = 0
         self._bear_count:    int = 0
         self._last_regime:   str = "range"
@@ -123,15 +137,26 @@ class RegimeEngine:
         self._stable_since_count: int = 0  # consecutive classify() calls with unchanged regime since last flip
         self._load_state()
 
+    def _state_file_path(self):
+        """
+        NIFTY keeps the exact original path (configs/regime_state.json) --
+        backward compatible, no migration needed for the existing live
+        instance. Any other symbol gets its own separate file so two
+        instances can never clobber each other's persisted state.
+        """
+        from pathlib import Path
+        if self._symbol == "NIFTY":
+            return Path("configs/regime_state.json")
+        return Path(f"configs/regime_state_{self._symbol.lower()}.json")
+
     def _save_state(self) -> None:
         """Persist trend-confirmation counters so a restart doesn't erase
         hysteresis progress mid-session (mirrors risk_manager.py's pattern)."""
         try:
             import json, os
-            from pathlib import Path
             from datetime import datetime
             import pytz
-            state_file = Path("configs/regime_state.json")
+            state_file = self._state_file_path()
             now = datetime.now(pytz.timezone("Asia/Kolkata"))
             state = {
                 "date":        now.strftime("%Y-%m-%d"),
@@ -153,10 +178,9 @@ class RegimeEngine:
         """Reload persisted trend-confirmation counters on startup, if from today."""
         try:
             import json
-            from pathlib import Path
             from datetime import datetime
             import pytz
-            state_file = Path("configs/regime_state.json")
+            state_file = self._state_file_path()
             if not state_file.exists():
                 return
             with open(state_file) as f:
