@@ -150,9 +150,24 @@ class UpstoxAdapter(AbstractBrokerGateway):
     async def get_option_chain(self, instrument_key: str, expiry: str) -> list:
         """
         Fetch the live option chain (with Greeks) for instrument_key/expiry.
-        Returns one dict per strike: strike, ce_ltp, ce_delta, ce_oi, ce_bid, ce_ask,
-        pe_ltp, pe_delta, pe_oi, pe_bid, pe_ask. Returns [] on any failure --
-        callers must handle gracefully and fall back to non-delta logic.
+        Returns one dict per strike: strike, ce_ltp, ce_delta, ce_iv, ce_oi,
+        ce_bid, ce_ask, pe_ltp, pe_delta, pe_iv, pe_oi, pe_bid, pe_ask.
+        Returns [] on any failure -- callers must handle gracefully and fall
+        back to non-delta logic.
+
+        BUGFIX 2026-09-13: ce_iv/pe_iv were missing entirely until now, even
+        though the same option_greeks object they come from (verified
+        against upstox-python-sdk==2.29.0's AnalyticsData model: fields
+        vega/theta/gamma/delta/iv/pop) was already being read for delta a
+        few lines below. put_calendar.py's entire entry logic depends on
+        front_leg.get("pe_iv", 0.0) / back_leg.get("pe_iv", 0.0) -- with the
+        key never present, it silently defaulted to 0.0 on every single
+        cycle, in every session, since put_calendar was added. Confirmed via
+        logs/trading.log: "Front IV unavailable — skipping this cycle" fires
+        every cycle, with zero "Entry check" lines ever printed -- i.e.
+        put_calendar has never once reached its actual entry decision. Not a
+        strategy or threshold problem -- a one-field data-extraction gap.
+        See LESSONS.md LESSON-F13.
         """
         try:
             await self._throttle()
@@ -175,11 +190,13 @@ class UpstoxAdapter(AbstractBrokerGateway):
                     "strike":   getattr(row, "strike_price", 0.0) or 0.0,
                     "ce_ltp":   getattr(ce_market, "ltp", 0.0) or 0.0,
                     "ce_delta": getattr(ce_greeks, "delta", 0.0) or 0.0,
+                    "ce_iv":    getattr(ce_greeks, "iv", 0.0) or 0.0,
                     "ce_oi":    getattr(ce_market, "oi", 0.0) or 0.0,
                     "ce_bid":   getattr(ce_market, "bid_price", 0.0) or 0.0,
                     "ce_ask":   getattr(ce_market, "ask_price", 0.0) or 0.0,
                     "pe_ltp":   getattr(pe_market, "ltp", 0.0) or 0.0,
                     "pe_delta": getattr(pe_greeks, "delta", 0.0) or 0.0,
+                    "pe_iv":    getattr(pe_greeks, "iv", 0.0) or 0.0,
                     "pe_oi":    getattr(pe_market, "oi", 0.0) or 0.0,
                     "pe_bid":   getattr(pe_market, "bid_price", 0.0) or 0.0,
                     "pe_ask":   getattr(pe_market, "ask_price", 0.0) or 0.0,
