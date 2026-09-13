@@ -1,0 +1,70 @@
+{
+  "date": "2026-08-31",
+  "total_trades": 4,
+  "closed_trades": 4,
+  "open_trades": 0,
+  "winners": 1,
+  "losers": 3,
+  "total_pnl": -4030.04,
+  "win_rate": 25.0,
+  "avg_win": 21.36,
+  "avg_loss": -1350.47,
+  "best_trade": 21.36,
+  "worst_trade": -1634.71,
+  "exit_reasons": {
+    "HEDGE_EXIT_STALE_HEDGE_PRICE_AUTOCLOSE": 1,
+    "STALE_HEDGE_PRICE_AUTOCLOSE": 1,
+    "STOP_LOSS": 1,
+    "TRAILING_PROFIT": 1
+  },
+  "trades": [
+    {
+      "id": "a518db12",
+      "symbol": "NSE_FO|NIFTY01SEP2623750PE",
+      "direction": "PE",
+      "entry_price": 22.1,
+      "exit_price": 11.1,
+      "pnl": -1430.0,
+      "status": "CLOSED",
+      "entry_time": "2026-08-31T14:38",
+      "exit_time": "2026-08-31T14:38",
+      "notes": "HEDGE_EXIT_STALE_HEDGE_PRICE_AUTOCLOSE"
+    },
+    {
+      "id": "b7d639c7",
+      "symbol": "NSE_FO|46982",
+      "direction": "PE",
+      "entry_price": 17.8,
+      "exit_price": 18.6,
+      "pnl": -1634.71,
+      "status": "CLOSED",
+      "entry_time": "2026-08-31T14:38",
+      "exit_time": "2026-08-31T14:38",
+      "notes": "STALE_HEDGE_PRICE_AUTOCLOSE"
+    },
+    {
+      "id": "654eb1fe",
+      "symbol": "NSE_FO|46987",
+      "direction": "PE",
+      "entry_price": 98.5,
+      "exit_price": 112.8,
+      "pnl": -986.69,
+      "status": "CLOSED",
+      "entry_time": "2026-08-31T14:35",
+      "exit_time": "2026-08-31T14:42",
+      "notes": "STOP_LOSS"
+    },
+    {
+      "id": "2ab86535",
+      "symbol": "NSE_FO|46987",
+      "direction": "PE",
+      "entry_price": 97.5,
+      "exit_price": 96.3,
+      "pnl": 21.36,
+      "status": "CLOSED",
+      "entry_time": "2026-08-31T14:16",
+      "exit_time": "2026-08-31T14:32",
+      "notes": "TRAILING_PROFIT"
+    }
+  ]
+}

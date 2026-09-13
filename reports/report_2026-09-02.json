@@ -1,0 +1,55 @@
+{
+  "date": "2026-09-02",
+  "total_trades": 3,
+  "closed_trades": 3,
+  "open_trades": 0,
+  "winners": 2,
+  "losers": 1,
+  "total_pnl": 63.59,
+  "win_rate": 66.7,
+  "avg_win": 33.2,
+  "avg_loss": -2.8,
+  "best_trade": 55.59,
+  "worst_trade": -2.8,
+  "exit_reasons": {
+    "TRAILING_PROFIT": 3
+  },
+  "trades": [
+    {
+      "id": "3f2e1a8f",
+      "symbol": "NSE_FO|42641",
+      "direction": "PE",
+      "entry_price": 78.1,
+      "exit_price": 79.8,
+      "pnl": 55.59,
+      "status": "CLOSED",
+      "entry_time": "2026-09-02T14:17",
+      "exit_time": "2026-09-02T14:42",
+      "notes": "TRAILING_PROFIT"
+    },
+    {
+      "id": "1eacaa45",
+      "symbol": "NSE_FO|42641",
+      "direction": "PE",
+      "entry_price": 78.4,
+      "exit_price": 77.6,
+      "pnl": -2.8,
+      "status": "CLOSED",
+      "entry_time": "2026-09-02T12:43",
+      "exit_time": "2026-09-02T13:56",
+      "notes": "TRAILING_PROFIT"
+    },
+    {
+      "id": "edfe8058",
+      "symbol": "NSE_FO|42641",
+      "direction": "PE",
+      "entry_price": 72.3,
+      "exit_price": 71.3,
+      "pnl": 10.8,
+      "status": "CLOSED",
+      "entry_time": "2026-09-02T09:34",
+      "exit_time": "2026-09-02T12:12",
+      "notes": "TRAILING_PROFIT"
+    }
+  ]
+}

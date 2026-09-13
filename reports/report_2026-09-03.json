@@ -1,0 +1,93 @@
+{
+  "date": "2026-09-03",
+  "total_trades": 6,
+  "closed_trades": 6,
+  "open_trades": 0,
+  "winners": 0,
+  "losers": 6,
+  "total_pnl": -2934.98,
+  "win_rate": 0.0,
+  "avg_win": 0,
+  "avg_loss": -489.16,
+  "best_trade": -7.5,
+  "worst_trade": -1016.03,
+  "exit_reasons": {
+    "HEDGE_EXIT_STALE_HEDGE_PRICE_AUTOCLOSE": 2,
+    "STALE_HEDGE_PRICE_AUTOCLOSE": 2,
+    "STOP_LOSS": 2
+  },
+  "trades": [
+    {
+      "id": "b7dd4e81",
+      "symbol": "NSE_FO|BANKNIFTY29SEP2655700PE",
+      "direction": "PE",
+      "entry_price": 1.0,
+      "exit_price": 0.5,
+      "pnl": -7.5,
+      "status": "CLOSED",
+      "entry_time": "2026-09-03T10:11",
+      "exit_time": "2026-09-03T10:11",
+      "notes": "HEDGE_EXIT_STALE_HEDGE_PRICE_AUTOCLOSE"
+    },
+    {
+      "id": "12bc2f6d",
+      "symbol": "NSE_FO|69792",
+      "direction": "PE",
+      "entry_price": 145.8,
+      "exit_price": 150.4,
+      "pnl": -174.23,
+      "status": "CLOSED",
+      "entry_time": "2026-09-03T10:11",
+      "exit_time": "2026-09-03T10:11",
+      "notes": "STALE_HEDGE_PRICE_AUTOCLOSE"
+    },
+    {
+      "id": "7396f5fb",
+      "symbol": "NSE_FO|NIFTY08SEP2623600PE",
+      "direction": "PE",
+      "entry_price": 9.9,
+      "exit_price": 5.0,
+      "pnl": -318.5,
+      "status": "CLOSED",
+      "entry_time": "2026-09-03T10:10",
+      "exit_time": "2026-09-03T10:11",
+      "notes": "HEDGE_EXIT_STALE_HEDGE_PRICE_AUTOCLOSE"
+    },
+    {
+      "id": "996a6450",
+      "symbol": "NSE_FO|42630",
+      "direction": "PE",
+      "entry_price": 24.7,
+      "exit_price": 25.5,
+      "pnl": -467.96,
+      "status": "CLOSED",
+      "entry_time": "2026-09-03T10:10",
+      "exit_time": "2026-09-03T10:11",
+      "notes": "STALE_HEDGE_PRICE_AUTOCLOSE"
+    },
+    {
+      "id": "29a09ff2",
+      "symbol": "NSE_FO|42639",
+      "direction": "PE",
+      "entry_price": 144.0,
+      "exit_price": 130.3,
+      "pnl": -950.76,
+      "status": "CLOSED",
+      "entry_time": "2026-09-03T09:48",
+      "exit_time": "2026-09-03T10:07",
+      "notes": "STOP_LOSS"
+    },
+    {
+      "id": "1bdca4b1",
+      "symbol": "NSE_FO|42639",
+      "direction": "PE",
+      "entry_price": 132.7,
+      "exit_price": 147.4,
+      "pnl": -1016.03,
+      "status": "CLOSED",
+      "entry_time": "2026-09-03T09:39",
+      "exit_time": "2026-09-03T09:43",
+      "notes": "STOP_LOSS"
+    }
+  ]
+}

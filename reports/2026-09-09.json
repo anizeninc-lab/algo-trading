@@ -1,0 +1,57 @@
+{
+  "date": "2026-09-09",
+  "generated_at": "2026-09-09 15:30:02 IST",
+  "stop_reason": "SCHEDULED_EOD",
+  "paper_trade": true,
+  "summary": {
+    "total_trades": 15,
+    "winning": 2,
+    "losing": 13,
+    "win_rate_pct": 13.3,
+    "net_pnl": -2094.6,
+    "combined_pnl": 0.0
+  },
+  "by_strategy": {
+    "survivor": {
+      "total_pnl": -667.79,
+      "total_trades": 6,
+      "winning": 1,
+      "losing": 5,
+      "win_rate": 16.7
+    },
+    "wave_extractor": {
+      "total_pnl": -954.22,
+      "total_trades": 3,
+      "winning": 1,
+      "losing": 2,
+      "win_rate": 33.3
+    },
+    "bn_survivor": {
+      "total_pnl": -472.59,
+      "total_trades": 6,
+      "winning": 0,
+      "losing": 6,
+      "win_rate": 0.0
+    }
+  },
+  "risk_state": {
+    "daily_pnl": {},
+    "trade_counts": {
+      "wave_extractor": 3,
+      "survivor": 3,
+      "bn_survivor": 3
+    },
+    "deployed_capital": {},
+    "system_halted": false,
+    "halt_reason": ""
+  },
+  "system": {
+    "total_pnl": 0.0,
+    "active_strategies": 0,
+    "total_strategies": 0,
+    "system_health": "OK",
+    "broker_status": {},
+    "system_start": "2026-09-09T15:30:02.752252",
+    "last_updated": "2026-09-09T15:30:02.838991"
+  }
+}
