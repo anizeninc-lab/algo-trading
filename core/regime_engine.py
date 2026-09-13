@@ -704,3 +704,10 @@ def fetch_intraday_candles(token: str, n: int = 60) -> List[Candle]:
 
 # Singleton
 regime_engine = RegimeEngine()
+
+# Second, independent singleton for BankNifty (added 2026-09-13, paired
+# with core/banknifty_regime_feed.py). Fully separate state file
+# (configs/regime_state_banknifty.json, via _state_file_path() above),
+# confirmed NOT the same object as `regime_engine`. Zero effect on the
+# NIFTY singleton above -- this is purely additive.
+regime_engine_banknifty = RegimeEngine(symbol="BANKNIFTY")

@@ -28,5 +28,8 @@ logs/
 _archive_review/
 .envy
 configs/backtest_risk_state.json
+configs/backtest_survivor_risk_state.json
+configs/backtest_*_risk_state.json
 backtest_trade_log.db
+backtest_survivor_trade_log.db
 logs/*.log

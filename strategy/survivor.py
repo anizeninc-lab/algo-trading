@@ -424,26 +424,65 @@ class SurvivorAlgo(BaseStrategy):
         except Exception as e:
             logger.exception(f"[survivor] ERROR in on_tick: {e}")
 
+    def _current_regime_stability(self) -> float:
+        """
+        Regime-stability score to gate entries against (added 2026-09-13,
+        see LESSONS.md LESSON-F7 for the full architecture-gap writeup).
+
+        Default behaviour is UNCHANGED from today: always reads the
+        shared NIFTY `regime_engine` singleton, exactly as before, for
+        every instrument. bn_survivor only gets its own independent
+        BankNifty regime reading (core/banknifty_regime_feed.py) if
+        ENABLE_BANKNIFTY_OWN_REGIME=true is explicitly set -- default
+        off, because that feed has not yet been verified against a live
+        BankNifty feed. Merging this code causes NO live behavior change
+        until that flag is deliberately turned on and the feed has been
+        validated. Do not flip it on without re-reading that module's
+        docstring and LESSONS.md's rule on this first.
+        """
+        is_banknifty = "BANKNIFTY" in self.cfg.instrument_name.upper()
+        if is_banknifty and os.getenv("ENABLE_BANKNIFTY_OWN_REGIME", "false").lower() == "true":
+            from core.banknifty_regime_feed import banknifty_context
+            return banknifty_context.get_regime_stability()
+        return regime_engine.get_regime_stability()
+
+    def _current_regime(self) -> str:
+        """Same fallback/flag logic as _current_regime_stability(), for
+        the regime-category gate (market_context.regime in ("range",
+        "reversal_watch")). See that method's docstring."""
+        is_banknifty = "BANKNIFTY" in self.cfg.instrument_name.upper()
+        if is_banknifty and os.getenv("ENABLE_BANKNIFTY_OWN_REGIME", "false").lower() == "true":
+            from core.banknifty_regime_feed import banknifty_context
+            return banknifty_context.regime
+        from core.market_context import market_context
+        return market_context.regime
+
     async def _evaluate_pe_ce_entries(
         self, nifty_price: float, current_pe_gap: float, current_ce_gap: float,
         pe_symbol_gap: float, ce_symbol_gap: float,
     ) -> None:
         """
         Extracted 2026-08-29 from the body of _on_tick_sync, verbatim --
-        pure extraction, no logic change. See the call site's comment.
-        PRODUCTION BEHAVIOUR: PE is checked first; if PE's full condition
-        is met, CE is NOT evaluated this tick (elif). This is the exact
-        coupling documented in lessons.md LESSON-001 -- left unchanged
-        here on purpose, pending the deferred design decision. A backtest-
-        only subclass overrides this method to test the alternative
-        (independent, non-exclusive) variant without touching this file.
+        pure extraction, no logic change at the time. See the call site's
+        comment.
+
+        STALE NOTE FIXED 2026-09-13: this docstring previously said PE/CE
+        were still coupled via `elif` "left unchanged on purpose." That
+        was true when this docstring was written, but is no longer
+        accurate -- the coupling was fixed on 2026-09-08 (see the inline
+        comment directly above the CE block below, "Bugfix (Phase 4 audit
+        fix, 2026-09)"). PE and CE are now independent `if` blocks,
+        evaluated every tick regardless of each other's outcome. Leaving
+        a stale docstring contradicting the actual code is exactly the
+        kind of thing that causes a future reader to trust the comment
+        over the code -- fixing it here so this doesn't happen again.
         """
         _open_ce = sum(1 for t in self._open_trades_data if t["direction"] == "CE")
         _open_pe = sum(1 for t in self._open_trades_data if t["direction"] == "PE")
 
         # PE SELL — Nifty moved up enough from last PE anchor
         if self.cfg.pe_enabled and nifty_price - self._pe_last_value >= current_pe_gap and not self._pe_sold_flag and _open_pe == 0 \
-                and regime_engine.get_regime_stability() >= self.cfg.min_regime_stability:
+                and self._current_regime_stability() >= self.cfg.min_regime_stability:
             _pe_diff = round(nifty_price - self._pe_last_value, 0)
             _pe_raw_mult = int(_pe_diff / current_pe_gap) if current_pe_gap else 1
             _pe_mult = max(1, min(_pe_raw_mult, self.cfg.sell_multiplier_threshold))
@@ -504,7 +543,7 @@ class SurvivorAlgo(BaseStrategy):
         # count, so there's no shared state that breaks if both fire on the
         # same tick.
         if self.cfg.ce_enabled and self._ce_last_value - nifty_price >= current_ce_gap and not self._ce_sold_flag and _open_ce == 0 \
-                and regime_engine.get_regime_stability() >= self.cfg.min_regime_stability:
+                and self._current_regime_stability() >= self.cfg.min_regime_stability:
             _ce_diff = round(self._ce_last_value - nifty_price, 0)
             _ce_raw_mult = int(_ce_diff / current_ce_gap) if current_ce_gap else 1
             _ce_mult = max(1, min(_ce_raw_mult, self.cfg.sell_multiplier_threshold))
@@ -2079,10 +2118,10 @@ class SurvivorAlgo(BaseStrategy):
 
         # Only in range regime
         from core.market_context import market_context
-        if market_context.regime not in ("range", "reversal_watch"):
+        if self._current_regime() not in ("range", "reversal_watch"):
             return
         # Shared stability gate for both time-based triggers (PE and CE)
-        if regime_engine.get_regime_stability() < self.cfg.min_regime_stability:
+        if self._current_regime_stability() < self.cfg.min_regime_stability:
             return
 
         # Get current PCR for direction filter

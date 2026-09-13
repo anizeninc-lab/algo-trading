@@ -982,6 +982,23 @@ async def startup():
             logger.info("MarketContextEngine started from dashboard startup")
         except Exception as e:
             logger.warning(f"MarketContextEngine start failed: {e}")
+
+    # Independent BankNifty regime feed (added 2026-09-13, see LESSONS.md
+    # LESSON-F7 and core/banknifty_regime_feed.py's docstring). Only ever
+    # starts when bn_survivor itself is enabled AND the feature flag is
+    # explicitly on -- default off, not yet live-verified. Fully isolated
+    # from market_context above; failure here can't affect the NIFTY path.
+    if (os.getenv("ENABLE_BANKNIFTY", "false").lower() == "true"
+            and os.getenv("ENABLE_BANKNIFTY_OWN_REGIME", "false").lower() == "true"):
+        try:
+            from core.banknifty_regime_feed import banknifty_context
+            banknifty_context.start()
+            logger.info("BankNiftyRegimeFeed started from dashboard startup "
+                        "(ENABLE_BANKNIFTY_OWN_REGIME=true)")
+        except Exception as e:
+            logger.warning(f"BankNiftyRegimeFeed start failed (bn_survivor "
+                            f"will fall back to NIFTY regime, same as before "
+                            f"this feature existed): {e}")
     logger.info("Dashboard API started. Event bus running.")
     # Seed today's realised P&L from SQLite into state_store on startup
     try:
@@ -1019,13 +1036,40 @@ alert_store: deque = deque(maxlen=50)
 
 
 @app.post("/api/toggle-paper")
-async def toggle_paper_mode():
+async def toggle_paper_mode(confirm: str = ""):
+    """
+    Flips PAPER_TRADE and restarts the whole bot -- this is the single
+    switch between simulated and real-money order placement, so it must
+    never fire on a stray click or an automated retry.
+
+    SAFETY (added 2026-09, was previously a bare one-click no-confirm
+    endpoint -- see LESSONS.md, this was a standing risk item):
+    caller must pass ?confirm=<TARGET_MODE>, where TARGET_MODE is the
+    mode being switched TO (e.g. confirm=LIVE to go paper->live,
+    confirm=PAPER to go live->paper). Omitting it, or getting it wrong
+    for the current state, rejects the request with no state change.
+    This also means the same accidental double-click can't silently
+    flip it back a second time, since the required token changes with
+    the state.
+    """
     try:
+        current = os.getenv("PAPER_TRADE", "false").lower() == "true"
+        target_mode = "PAPER" if not current else "LIVE"  # what this call would switch TO
+        if confirm.strip().upper() != target_mode:
+            return {
+                "error": (
+                    f"Confirmation required. Current mode is "
+                    f"{'PAPER' if current else 'LIVE'}; to switch to "
+                    f"{target_mode}, resend with ?confirm={target_mode}."
+                ),
+                "current_mode": "PAPER" if current else "LIVE",
+                "required_confirm": target_mode,
+            }
+
         env_path = Path(".env")
         if not env_path.exists():
             return {"error": ".env file not found"}
         env_text = env_path.read_text()
-        current = os.getenv("PAPER_TRADE", "false").lower() == "true"
         new_val = "false" if current else "true"
         if "PAPER_TRADE=" in env_text:
             env_text = re.sub(r"PAPER_TRADE=.*", f"PAPER_TRADE={new_val}", env_text)
@@ -1034,7 +1078,16 @@ async def toggle_paper_mode():
         env_path.write_text(env_text)
         os.environ["PAPER_TRADE"] = new_val
         mode = "PAPER" if new_val == "true" else "LIVE"
-        logger.info(f"Trading mode switched to: {mode}")
+        logger.info(f"Trading mode switched to: {mode} (confirmed via ?confirm={confirm})")
+        try:
+            from core.alerting import send_telegram, LEVEL_CRITICAL
+            send_telegram(
+                f"\u26a0\ufe0f TRADING MODE SWITCHED: now {mode}\n"
+                f"Triggered via dashboard /api/toggle-paper, confirmed. Bot restarting.",
+                LEVEL_CRITICAL,
+            )
+        except Exception as alert_e:
+            logger.warning(f"toggle_paper_mode: alert failed (mode switch still applied): {alert_e}")
         os.system("pm2 restart all")
         return {"success": True, "paper_trade": new_val == "true", "mode": mode}
     except Exception as e:
