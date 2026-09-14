@@ -36,6 +36,18 @@ LAST_RESTARTS=$(cat "$STATE_FILE" 2>/dev/null || echo "$RESTARTS")
 DIFF=$((RESTARTS - LAST_RESTARTS))
 echo "$RESTARTS" > "$STATE_FILE"
 
+# Maintenance-mode guard (added 2026-09-14): a deliberate /stop via
+# Telegram (or manual `pm2 stop`) was being auto-resurrected within 5
+# minutes by this exact block, with no way to tell "intentionally
+# stopped" apart from "crashed" -- found live when a Monday intentional
+# stop kept getting restarted every 5 min, repeatedly failing to get
+# real ticks and spamming WEBSOCKET CRITICAL alerts. If this flag file
+# exists, skip the restart-on-not-online logic entirely.
+if [ -f "/home/ubuntu/trading-algo/.maintenance_mode" ]; then
+    echo "[$TIMESTAMP] Maintenance mode active -- not auto-restarting."
+    exit 0
+fi
+
 if [ "$STATUS" != "online" ]; then
     echo "[$TIMESTAMP] trading-bot status '$STATUS'. Restarting."
     pm2 restart trading-bot --update-env

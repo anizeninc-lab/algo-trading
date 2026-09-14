@@ -123,13 +123,44 @@ def handle_status() -> str:
         return "\n".join(lines)
     except Exception as e:
         return f"❌ Status fetch failed: {e}"
+MAINTENANCE_FLAG = "/home/ubuntu/trading-algo/.maintenance_mode"
+
+
+def handle_stop() -> str:
+    """
+    Real, deliberate stop (added 2026-09-14) -- previously `pm2 stop
+    trading-bot` alone got silently auto-resurrected by watchdog.sh
+    within 5 minutes (its restart-on-not-online logic couldn't tell
+    "intentionally stopped" apart from "crashed"), found live when a
+    Monday intentional stop kept restarting, repeatedly failing to get
+    real ticks and spamming WEBSOCKET CRITICAL alerts every ~2 min.
+    Sets a maintenance-mode flag file watchdog.sh now checks and skips
+    while present, THEN stops the process.
+    """
+    try:
+        with open(MAINTENANCE_FLAG, "w") as f:
+            f.write("Stopped via /stop\n")
+        subprocess.run(["pm2", "stop", "trading-bot"], timeout=15)
+        return ("🛑 <b>Bot stopped</b> — maintenance mode active, "
+                "watchdog will NOT auto-restart it. Reply /resume to clear "
+                "this and restart normally.")
+    except Exception as e:
+        return f"❌ Stop failed: {e}"
+
+
 def handle_resume() -> str:
     try:
+        # Clear maintenance mode first (if /stop was used) -- otherwise
+        # watchdog.sh would just leave it stopped again next check even
+        # after this restarts it.
+        import os
+        if os.path.exists(MAINTENANCE_FLAG):
+            os.remove(MAINTENANCE_FLAG)
         # Clear halt via killswitch reset endpoint
         requests.post(f"{DASHBOARD_URL}/api/killswitch/reset", timeout=10, auth=DASHBOARD_AUTH)
         # Restart bot
         subprocess.run(["pm2", "restart", "trading-bot", "--update-env"], timeout=15)
-        return "✅ <b>Bot resumed</b> — halt cleared and restarted."
+        return "✅ <b>Bot resumed</b> — halt cleared, maintenance mode cleared, and restarted."
     except Exception as e:
         return f"❌ Resume failed: {e}"
 
@@ -206,7 +237,7 @@ def handle_unpause() -> str:
 # ── Main loop ─────────────────────────────────────────────────────────────────
 def main():
     print("[tg_commander] Started — listening for commands...")
-    tg_send("🤖 <b>Telegram Commander online</b>\nCommands: /kill /status /resume /token &lt;code&gt; /addcapital &lt;amount&gt; /close_put_calendar /pause /unpause")
+    tg_send("🤖 <b>Telegram Commander online</b>\nCommands: /kill /stop /status /resume /token &lt;code&gt; /addcapital &lt;amount&gt; /close_put_calendar /pause /unpause")
 
     offset = 0
     # Skip old messages on startup
@@ -234,6 +265,9 @@ def main():
             elif text == "/status":
                 tg_send(handle_status())
 
+            elif text == "/stop":
+                tg_send("⏳ Stopping bot (maintenance mode)...")
+                tg_send(handle_stop())
             elif text == "/resume":
                 tg_send("⏳ Resuming bot...")
                 tg_send(handle_resume())
@@ -257,6 +291,7 @@ def main():
                 tg_send(
                     "❓ Unknown command. Available:\n"
                     "/kill — close all positions\n"
+                    "/stop — stop the bot cleanly, watchdog won't auto-restart it\n"
                     "/status — P&amp;L and position summary\n"
                     "/resume — clear halt and restart\n"
                     "/token &lt;code&gt; — refresh Upstox token\n"
