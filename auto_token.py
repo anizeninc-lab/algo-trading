@@ -156,6 +156,20 @@ def main():
     tg_send("✅ <b>Token refreshed successfully!</b>\nBot is ready for today's session.")
     print("✅ Token saved to .env")
 
+    # BUG FOUND 2026-09-15: this daily restart never cleared a lingering
+    # .maintenance_mode flag (set by /stop, see tg_commander.py) --
+    # previously only /resume cleared it. Found live: a Sunday-afternoon
+    # /stop's flag was still sitting there Tuesday morning even though
+    # this restart had already brought trading-bot back online -- if it
+    # had crashed for a REAL reason later that day, watchdog.sh would have
+    # wrongly refused to restart it, flag or no flag. This is the other
+    # legitimate "fresh start" path besides /resume, so it needs to clear
+    # the same flag.
+    maintenance_flag = ENV_PATH.parent / ".maintenance_mode"
+    if maintenance_flag.exists():
+        maintenance_flag.unlink()
+        print("Cleared stale .maintenance_mode flag from a previous /stop")
+
     # Restart bot with new token
     os.system("pm2 restart trading-bot --update-env")
     print("✅ Bot restarted with new token")
